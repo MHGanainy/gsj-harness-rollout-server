@@ -1,0 +1,60 @@
+# Staging Forgejo — the frozen case dataset's git host (CP-29, M7a).
+#
+# The predecessor's CP-02 recipe re-instantiated for staging on the H200:
+# same pinned image (16.0.2 — bump deliberately, never :latest), own
+# project/container names, own network, own data dir. The predecessor's dev
+# instance (workstation, 127.0.0.1:3939, container gsj-envloader-forgejo)
+# is never touched.
+#
+# H200 topology note (CP-29, measured): the host firewall scopes egress by
+# uid — docker-proxy (root) cannot reach container subnets, so PUBLISHED
+# PORTS DO NOT WORK on this host (the proxy accepts and then hangs). The
+# instance therefore publishes nothing and lives at a STATIC container IP:
+#
+#     http://172.28.9.10:3000        (ROOT_URL, clone URLs, API)
+#
+# Reachability (all measured on the H200):
+#   - host processes (any user uid): direct to 172.28.9.10:3000  — works
+#   - containers on gsj-staging-net: direct                      — works
+#   - workstation: ssh -N -L 3941:172.28.9.10:3000 h200-admin    — works
+# HTTP only; SSH disabled.
+#
+# The compose project name is the LIVE staging estate's identity on the H200
+# — created under the predecessor, maintained here since CP-01 (ADR-0002).
+# Do not rename it out from under the running instance.
+name: gsj-envloader-staging
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:16.0.2
+    container_name: gsj-staging-forgejo
+    environment:
+      # on Linux hosts export FORGEJO_UID/GID=$(id -u)/$(id -g) before up.sh
+      # so the bind-mounted forgejo-data stays owned by the invoking user
+      USER_UID: "${FORGEJO_UID:-1000}"
+      USER_GID: "${FORGEJO_GID:-1000}"
+      # INSTALL_LOCK skips the web install wizard — fully headless bootstrap.
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__server__DOMAIN: 172.28.9.10
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__ROOT_URL: http://172.28.9.10:3000/
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__mailer__ENABLED: "false"
+      FORGEJO__log__LEVEL: Warn
+    networks:
+      staging:
+        ipv4_address: 172.28.9.10
+    volumes:
+      # re-rooted inside the component at CP-01 (was ../forgejo-data in the
+      # predecessor's staging/ tree); gitignored — instance data is
+      # disposable, the pipeline re-scaffolds the deterministic bares
+      - ./forgejo-data:/data
+    restart: unless-stopped
+
+networks:
+  staging:
+    name: gsj-staging-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.9.0/24

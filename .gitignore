@@ -6,3 +6,6 @@ __pycache__/
 dist/
 build/
 .DS_Store
+# forgejo/ live-instance data + API tokens (never committed — ADR-0002)
+forgejo/forgejo-data/
+forgejo/.token*

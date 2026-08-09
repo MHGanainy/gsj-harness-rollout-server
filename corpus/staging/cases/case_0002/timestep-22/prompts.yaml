@@ -1,0 +1,4 @@
+# CP-33 migration: the uniform prompt set of the frozen staging bank
+# (ADR-0042(b): every timestep asks the summarize skill).
+prompts:
+  - {id: "skill:summarize", source: skill, name: summarize}

@@ -1,0 +1,26 @@
+# gsj-mcp-service — staging deployment (H200).
+#
+# H200 topology (measured at CP-29 — the predecessor's staging/README.md):
+#   - published ports DO NOT WORK (docker-proxy's root-originated forward leg
+#     is dropped by the uid-scoped firewall) => network_mode: host, binding
+#     0.0.0.0:8790 directly;
+#   - the service process must run as uid 1000 (sysadmin) so its own egress
+#     (git clone from the staging Forgejo container IP) is firewall-allowed —
+#     root egress is blocked;
+#   - episode containers reach it at http://host.docker.internal:8790
+#     (--add-host host-gateway, the pinned ADR-0034(d) channel).
+#
+# Secret: GSJ_MCP_TOKEN_SECRET must be present in the invoking environment —
+# compose passes the NAME through; the value never lands in a file.
+name: gsj-mcp-service
+services:
+  mcp:
+    image: gsj-mcp-service:0.2.0
+    container_name: gsj-mcp-service
+    network_mode: host
+    user: "1000:1000"
+    environment:
+      GSJ_MCP_TOKEN_SECRET: ${GSJ_MCP_TOKEN_SECRET:?set GSJ_MCP_TOKEN_SECRET in the environment}
+    volumes:
+      - ./data:/app/data          # clone cache + index survive restarts
+    restart: unless-stopped

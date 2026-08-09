@@ -1,0 +1,15 @@
+# gsj-mcp-service — pinned exact (latest-then-freeze, resolved 2026-08-07).
+# The mcp pin is CONTRACT: the SDK generates the four tool schemas from the
+# declarations in tools.py, and the pinned tool_roster_hash was reproduced
+# over streamable-http with exactly this version (CP-29 Step 1). Bumping it
+# risks schema-serialization drift => G3 re-pin walk.
+mcp==2.0.0
+sentence-transformers==5.7.0
+torch==2.13.0
+numpy==2.5.1
+pydantic==2.13.4
+PyJWT==2.13.0
+PyYAML==6.0.3
+uvicorn==0.52.1
+# tests additionally need: pytest (the G5 shape-compat parser is inlined in
+# tests/helpers.py since CP-01 — no predecessor-library import, ADR-0002)

@@ -41,15 +41,16 @@ answer is no, we say so and stop (§9).
 
 ## 3. What we start with
 
-**Carried over** (moved, not rewritten — CP-01):
+**Carried over** (moved, not rewritten — landed at CP-01; measured own-code
+lines, ADR-0002 is the boundary):
 
-| component | ~lines | what it is |
+| component | lines (measured, CP-01) | what it is |
 | --- | --- | --- |
-| `corpus/` | ~1,076 | the corpus source of truth + five-phase ingestion pipeline |
-| `mcp-service/` | ~1,038 | the hosted streamable-http MCP service: per-episode JWTs, per-session cutoff clamp |
-| `forgejo/` | ~120 | git-host bring-up: case repos with `timestep-{T}` branches |
-| pins / G2 tooling | ~170 | `gsj-pin` approved-set generator + `derive_g2.py` byte-substitution derivation |
-| the corpus contract | — | `corpus-contract.md`, the normative corpus document |
+| `corpus/` | 1,195 pipeline + 662 tests + 163 staging data files | the corpus source of truth + five-phase ingestion pipeline (taskbank phase deferred to CP-07, ADR-0003) |
+| `mcp-service/` | 1,390 package + 1,615 tests + ~480 config/docs | the hosted streamable-http MCP service: per-episode JWTs, per-session cutoff clamp |
+| `forgejo/` | 191 | git-host bring-up: case repos with `timestep-{T}` branches |
+| pins / G2 tooling | 174 + 5 captured-evidence files | `derive_g2.py` byte-substitution derivation + the captured G2/G3/G6/G7 evidence; the `gsj-pin` generator turned out to be predecessor *library* code and stayed frozen there (ADR-0002) — the approved-set format is specified in `docs/checks-spec.md` |
+| the corpus contract | 309 | `corpus-contract.md`, the normative corpus document — byte-identical copy |
 
 **Adopted**:
 
@@ -151,10 +152,10 @@ Status ∈ `PARITY | DROPPED | GAP | BETTER | TBD`.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
-| 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moves at CP-01, unmodified | TBD | flip to PARITY when CP-01 lands |
-| 2 | retrieval cutoff | timestep T = page cutoff: checkout pinned to `timestep-{T}` branch; MCP per-session cutoff clamp; G5 enforces at collection | injected per episode via `run_steps()` (A-4); the MCP clamp carries over | TBD | proven at CP-10; not injectable at all → abandon (§9) |
-| 3 | git host | Forgejo estate: case repos with timestep branches; compose + bring-up/teardown scripts | moves at CP-01 | TBD | do not inherit the H200 networking archaeology (static container IP, `host.docker.internal`) blindly |
-| 4 | taskbank | `taskbank.py` builds the §3.1 parquet: skill rows resolve at rollout, free rows verbatim | tasks arrive as `(case, timestep, prompt)` via `client.submit` | TBD | whether any builder tooling moves is CP-01's call |
+| 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured) | PARITY | landed CP-01 (ADR-0002) |
+| 2 | retrieval cutoff | timestep T = page cutoff: checkout pinned to `timestep-{T}` branch; MCP per-session cutoff clamp; G5 enforces at collection | injected per episode via `run_steps()` (A-4); the MCP clamp carries over | TBD | CP-01: the clamp's owner (`mcp-service/`) and the timestep-branch tooling (`corpus/`, `forgejo/`) are here — component-level parity; end-to-end enforcement proven at CP-10; not injectable at all → abandon (§9) |
+| 3 | git host | Forgejo estate: case repos with timestep branches; compose + bring-up/teardown scripts | moved at CP-01: `forgejo/` (data dir re-rooted inside the component; live H200 estate keeps its compose-project identity) | PARITY | tooling parity — no bring-up ran at CP-01 (out of scope); the H200 networking archaeology (static container IP, `host.docker.internal`) is documented in-file, inherit deliberately or not at all |
+| 4 | taskbank | `taskbank.py` builds the §3.1 parquet: skill rows resolve at rollout, free rows verbatim | tasks arrive as `(case, timestep, prompt)` via `client.submit` | TBD | CP-01: builder NOT moved — deferred to CP-07 (ADR-0003); the phase raises, verify's row checks deferred with it; the frozen bank + lock carried as data (ADR-0002), still sha256-verified |
 | 5 | episode isolation | fresh per-episode checkout + ephemeral `docker run --rm` + per-episode gateway actor | Polar sandbox: start/stop/exec/upload/download | TBD | CP-06/CP-07 |
 | 6 | harvest-before-reset | type-level guarantee: `_reset` requires a `HarvestResult`; artifacts copied out before any git command | Polar's problem — its lifecycle must give an equivalent guarantee | TBD | CP-05 source audit checks for it |
 | 7 | token/logprob capture | gateway codec renders the pinned template; token-level loss mask; sampling-time `rollout_log_probs`; capture-once | Polar's proxy + trace reconstruction | TBD | fidelity is CP-09 |
@@ -173,7 +174,7 @@ Status ∈ `PARITY | DROPPED | GAP | BETTER | TBD`.
 | 20 | serve accounting | lease-based serve/commit in one transaction; `serve_count`; SPI thermostat | — | DROPPED | trainer's problem |
 | 21 | collation | four shipped collators (`Default`/`SFT`/`OPD`/`RLVR`); no truncation anywhere by design | — | DROPPED | trainer's problem |
 | 22 | provenance | `env.provenance`: the four evidence hashes, codec fingerprint, applied sampling block, exact invocation argv | trace metadata must carry an equivalent | TBD | CP-08/CP-09 |
-| 23 | pins | `gsj-pin`: approved-set JSON, generated data, zero hash literals in code | tooling carried (~170 lines); `checks.py` consumes the same format | TBD | CP-01 |
+| 23 | pins | `gsj-pin`: approved-set JSON, generated data, zero hash literals in code | `derive_g2.py` + captured evidence carried (`pins/`); the pinned VALUES did not move — stale by construction under Polar's mounts (ADR-0002); the `gsj-pin` generator is predecessor library code and stayed frozen there | GAP | deliberate: no valid approved sets exist here until the derive → re-pin → first-episode-validate walk under Polar's mount scheme (CP-07/CP-10/CP-11); the format `checks.py` consumes is specified in `docs/checks-spec.md` |
 | 24 | deterministic env pinning | uni-agent by SHA; sglang exact-pinned; generated `collector-requirements.txt`; image tag in provenance | Polar vendored by SHA (law 4) + pinned pi 0.83.0 | TBD | |
 | 25 | one-YAML config | one YAML is the complete construction surface for both sides | `config.py` (~100 lines) | TBD | CP-08 |
 | 26 | bounded collection | `gsj-collect`: bounded rounds, graceful drain, stated exit codes | Polar's scheduler owns episode counts | TBD | H-34's lesson stands: bounded exit, signal handling, progress output are table stakes |

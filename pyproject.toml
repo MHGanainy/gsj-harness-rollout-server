@@ -25,3 +25,9 @@ gsj-rollout = "gsj_rollout.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["gsj_rollout"]
+
+# Bare `pytest` runs the repo's own suite only; the moved components' suites
+# are invoked explicitly (`cd corpus && python -m pytest`, same for
+# mcp-service) — the predecessor's convention, kept at CP-01.
+[tool.pytest.ini_options]
+testpaths = ["tests"]

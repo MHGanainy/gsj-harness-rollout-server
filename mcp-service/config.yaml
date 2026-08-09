@@ -1,0 +1,59 @@
+# gsj-mcp-service config — the service's owned surface (ADR-0040(b)).
+# This file carries the STAGING deployment values (H200); every field is
+# documented in README.md#configuration-reference. Validated at startup —
+# unknown keys and type errors are startup failures with named fields.
+
+source:
+  # Staging Forgejo (static container IP — see forgejo/): since CP-33 the
+  # service ingests the PIPELINE-scaffolded estate under the gsj-staging
+  # owner (corpus/staging + corpus/ingest_corpus.py, ADR-0047; the corpus
+  # freeze record is corpus/staging/corpus.lock.json). The CP-29 gsj-admin
+  # repos remain live and byte-identical (the predecessor's
+  # staging/dataset.frozen.json) but are no longer this service's source.
+  # Anonymous read; auth_token_env names an env var only if the deployment
+  # ever needs an authenticated pull.
+  base_url: http://172.28.9.10:3000
+  owner: gsj-staging
+  repos: [case_0001, case_0002, case_0003, case_0004]
+  ref_main: main
+  ref_pattern: "timestep-{T}"
+  auth_token_env: null
+  clone_cache_dir: ./data/clones
+
+embedding:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41   # HF pin, 2026-08-07
+  device: cpu
+  batch_size: 32
+  normalize: true
+
+chunking:
+  max_tokens: 220        # < MiniLM's 256-token window incl. specials
+  overlap: 40
+  respect_page_boundaries: true   # contract — false is not a supported mode
+
+index:
+  path: ./data/index
+  rebuild: if-stale      # rebuild only on corpus-fingerprint mismatch
+
+search:
+  default_k: 5
+  max_k: 20
+  method: exact          # brute-force cosine — deterministic at this scale
+
+decisions:
+  seed: 20260204         # the deterministic corpus carried over (ADR-0007)
+  corpus_size: 30
+
+auth:
+  token_secret_env: GSJ_MCP_TOKEN_SECRET   # env var NAME; value never in config
+  leeway_s: 30                             # clock-skew allowance on exp
+
+server:
+  host: 0.0.0.0    # H200: containers reach host services via host.docker.internal
+                   # only when bound beyond loopback (measured — the
+                   # predecessor's staging/README)
+  port: 8790
+  log_level: info
+  request_log_fields: [episode_id, case_id, timestep, tool, k, n_results,
+                       latency_ms, cache_hit]

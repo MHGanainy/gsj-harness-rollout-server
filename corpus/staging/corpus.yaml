@@ -1,0 +1,18 @@
+# corpus/staging — the staging corpus source tree (CP-33, ADR-0046).
+# Converted one-time from the deterministic fixture bares (recipe in
+# ADR-0046); from CP-33 on THIS tree + corpus/ingest_corpus.py produce the
+# staging estate (owner gsj-staging). The git identity/date below is the
+# CP-02 fixture identity, so the scaffolder reproduces the frozen SHAs of
+# the predecessor's staging/dataset.frozen.json exactly.
+name: staging-fixtures
+owner: gsj-staging
+forgejo:
+  base_url: http://172.28.9.10:3000
+mcp:
+  url_base: http://127.0.0.1:8790
+git:
+  name: gsj-fixtures
+  email: fixtures@gsj.invalid
+  date: "2026-01-01T00:00:00 +0000"
+sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
+eval_case_ids: [case_0004]
