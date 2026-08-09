@@ -20,7 +20,7 @@
 
 ## Workflow
 
-Work happens only inside numbered CP prompts, one at a time, saved verbatim to `prompts/CP-XX.md` and committed with the CP. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below, prints it, makes one commit `CP-XX: <summary>`, and leaves the tree clean. **Every CP updates the gap register in `docs/CHARTER.md` §7.** ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence.
+Work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` (relocated from top-level `prompts/` after CP-01, operator request) and committed with the CP. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below, prints it, makes one commit `CP-XX: <summary>`, and leaves the tree clean. **Every CP updates the gap register in `docs/CHARTER.md` §7.** ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence.
 
 ```
 ### CP-XX REPORT
@@ -51,8 +51,8 @@ next: <advisory>
 ├── docs/
 │   ├── CHARTER.md               # the normative document
 │   ├── decisions/               # ADRs, one file per decision, append-only
+│   ├── prompts/                 # every CP prompt verbatim: CP-XX.md
 │   └── reports/                 # one report per checkpoint: CP-XX.md
-├── prompts/                     # every CP prompt verbatim: CP-XX.md
 ├── gsj_rollout/
 │   ├── __init__.py              # consumer surface (empty for now)
 │   ├── pi_harness.py            # SERVER — our pi via Polar import_path
