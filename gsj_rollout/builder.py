@@ -1,38 +1,14 @@
-"""SERVER — the validating `PrefixMergingBuilder` subclass (CP-07).
-
-Selected by ``builder.strategy = "gsj_rollout.builder:ValidatingPrefixMergingBuilder"``
-through Polar's registry seam (`registry.py:45-52`, CP-05) — zero vendored
-edits. Runs the *session-level* checks the callback payload cannot carry
-(the CP-06 sized table's subclass-only rows) and rejects via
-``status="ERROR"`` — the node only escalates, never clears, so a builder
-ERROR survives to the trainer as non-trainable (CP-05).
-
-Deliberately NOT here: the G7 stats conjunction, the logprob discipline,
-and gates G1–G7 — those are `checks.py`'s job on the POSTed body at
-CP-10/CP-11 (law 6: the receiver trusts nothing across the wire, and
-duplicating them now guarantees drift).
-
-Findings are byte-stable strings ``{S-id}:{slug}[:detail]`` attached to
-``trajectory.metadata["gsj_validation"]`` — never to the reserved
-``evaluation`` key (`node.py:737`).
-
-CP-07 finding, and the one merging behavior this module adds: the Qwen3
-chat template with ``enable_thinking: false`` appends an empty think block
-(`<think>\\n\\n</think>\\n\\n`, 4 tokens) to every generation prompt but
-omits it when re-rendering that same turn as history — so consecutive pi
-prompts are NEVER token-prefix-stable and every multi-turn episode
-degenerates to per-turn chains (S4-shaped, silently COMPLETED; measured
-live on the first real corpus episode). The fix is a prompt-ids
-normalization before grouping: when ``orig_i`` ends with the configured
-glue and ``orig_{i+1}`` extends ``orig_i`` minus that glue, stitch
-``norm_{i+1} = norm_i + orig_{i+1}[len(orig_i)-len(glue):]``. The merged
-stream then contains only tokens the engine actually saw, in the
-positions it saw them (the glue rides once in the prompt and once per
-interstitial — the predecessor's per-turn G6 tail shape). The glue ids
-are explicit config (the A-15 pattern, derived from the served
-tokenizer: ``[151667, 271, 151668, 271]`` for Qwen3); unset means
-vendored behavior, and a mis-pin fails closed into split chains that the
-receiver's ``chains_total == 1`` rule rejects.
+"""SERVER — the validating `PrefixMergingBuilder` subclass (CP-07),
+selected through Polar's registry seam, zero vendored edits. Runs the
+*session-level* checks the callback cannot carry and rejects via
+``status="ERROR"`` (the node only escalates, never clears — CP-05).
+Reasoning: `docs/checks-spec.md` §silent-degradation (the S-rows) and
+ADR-0007 (the generation-prompt glue stitch this module applies before
+grouping — strict extension only; a mis-pin fails closed into split
+chains the receiver's ``chains_total == 1`` rejects). Findings are
+byte-stable ``{id}:{slug}[:detail]`` strings on
+``trajectory.metadata["gsj_validation"]``, never on the reserved
+``evaluation`` key. The trace-level gates stay `checks.py`'s (law 6).
 """
 
 from __future__ import annotations
@@ -51,12 +27,8 @@ def _choices(completion: CompletionRecord) -> list[Any]:
 
 
 def _has_agent_shape(completion: CompletionRecord) -> bool:
-    """The pi-dialect agent-turn shape (A-12, the P1 replacement).
-
-    Every pi 0.83.0 agent-loop call carries a system message, a non-empty
-    tools array, a bare `stream` key, and >= 2 messages (CP-06, measured).
-    A completion lacking any of these cannot be an agent turn.
-    """
+    """The pi-dialect agent-turn shape (A-12, the P1 replacement): system
+    message + non-empty tools + bare `stream` + >= 2 messages (CP-06)."""
     request = completion.original_request if completion.original_request else completion.request
     if not isinstance(request, dict):
         return False
@@ -98,10 +70,8 @@ class ValidatingPrefixMergingBuilder(PrefixMergingBuilder):
         self._glue_ids = list(generation_prompt_glue_ids or [])
 
     def _stitched_session(self, session: CompletionSession) -> tuple[CompletionSession, int]:
-        """The glue stitch (module docstring). Strict extension only — a
-        retry with an identical prompt must NOT stitch (S3 stays a fresh
-        chain plus its finding); any non-matching boundary is left alone
-        (S4 keeps its vendored fresh-chain behavior)."""
+        """The ADR-0007 glue stitch, strict extension only: an identical
+        retry (S3) and a non-matching boundary (S4) are left alone."""
         glue = self._glue_ids
         records = [record.model_copy(deep=True) for record in session.completions]
         stitched = 0

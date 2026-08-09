@@ -41,6 +41,19 @@ def test_never_raises_on_malformed_content():
             "response_ids": [1], "loss_mask": [1], "response_logprobs": ["-0.5"],
             "finish_reason": "stop", "metadata": {"timestep": 12},
         }]}},
+        # CP-11b verification shapes: JSON-legal values that once RAISED —
+        # a big-int logprob (OverflowError at isfinite), an unhashable
+        # tool_call id / tool_call_id, a non-string finish_reason.
+        {"status": "COMPLETED", "trajectory": {"metadata": {}, "traces": [{
+            "response_ids": [1, 2, 3], "loss_mask": [1, 0, 1],
+            "response_logprobs": [-0.5, 10**400, 0.0], "finish_reason": ["stop"],
+            "metadata": {"timestep": 12},
+            "response_messages": [
+                {"role": "assistant", "content": None,
+                 "tool_calls": [{"id": [1, 2], "function": {"name": "mcp_gsj_search_case"}}]},
+                {"role": "tool", "tool_call_id": {"k": 1}, "content": '{"page": 18}'},
+            ],
+        }]}},
     ]
     for body in malformed:
         findings = checks.validate_session_result(body)
@@ -91,10 +104,15 @@ def test_cp07_corpus_trace_passes_clean(callback_body):
 def test_golden_tokens_pass_the_same_rules(golden_trace):
     """The predecessor's own golden record, through the structural
     mapping: 20/292 exact-`0.0` at mask==1 (MANIFEST's logprob caveat) —
-    the rule as originally specced would have rejected it."""
+    the rule as originally specced would have rejected it. The mapping
+    carries no wire evidence (no `tools`, no `prompt_messages`), so as of
+    CP-11b the hash gates fail closed on it — the posture, proven on a
+    real artifact — while the discipline itself stays clean."""
     zeros = sum(1 for lp, m in zip(golden_trace["response_logprobs"], golden_trace["loss_mask"]) if m == 1 and lp == 0.0)
     assert (zeros, sum(golden_trace["loss_mask"]), len(golden_trace["response_ids"])) == (20, 292, 3747)
-    assert checks.run_trace_checks(golden_trace) == []
+    assert checks.check_logprob_discipline(golden_trace) == []
+    assert checks.run_trace_checks(golden_trace) == [
+        "G3:missing_evidence:tools", "G2:missing_evidence:system_prompt"]
 
 
 def test_suspicious_zero_rule_is_configurable_not_absent(fidelity_trace):
@@ -296,8 +314,18 @@ def test_failure_vocabulary_snapshot():
         "ADM3:trajectory_missing",
         "ADM4:no_traces",
         "ADM5:malformed_trace",
+        "G2:missing_evidence:system_prompt",
+        "G2:system_prompt_hash_not_approved",
+        "G3:missing_evidence:tools",
+        "G3:tool_roster_hash_not_approved",
         "G5:missing_evidence:timestep",
         "G5:search_page_gt_timestep",
+        "G7:chains_total_ne_1",
+        "G7:chains_truncated",
+        "G7:completions_merged_ne_total",
+        "G7:missing_evidence:reconstruction_stats",
+        "G7:raw_completions_ne_total",
+        "H41:roster_offered_zero_tool_calls",
         "LP1:response_logprobs_absent",
         "LP2:response_logprobs_length_ne_response_ids",
         "LP3:sentinel_logprob_at_mask1",
@@ -327,3 +355,136 @@ def test_every_emitted_finding_starts_with_a_vocabulary_entry(fidelity_trace):
     assert len(findings) >= 6
     for finding in findings:
         assert any(finding.startswith(entry) for entry in checks.FINDING_VOCABULARY), finding
+
+
+# --- CP-11b: the gates against the approved sets --------------------------
+
+
+def _independent_canonical_sha256(obj):
+    """The convention, reimplemented here rather than imported, so a drift
+    in `checks._sha256_canonical_json` fails a test instead of hiding."""
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(
+        obj, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+
+
+def test_gates_pass_clean_on_both_real_episodes(callback_body, fidelity_callback):
+    """The first-episode-validate leg (row 23): the approved sets admit
+    both known-good episodes — CP-07's and CP-09's — through the whole
+    seam, gates included."""
+    assert checks.validate_session_result(callback_body) == []
+    assert checks.validate_session_result(fidelity_callback) == []
+
+
+def test_g3_fails_on_a_doctored_roster(fidelity_trace):
+    doctored = _doctor(fidelity_trace,
+                       lambda t: t["tools"][0]["function"].update(name="doctored"))
+    expected = _independent_canonical_sha256(doctored["tools"])
+    assert checks.run_trace_checks(doctored) == [
+        f"G3:tool_roster_hash_not_approved:{expected}"]
+
+
+def test_g3_missing_roster_fails_closed(fidelity_trace):
+    doctored = _doctor(fidelity_trace, lambda t: t.pop("tools"))
+    assert checks.run_trace_checks(doctored) == ["G3:missing_evidence:tools"]
+
+
+def test_g2_fails_on_a_doctored_system_prompt(fidelity_trace):
+    doctored = _doctor(fidelity_trace, lambda t: t["prompt_messages"][0].update(
+        content=t["prompt_messages"][0]["content"] + " "))
+    findings = checks.run_trace_checks(doctored)
+    assert len(findings) == 1 and findings[0].startswith(
+        "G2:system_prompt_hash_not_approved:")
+
+
+def test_g2_missing_system_prompt_fails_closed(fidelity_trace):
+    doctored = _doctor(fidelity_trace, lambda t: t.update(
+        prompt_messages=[m for m in t["prompt_messages"] if m["role"] != "system"]))
+    assert checks.run_trace_checks(doctored) == ["G2:missing_evidence:system_prompt"]
+
+
+def test_g2_typed_parts_carry_the_same_prompt(fidelity_trace):
+    """Finding (b) is binding on G2: the same wire prompt re-enveloped as
+    content parts is the SAME prompt and must pass — a raw `content` read
+    would hash '' (a prompt that never existed) and reject it."""
+    reenveloped = _doctor(fidelity_trace, lambda t: t["prompt_messages"][0].update(
+        content=[{"type": "text", "text": t["prompt_messages"][0]["content"]}]))
+    assert checks.run_trace_checks(reenveloped) == []
+
+
+@pytest.mark.parametrize(
+    "mutate, expected",
+    [
+        ({"chains_total": 2}, "G7:chains_total_ne_1:2"),          # S1/S4: split chains
+        ({"chains_reconstructed_truncated": 1}, "G7:chains_truncated:1"),  # S2/S3
+        ({"completions_merged": 1}, "G7:completions_merged_ne_total:1!=2"),  # filter amputation
+        ({"raw_completions_total": 3}, "G7:raw_completions_ne_total:3!=2"),  # A-12 drops
+    ],
+)
+def test_g7_each_clause_fires_for_its_own_reason(callback_body, mutate, expected):
+    doctored = copy.deepcopy(callback_body)
+    doctored["trajectory"]["metadata"]["reconstruction_stats"].update(mutate)
+    assert checks.validate_session_result(doctored) == [expected]
+
+
+def test_g7_missing_stats_fail_closed(callback_body):
+    absent = copy.deepcopy(callback_body)
+    del absent["trajectory"]["metadata"]["reconstruction_stats"]
+    assert checks.validate_session_result(absent) == [
+        "G7:missing_evidence:reconstruction_stats"]
+    partial = copy.deepcopy(callback_body)
+    del partial["trajectory"]["metadata"]["reconstruction_stats"]["chains_total"]
+    assert checks.validate_session_result(partial) == [
+        "G7:missing_evidence:reconstruction_stats.chains_total"]
+
+
+def test_h41_flag_is_policy_gated_and_fires_for_its_own_reason(fidelity_trace):
+    armed = checks.CheckPolicy(reject_toolless_roster=True)
+    # the real episode calls tools: armed stays clean
+    assert checks.run_trace_checks(fidelity_trace, armed) == []
+    # strip every tool interaction; keep T in metadata so G5 stays satisfied
+    toolless = _doctor(fidelity_trace, lambda t: (
+        t["metadata"].update(timestep=12),
+        t.update(response_messages=[
+            m for m in t["response_messages"]
+            if m.get("role") != "tool" and not m.get("tool_calls")]),
+    ))
+    assert checks.run_trace_checks(toolless) == []  # default policy: visible, not fatal
+    assert checks.run_trace_checks(toolless, armed) == [
+        "H41:roster_offered_zero_tool_calls"]
+    # no roster offered is G3's shape, never H41's
+    no_roster = _doctor(toolless, lambda t: t.pop("tools"))
+    assert checks.run_trace_checks(no_roster, armed) == ["G3:missing_evidence:tools"]
+
+
+def test_pins_are_loaded_not_inlined_and_raise_loudly(monkeypatch):
+    """Spec §The pins: a missing pins key RAISES — the gates never fail
+    open — and no hash literal lives in `checks.py`."""
+    trace = {"tools": [{"a": 1}],
+             "prompt_messages": [{"role": "system", "content": "s"}]}
+    monkeypatch.setattr(checks, "_pins_cache", {"system_prompt_hash": ["x"]})
+    with pytest.raises(KeyError, match="tool_roster_hash"):
+        checks.check_tool_roster(trace)
+    monkeypatch.setattr(checks, "_pins_cache", {"system_prompt_hash": []})
+    with pytest.raises(KeyError, match="system_prompt_hash"):
+        checks.check_system_prompt(trace)
+    import inspect
+    import json
+    for value in json.loads(checks.PINS_PATH.read_text())["pins"].values():
+        for pinned in value if isinstance(value, list) else [value]:
+            assert pinned not in inspect.getsource(checks)
+
+
+def test_unhashable_content_is_a_finding_not_a_raise(fidelity_trace):
+    """JSON admits NaN and lone surrogates; the canonical convention
+    (`allow_nan=False`) and UTF-8 must yield findings, not exceptions."""
+    nan_roster = _doctor(fidelity_trace, lambda t: t["tools"][0].update(x=float("nan")))
+    assert checks.run_trace_checks(nan_roster) == [
+        "G3:tool_roster_hash_not_approved:unhashable"]
+    surrogate = _doctor(fidelity_trace,
+                        lambda t: t["prompt_messages"][0].update(content="\ud800"))
+    assert checks.run_trace_checks(surrogate) == [
+        "G2:system_prompt_hash_not_approved:unhashable"]

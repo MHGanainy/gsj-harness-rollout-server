@@ -4,22 +4,25 @@ carries ALL reasoning (CP-11 budget migration); this module implements.
 One entry point, `validate_session_result`: takes the callback-shaped
 `SessionResult` mapping (never the on-disk `ses_*.json` — CP-07 finding 5),
 returns byte-stable ``{id}:{slug}[:detail]`` findings, empty = accepted,
-never raises on content (ADR-0008 §6). Both legs of law 6 call it. Live:
-admission (`ADM*`), the logprob discipline (`LP*`/`TR*`), G5's backstop.
-Gates G1–G4/G6/G7 are CP-11b's; replay is deliberately absent (spec
-§Replay)."""
+never raises on content (ADR-0008 §6; a missing pins file/key is
+configuration, not content — it raises, the gates never fail open). Both
+legs of law 6 call it. Live: `ADM*`, `LP*`/`TR*`, G5's backstop, gates
+G2/G3/G7 against `pins/pins.gsj.json`, the policy-gated H-41 flag. Not
+here, reasons in the spec: G1, G4/G6 (ADR-0011), replay."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 ACCEPTED_STATUS = "COMPLETED"
 
-# --- the failure vocabulary: byte-stable, greppable, never reworded ------
-# (spec §The failure vocabulary; snapshot-tested, a rename is deliberate)
+# The failure vocabulary: byte-stable, greppable, snapshot-tested (spec).
 ADM1_STATUS_NOT_COMPLETED = "ADM1:status_not_completed"
 ADM2_BUILDER_FINDINGS_PRESENT = "ADM2:builder_findings_present"
 ADM3_TRAJECTORY_MISSING = "ADM3:trajectory_missing"
@@ -38,18 +41,30 @@ LP9_MASK_DOMAIN = "LP9:loss_mask_value_not_binary"
 TR1_FINISH_REASON = "TR1:finish_reason_not_allowed"
 TR2_REASONING_LOSS_MASK = "TR2:reasoning_loss_mask_masked_tokens"
 
+G2_MISSING_SYSTEM_PROMPT = "G2:missing_evidence:system_prompt"
+G2_NOT_APPROVED = "G2:system_prompt_hash_not_approved"
+G3_MISSING_TOOLS = "G3:missing_evidence:tools"
+G3_NOT_APPROVED = "G3:tool_roster_hash_not_approved"
 G5_MISSING_TIMESTEP = "G5:missing_evidence:timestep"
 G5_SEARCH_PAGE_GT_TIMESTEP = "G5:search_page_gt_timestep"  # the predecessor's constant
+G7_CHAINS_TOTAL = "G7:chains_total_ne_1"
+G7_CHAINS_TRUNCATED = "G7:chains_truncated"
+G7_MERGED = "G7:completions_merged_ne_total"
+G7_MISSING_STATS = "G7:missing_evidence:reconstruction_stats"
+G7_RAW = "G7:raw_completions_ne_total"
+H41_TOOLLESS_ROSTER = "H41:roster_offered_zero_tool_calls"
 
 FINDING_VOCABULARY = (
     ADM1_STATUS_NOT_COMPLETED, ADM2_BUILDER_FINDINGS_PRESENT, ADM3_TRAJECTORY_MISSING,
-    ADM4_NO_TRACES, ADM5_MALFORMED_TRACE, G5_MISSING_TIMESTEP, G5_SEARCH_PAGE_GT_TIMESTEP,
+    ADM4_NO_TRACES, ADM5_MALFORMED_TRACE, G2_MISSING_SYSTEM_PROMPT, G2_NOT_APPROVED,
+    G3_MISSING_TOOLS, G3_NOT_APPROVED, G5_MISSING_TIMESTEP, G5_SEARCH_PAGE_GT_TIMESTEP,
+    G7_CHAINS_TOTAL, G7_CHAINS_TRUNCATED, G7_MERGED, G7_MISSING_STATS, G7_RAW,
+    H41_TOOLLESS_ROSTER,
     LP1_LOGPROBS_ABSENT, LP2_LOGPROBS_LENGTH, LP3_SENTINEL_AT_MASK1, LP4_NONFINITE,
     LP5_POSITIVE, LP6_ZERO_RATE_AT_MASK1, LP7_EMPTY_LOSS_MASK, LP8_MASK_LENGTH,
     LP9_MASK_DOMAIN, TR1_FINISH_REASON, TR2_REASONING_LOSS_MASK,
 )
 
-# Tail aborts fail here; mid-chain aborts are patch P2's job (D3).
 ALLOWED_FINISH_REASONS = frozenset({"stop", "tool_calls", "stop_sequence", "length"})
 
 # The binding compatibility contract (`mcp-service/README.md`; spec §G5).
@@ -64,17 +79,50 @@ _CASE_STATUS_TOOL = "mcp_gsj_case_status"
 
 @dataclass(frozen=True)
 class CheckPolicy:
-    """The platform-conditioned knobs of the logprob discipline. Values and
-    reasoning: spec §The logprob discipline (sentinel: the vLLM `-9999.0`
-    floor; zero-rate: CP-09's bf16 measurements — a CUDA estate sets 0.0)."""
+    """The platform-conditioned knobs (spec §The logprob discipline —
+    sentinel: the vLLM `-9999.0` floor; zero-rate: CP-09's bf16 numbers, a
+    CUDA estate sets 0.0). `reject_toolless_roster` arms H-41 (spec §H-41)."""
 
     sentinel_threshold: float = -9000.0
     zero_at_mask1_max_rate: float = 0.25
+    reject_toolless_roster: bool = False
 
 
-# Rebound by `config.load_config` from the YAML's `checks:` section and
-# resolved at CALL time (spec §The CheckPolicy operator surface).
+# Rebound by `config.load_config`, resolved at CALL time (ADR-0010).
 DEFAULT_POLICY = CheckPolicy()
+
+# The approved sets (spec §The pins…): generated data, never literals here.
+PINS_PATH = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
+_pins_cache: Mapping[str, list[str]] | None = None  # process-lifetime; a re-pin needs a restart
+
+
+def approved_set(key: str) -> list[str]:
+    """The approved hashes for one pin key — raises loudly when absent."""
+    global _pins_cache
+    if _pins_cache is None:
+        _pins_cache = json.loads(PINS_PATH.read_text())["pins"]
+    values = _pins_cache.get(key)
+    if not values:
+        raise KeyError(f"pins key {key!r} missing or empty in {PINS_PATH}")
+    return values
+
+
+def _sha256_text(text: str) -> str | None:
+    """Convention 1, UTF-8 text sha256; None = unencodable (finding, not raise)."""
+    try:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except UnicodeEncodeError:  # JSON admits lone surrogates
+        return None
+
+
+def _sha256_canonical_json(obj: Any) -> str | None:
+    """Convention 2 — the predecessor's `canonical_json` byte-exact (`store.py:88-91`)."""
+    try:
+        text = json.dumps(obj, sort_keys=True, ensure_ascii=False,
+                          separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):  # NaN/Infinity really do arrive off the wire
+        return None
+    return _sha256_text(text)
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -90,7 +138,10 @@ def validate_session_result(
 ) -> list[str]:
     """Validate one callback-shaped `SessionResult`; [] means accepted."""
     findings = _admission_findings(session_result)
-    traces = _as_mapping(session_result.get("trajectory")).get("traces")
+    trajectory = session_result.get("trajectory")
+    if isinstance(trajectory, Mapping):  # else ADM3 already fired
+        findings.extend(check_chain_snapshot(_as_mapping(trajectory.get("metadata"))))
+    traces = _as_mapping(trajectory).get("traces")
     for trace in traces if isinstance(traces, list) else []:
         if isinstance(trace, Mapping):
             findings.extend(run_trace_checks(trace, policy))
@@ -130,14 +181,83 @@ def run_trace_checks(
         *check_logprob_discipline(trace, policy),
         *check_trace_tripwires(trace),
         *check_page_cutoff(trace),
+        *check_tool_roster(trace),
+        *check_system_prompt(trace),
+        *check_toolless_roster(trace, policy),
     ]
+
+
+def check_tool_roster(trace: Mapping[str, Any]) -> list[str]:
+    """G3 (spec §G3's actual mechanism): canonical-JSON hash of the wire
+    `tools` ∈ approved set. CP-05 caveat: a merged trace carries the FIRST
+    completion's tools — cross-completion stability is the builder's `R11`."""
+    tools = trace.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return [G3_MISSING_TOOLS]
+    digest = _sha256_canonical_json(tools)
+    if digest in approved_set("tool_roster_hash"):
+        return []
+    return [f"{G3_NOT_APPROVED}:{digest or 'unhashable'}"]
+
+
+def check_system_prompt(trace: Mapping[str, Any]) -> list[str]:
+    """G2: sha256 of every wire `system` text ∈ the approved singleton,
+    flattened via `_content_text` first (finding (b) is binding — spec)."""
+    approved = approved_set("system_prompt_hash")
+    findings, seen = [], 0
+    for message in _as_list(trace.get("prompt_messages")):
+        if isinstance(message, Mapping) and message.get("role") == "system":
+            seen += 1
+            digest = _sha256_text(_content_text(message))
+            if digest not in approved:
+                findings.append(f"{G2_NOT_APPROVED}:{digest or 'unhashable'}")
+    return findings if seen else [G2_MISSING_SYSTEM_PROMPT]
+
+
+_G7_STAT_KEYS = ("chains_total", "chains_reconstructed_truncated",
+                 "completions_total", "completions_merged", "raw_completions_total")
+
+
+def check_chain_snapshot(trajectory_metadata: Mapping[str, Any]) -> list[str]:
+    """G7's stats conjunction (spec §G7's chain snapshot; CP-05 tightening).
+    The settings-hash clause has no callback evidence — recorded gap, row 15."""
+    stats = _as_mapping(trajectory_metadata.get("reconstruction_stats"))
+    for key in _G7_STAT_KEYS:  # fail-closed before any comparison
+        if isinstance(stats.get(key), bool) or not isinstance(stats.get(key), int):
+            return [f"{G7_MISSING_STATS}.{key}" if stats else G7_MISSING_STATS]
+    findings = []
+    if stats["chains_total"] != 1:
+        findings.append(f"{G7_CHAINS_TOTAL}:{stats['chains_total']}")
+    if stats["chains_reconstructed_truncated"] != 0:
+        findings.append(f"{G7_CHAINS_TRUNCATED}:{stats['chains_reconstructed_truncated']}")
+    total = stats["completions_total"]
+    if stats["completions_merged"] != total:
+        findings.append(f"{G7_MERGED}:{stats['completions_merged']}!={total}")
+    if stats["raw_completions_total"] != total:
+        findings.append(f"{G7_RAW}:{stats['raw_completions_total']}!={total}")
+    return findings
+
+
+def check_toolless_roster(
+    trace: Mapping[str, Any], policy: CheckPolicy | None = None
+) -> list[str]:
+    """H-41 (spec §The H-41 lesson): roster offered, zero parsed tool calls.
+    POLICY-GATED, default off — a legitimate episode can call no tools."""
+    policy = DEFAULT_POLICY if policy is None else policy
+    if not policy.reject_toolless_roster:
+        return []
+    tools = trace.get("tools")
+    if not (isinstance(tools, list) and tools):
+        return []  # no roster offered — not this flag's shape (G3's job)
+    if any(_as_list(message.get("tool_calls")) for message in _messages(trace)):
+        return []
+    return [H41_TOOLLESS_ROSTER]
 
 
 def check_logprob_discipline(
     trace: Mapping[str, Any], policy: CheckPolicy | None = None
 ) -> list[str]:
-    """Spec §The logprob discipline (RAW semantics, R-aligned arrays,
-    one finding per rule with `first=`/`count=`)."""
+    """Spec §The logprob discipline (RAW, R-aligned, one finding per rule)."""
     policy = DEFAULT_POLICY if policy is None else policy
     findings: list[str] = []
     response_ids = _as_list(trace.get("response_ids"))
@@ -172,7 +292,11 @@ def check_logprob_discipline(
     sentinel: list[int] = []
     zeros = 0
     for index, value in enumerate(logprobs):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        try:
+            bad = isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+        except OverflowError:  # a JSON int beyond float range is not evidence
+            bad = True
+        if bad:
             nonfinite.append(index)
             continue
         at_mask1 = index < len(mask) and mask[index] == 1
@@ -200,7 +324,7 @@ def check_trace_tripwires(trace: Mapping[str, Any]) -> list[str]:
     """The `finish_reason` allowlist + the re-vendor canary (spec §TR1/TR2)."""
     findings: list[str] = []
     finish_reason = trace.get("finish_reason")
-    if finish_reason not in ALLOWED_FINISH_REASONS:
+    if not (isinstance(finish_reason, str) and finish_reason in ALLOWED_FINISH_REASONS):
         findings.append(f"{TR1_FINISH_REASON}:{finish_reason}")
     masked = _as_mapping(
         _as_mapping(trace.get("metadata")).get("reasoning_loss_mask")
@@ -212,9 +336,8 @@ def check_trace_tripwires(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_page_cutoff(trace: Mapping[str, Any]) -> list[str]:
-    """G5's trace-side backstop (spec §G5's transcript backstop): no cited
-    search page may exceed T; T from the trace only, metadata first (the
-    CP-11 structural leg), `case_status` fallback, else fail closed."""
+    """G5's backstop (spec §G5): no cited search page may exceed T; T from
+    the trace only (metadata first, `case_status` fallback), else fail closed."""
     timestep = _episode_timestep(trace)
     if timestep is None:
         return [G5_MISSING_TIMESTEP]
@@ -251,15 +374,15 @@ def _case_search_pages(trace: Mapping[str, Any]) -> list[int]:
 
 
 def _tool_results(trace: Mapping[str, Any]) -> Iterator[tuple[Any, str]]:
-    """Every tool result as `(name, text)`, name resolved by
-    `tool_call_id` across both message lists in order (spec §G5)."""
+    """Every tool result as `(name, text)`, name resolved by id (spec §G5)."""
     names: dict[Any, Any] = {}
     for message in _messages(trace):
         for call in _as_list(message.get("tool_calls")):
-            if isinstance(call, Mapping):
+            if isinstance(call, Mapping) and isinstance(call.get("id"), (str, int)):
                 names[call.get("id")] = _as_mapping(call.get("function")).get("name")
         if message.get("role") == "tool":
-            yield names.get(message.get("tool_call_id")), _content_text(message)
+            key = message.get("tool_call_id")
+            yield names.get(key) if isinstance(key, (str, int)) else None, _content_text(message)
 
 
 def _messages(trace: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -270,8 +393,7 @@ def _messages(trace: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
 
 
 def _content_text(message: Mapping[str, Any]) -> str:
-    """Flatten `content` to text, typed parts included — finding (b), spec
-    §The template findings: every offline reader normalizes parts first."""
+    """Flatten `content` to text, typed parts included (finding (b), spec)."""
     content = message.get("content")
     if isinstance(content, str):
         return content

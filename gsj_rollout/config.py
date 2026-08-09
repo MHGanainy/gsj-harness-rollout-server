@@ -1,17 +1,8 @@
-"""SERVER — the one YAML, two audiences (ADR-0008 §1).
-
-One file is the complete construction surface for both sides (gap row
-25): the server loads it to start the receiver and to render Polar's
-`topology.yaml`; the trainer loads the same file to render `TaskRequest`
-bodies and find the endpoints. Library sections reject unknown keys
-loudly; the reserved `user:` section is validated as a mapping and never
-read — the trainer's knobs live in the same file without touching our
-schema. Nothing here assumes Docker: `runtime.backend` is a value
-(law 5), and `runtime.workdir` is deliberately unrepresentable (the
-CP-06 trap — the harness run step carries its own cwd).
-
-Collect-N semantics (gap row 26 — stated here and in `submit --help`,
-inherited nowhere):
+"""SERVER — the one YAML, two audiences (ADR-0008 §1, gap row 25): the
+server renders the receiver + Polar's `topology.yaml`, the trainer renders
+`TaskRequest` bodies, from the same file. Unknown keys reject loudly;
+`user:` is reserved and never read. Nothing assumes Docker (law 5);
+`runtime.workdir` is deliberately unrepresentable (the CP-06 trap).
 """
 
 from __future__ import annotations
@@ -26,15 +17,12 @@ from . import checks
 
 COLLECT_SEMANTICS = """\
 Collect-N semantics (gap row 26):
-- A COLLECTED episode is a SessionResult that is (a) status COMPLETED,
-  (b) free of builder findings (gsj_validation.findings == []), and
-  (c) free of `checks` findings. ERROR and TIMEOUT never count.
-- `submit --episodes N` targets N ATTEMPTS (num_samples=N on one
-  TaskRequest) — Polar's scheduler owns episode counts. It is NOT
-  collect-until-N-accepted.
-- A rejected trace counts as a consumed attempt, is quarantined with its
-  findings, and is never retried automatically; exit code 1 says
-  collected < attempted, and resubmission is the operator's call."""
+- COLLECTED = status COMPLETED + gsj_validation.findings == [] + zero
+  `checks` findings; ERROR and TIMEOUT never count.
+- `submit --episodes N` targets N ATTEMPTS (num_samples=N) — Polar's
+  scheduler owns episode counts; NOT collect-until-N-accepted.
+- A rejected trace is a consumed attempt, quarantined with its findings,
+  never auto-retried; exit 1 says collected < attempted."""
 
 __doc__ = (__doc__ or "") + COLLECT_SEMANTICS  # `or ""`: -OO strips docstrings
 
@@ -78,10 +66,10 @@ class BuilderConfig(_Section):
 
 
 class ChecksConfig(_Section):
-    """The `CheckPolicy` operator surface (CP-11). Field-for-field mirror of
-    `checks.CheckPolicy` with defaults read from it, never restated; the
-    reasoning lives in `docs/checks-spec.md` §The logprob discipline. A CUDA
-    estate sets `zero_at_mask1_max_rate: 0.0` (row 27)."""
+    """`CheckPolicy` mirror, defaults read from it (CP-11, spec §operator
+    surface); a CUDA estate sets `zero_at_mask1_max_rate: 0.0` (row 27).
+    CP-11b: `reject_toolless_roster` (H-41) is library-only until this
+    mirror's next freeze-lift."""
 
     sentinel_threshold: float = checks.CheckPolicy.sentinel_threshold
     zero_at_mask1_max_rate: float = checks.CheckPolicy.zero_at_mask1_max_rate
@@ -167,10 +155,7 @@ def load_config(path: str | Path) -> RunConfig:
             else:
                 details.append(f"'{'.'.join(loc)}': {err['msg']}")
         raise ValueError(f"config {path} invalid — " + "; ".join(details)) from exc
-    # `checks:` becomes the process-default policy: law 6's two call sites
-    # (`receiver.ingest`, `client.partition_session_results`) reach the rules
-    # only through `validate_session_result`'s default, and the one YAML is
-    # the complete construction surface — last `load_config` wins.
+    # ADR-0010: rebind the process default; last `load_config` wins.
     checks.DEFAULT_POLICY = checks.CheckPolicy(**cfg.checks.model_dump())
     return cfg
 
@@ -214,11 +199,8 @@ def render_task_request(
     episodes: int = 1,
     timeout_seconds: float = 900.0,
 ) -> dict[str, Any]:
-    """One Polar `TaskRequest` body for the task triple `(case, timestep, prompt)`.
-
-    `callback_url` points at our receiver: the manager POSTs the terminal
-    TaskResult envelope there (`manager.py:164-179`) — the zero-patch push
-    channel (ADR-0008 §2)."""
+    """One Polar `TaskRequest` body for the triple `(case, timestep, prompt)`;
+    `callback_url` is the zero-patch push channel (ADR-0008 §2)."""
     settings: dict[str, Any] = {
         "case_id": case_id,
         "timestep": int(timestep),
@@ -245,13 +227,9 @@ def render_task_request(
         "instruction": instruction,
         "num_samples": int(episodes),
         "timeout_seconds": float(timeout_seconds),
-        # G5's structural timestep (CP-11): `TaskRequest.metadata` rides the
-        # callback verbatim and its keys are hoisted into every trace's
-        # top-level metadata (`prefix_merging.py:371-375`), where
-        # `checks._episode_timestep` looks first — independent of whether
-        # the agent ever called `case_status`. Polar's reserved keys
-        # (`session_id`/`task_id` are setdefault-shadowed, `evaluation`/
-        # `policy_version` overwritten) must never appear here.
+        # G5's structural timestep (CP-11): hoisted into every trace's
+        # top-level metadata (`prefix_merging.py:371-375`). Polar's reserved
+        # keys (`session_id`/`task_id`/`evaluation`/`policy_version`) never here.
         "metadata": {"case_id": case_id, "timestep": int(timestep)},
         "runtime": {
             "backend": cfg.runtime.backend,

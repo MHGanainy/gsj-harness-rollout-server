@@ -95,6 +95,6 @@
   "walk_status": {
     "derive": "done (this file; every value from repo-owned or estate-resident evidence, provenance above)",
     "re_pin": "done (this file IS the approved-set home; the predecessor's staging file stays untouched, law 3)",
-    "first_episode_validate": "PENDING CP-11b — needs a gate that consumes this file plus one fresh episode; no estate re-collection was permitted this CP (STOP wall)"
+    "first_episode_validate": "done (CP-11b: gates G2/G3/G7 consume this file via checks.approved_set; both real episodes — CP-07 and CP-09 — pass the full seam clean and every landed gate fails on one doctored input; docs/reports/CP-11b.md)"
   }
 }

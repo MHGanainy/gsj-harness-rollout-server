@@ -1,18 +1,7 @@
-"""SERVER — `gsj-rollout serve | submit` (ADR-0008 §4).
-
-`serve` is the smallest honest thing: it starts OUR receiver, renders
-Polar's topology from the one YAML, and prints the two Polar commands
-for the operator — no process supervisor (the gsj-collect lesson was
-observability and bounded exit, not lifecycle ownership). `submit`
-renders one TaskRequest from the config plus the task triple, waits with
-bounded progress output, re-checks client-side, and exits with stated
-codes. No signal handler is installed at import (embeddability) —
-`serve()` installs and owns them for its own lifetime only.
-
-Exit codes: 0 all episodes collected; 1 not all episodes collected
-(rejected, ERROR/TIMEOUT sessions, or the bounded wait expired); 2 config
-or usage error; 3 rollout server unreachable or answered an HTTP error.
-"""
+"""SERVER — `gsj-rollout serve | submit` (ADR-0008 §4; exit codes in
+`submit --help`). `serve` starts OUR receiver and renders Polar's topology
+— no process supervisor; no signal handler installed at import
+(embeddability — `serve()` owns them for its own lifetime only)."""
 
 from __future__ import annotations
 
@@ -51,13 +40,12 @@ def serve(args: argparse.Namespace) -> int:
     with open(topology_path, "w") as handle:
         yaml.safe_dump(config_mod.render_topology(cfg), handle, sort_keys=False)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    print(f"topology rendered: {topology_path}")
-    print("run Polar's two processes yourself (not supervised here):")
+    print(f"topology rendered: {topology_path} — run Polar's two processes yourself:")
     print(f"  PYTHONPATH={repo_root} vendor/polar/.venv/bin/polar serve_rollout -c {topology_path}")
     print(f"  {cfg.estate.mcp_token_secret_env}=<secret> PYTHONPATH={repo_root} "
           f"vendor/polar/.venv/bin/polar serve_gateway -c {topology_path}")
-    print(f"receiver callback endpoint: {cfg.receiver.base_url}/callbacks/session_result")
-    print(f"traces -> {cfg.receiver.traces_dir}  quarantine -> {cfg.receiver.resolved_quarantine_dir}")
+    print(f"callbacks: {cfg.receiver.base_url}/callbacks/session_result | traces -> "
+          f"{cfg.receiver.traces_dir} | quarantine -> {cfg.receiver.resolved_quarantine_dir}")
     if args.render_only:
         return EXIT_OK
 

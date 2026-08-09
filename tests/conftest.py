@@ -16,6 +16,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CALLBACK_FIXTURE = REPO_ROOT / "docs" / "polar" / "pi-corpus" / "callback_session_result.json"
+FIDELITY_CALLBACK = REPO_ROOT / "docs" / "polar" / "fidelity" / "callback_session_result.json"
 FIDELITY_TRACE = REPO_ROOT / "docs" / "polar" / "fidelity" / "trace.json"
 GOLDEN_TOKENS = REPO_ROOT / "docs" / "golden" / "mac" / "tokens.npz"
 
@@ -23,6 +24,14 @@ GOLDEN_TOKENS = REPO_ROOT / "docs" / "golden" / "mac" / "tokens.npz"
 @pytest.fixture(scope="session")
 def callback_body() -> dict:
     with CALLBACK_FIXTURE.open() as handle:
+        return json.load(handle)
+
+
+@pytest.fixture(scope="session")
+def fidelity_callback() -> dict:
+    """The CP-09 episode's full callback body — the second real episode of
+    the first-episode-validate leg (row 23)."""
+    with FIDELITY_CALLBACK.open() as handle:
         return json.load(handle)
 
 

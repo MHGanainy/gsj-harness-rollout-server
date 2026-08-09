@@ -50,12 +50,17 @@ hash per finding (a) with the codec hash recorded-not-approved. "Stale by
 construction" therefore resolved to *value-stable in practice*, exactly
 as CP-04's estate-invariance measurement predicted; what changed is the
 provenance — the values are now first-class artifacts of THIS repo's wire
-evidence, not literals trusted across repos. The `first-episode-validate`
-leg stays open for CP-11b (it needs a gate consuming the file plus a
-fresh episode; estate re-collection was STOP-walled this CP). Only
-`chat_template_hash` is Mac-estate-specific (the served snapshot is the
-Mac's vllm-metal serving artifact); CP-04′ re-derives it by design when
-the Direction-A template lands.
+evidence, not literals trusted across repos. **[CP-11b] The
+`first-episode-validate` leg is DONE** (row 23 closes): gates G2/G3/G7
+consume this file through `checks.approved_set` (repo-relative
+`PINS_PATH`, missing file/key raises — never fail-open), both real
+episodes pass the full seam clean, and every gate fails on one doctored
+input for its own reason (the verbatim lines: `docs/reports/CP-11b.md`).
+"Both real episodes" is what "first episode" means here — estate
+re-collection stayed STOP-walled. Only `chat_template_hash` is
+Mac-estate-specific (the served snapshot is the Mac's vllm-metal serving
+artifact); CP-04′ re-derives it by design when the Direction-A template
+lands.
 
 ## The four hashing conventions
 
@@ -96,6 +101,102 @@ shared implementation per convention, no inline copies:
 | G6 | thinking disabled | decoded assistant-turn openings | each ends with the pinned tail; **zero assistant turns fails closed** |
 | G7 | no compaction, ever | `settings_text` read back from disk + chain snapshot | `settings_hash` ∈ approved set ∧ `compaction.enabled == false` ∧ the chain snapshot below |
 
+### [CP-11b] The gates as landed
+
+The survival call, per gate, with the evidence source each keys on. Every
+landed gate reads the approved sets via `checks.approved_set` (missing
+pins file/key raises — configuration, not content, so ADR-0008 §6's
+never-raise contract is not breached) and fails closed on missing trace
+evidence (`G{n}:missing_evidence:<field>`). Unhashable content — JSON
+admits `NaN` and lone surrogates, and the canonical convention is
+`allow_nan=False` — is a `*_not_approved:unhashable` finding, never an
+exception (the seam's contract survives hostile payloads).
+
+- **G3 — LANDED** (`check_tool_roster`, trace-level): canonical-JSON
+  sha256 of `trace.tools` ∈ `tool_roster_hash`. Evidence: the wire array
+  as persisted (CP-06 proved persisted == wire for `tools`). The CP-05
+  caveat stands in the docstring: merged traces carry the FIRST
+  completion's tools, so cross-completion roster stability is the
+  builder's `R11`, not this gate.
+- **G2 — LANDED** (`check_system_prompt`, trace-level): sha256 of every
+  `system`-role message's text in `prompt_messages` ∈ the singleton set,
+  flattened through `_content_text` first (finding (b) is binding — a raw
+  `content` read of a typed-parts message hashes a prompt that never
+  existed; test-proven: the wire prompt re-enveloped as parts passes,
+  a one-byte edit fails). Zero system messages fails closed.
+- **G7 — the stats conjunction LANDED** (`check_chain_snapshot`,
+  session-level in `validate_session_result` — the stats live on
+  `trajectory.metadata.reconstruction_stats`, not on a trace): the CP-05
+  conjunction verbatim, each clause its own finding (`G7:chains_total_ne_1`,
+  `G7:chains_truncated`, `G7:completions_merged_ne_total`,
+  `G7:raw_completions_ne_total`), any missing/non-int stat fails closed.
+  **The settings-hash clause did NOT land and is a recorded gap (row 15)**:
+  no settings evidence rides the callback (measured: zero occurrences of
+  `settings`/`compaction` on both real bodies). The enforcement-at-source
+  is the harness's own `settings_json` constant `{compaction:{enabled:
+  false}}` — the artifact `settings_hash` pins — but the receiver cannot
+  verify what it never receives; the fix is a harness-side echo of the
+  rendered settings into trace-reachable metadata, one line at
+  `pi_harness.py`'s next freeze-lift.
+- **G1 — NOT LANDED, unimplementable as specced**: the gate needs the
+  trace to state *which card resolved* (`prompt_source` +
+  `skill_card_text`), and nothing on the trace does — the taskbank
+  deferral (ADR-0003) means prompts arrive as already-resolved text, and
+  the measured first user message of both real episodes (626 chars) is
+  not the card bytes (616) nor contains them, so not even a
+  hash-the-instruction heuristic exists that distinguishes a skill row
+  from a free row (free rows must pass n/a). The fix, recorded: the
+  submit path states `prompt_source` (and the card hash for skill rows)
+  in `TaskRequest.metadata` — one line in `config.render_task_request`
+  at its next freeze-lift, natural landing alongside the taskbank
+  (ADR-0003); the gate then verifies the stated card's bytes-hash ∈
+  `skill_card_hash`.
+- **G4/G6 — NOT LANDED, deferred by ADR-0011 (measure-at-serve)**: no
+  codec evidence rides the callback (measured — and the only fingerprint
+  that exists anywhere, the persisted record's `system_fingerprint`, is
+  an engine platform string, not a codec identity, on a record that never
+  rides the callback). G4 is verified estate-side by `pins/derive_pins.py`
+  against the served snapshot at bring-up (CP-04′ DoD items 3–5); G6
+  lands receiver-side, tokenizer-free, as an ids-`endswith` once
+  `g6_expected_tail_ids` is pinned on the next walk. Trust-provenance
+  rejected — the F1 shape: it verifies the claim, not the artifact.
+- **H-41 — LANDED as a policy-gated check** (`check_toolless_roster`):
+  a roster offered with zero parsed `tool_calls` anywhere in the message
+  stream emits `H41:roster_offered_zero_tool_calls` **only when
+  `CheckPolicy.reject_toolless_roster` is set** — a legitimate episode
+  can call no tools, so the default is off and the condition is one knob
+  from a rejection (the YAML mirror gains the field at `config.py`'s next
+  freeze-lift; until then it is library-level). Roster absent is G3's
+  missing-evidence shape, deliberately not H41's.
+
+Operational facts of the pins seam, recorded by the CP-11b adversarial
+pass so nobody rediscovers them:
+
+- **The pins load once per process** (`checks._pins_cache`) — an on-disk
+  re-pin is silently masked until a process restart, the same trap as the
+  harness import cache (CP-06). The comment is on the cache line; the
+  restart is part of any re-pin runbook.
+- **At the frozen receiver, a pins configuration failure is fail-closed
+  but ugly**: a missing/empty pins KEY maps to HTTP 400 (the
+  `(ValueError, KeyError)` content handler — a server-side config error
+  wearing client-error semantics), and a missing pins FILE escapes that
+  handler entirely — the connection drops with no HTTP response, and any
+  results already written from the same batch stay written. No trace is
+  ever *accepted* in either shape. The seam-level cleanup (catch, 500,
+  count nothing) is named for `receiver.py`'s next freeze-lift; the
+  trainer leg (`partition_session_results`, no guard by design) fails the
+  whole collect closed on a missing pins file — note `pins/` ships with
+  the repo checkout, not the wheel (`pyproject` packages `gsj_rollout`
+  only), so the trainer leg runs from a checkout.
+- **G7's conjunction admits a fabricated all-zero (or equal-negative)
+  stats block** — the clauses are equalities, no positivity floor.
+  Deliberate non-fix: `reconstruction_stats` is self-reported evidence,
+  and a forger consistent enough to fabricate the block writes plausible
+  positives anyway, so a floor buys nothing against the threat model the
+  wire admits (law 6) while costing lines the law does not have. The
+  vendored builder cannot emit the shape (a trace implies ≥1 merged
+  completion). Recorded for CP-12's verdict picture.
+
 ## The failure vocabulary
 
 Failures are **byte-stable strings** `G{n}:{slug}` (e.g.
@@ -114,6 +215,9 @@ point. Four families are live: `ADM*` (admission, CP-08), `LP1`–`LP8`
 (the logprob discipline's array rules), `TR1`/`TR2` (the same section's
 two non-array tripwires — the `finish_reason` allowlist and the re-vendor
 canary), and `G5:*`. The gate families `G1`–`G4`/`G6`/`G7` are CP-11's.
+**[CP-11b] Live as of the gates CP: `G2:*`, `G3:*`, `G7:*` (the stats
+conjunction) and `H41:*` (policy-gated). Never emitted, by decision:
+`G1:*` (no trace-side card identity — below), `G4:*`/`G6:*` (ADR-0011).**
 Per-position rules report **one finding per rule** with
 `:first={index}:count={n}` rather than one per position, so a
 systematically broken array cannot flood the list.
@@ -719,6 +823,18 @@ receiver gets codec evidence; G6 has its tail but needs the decode-side
 tokenizer question answered), item 4 (the H-41 red flag), item 8 (the
 `mcp-service/README.md` correction — the component stayed frozen again),
 and the pins walk's `first-episode-validate` leg.
+
+**[CP-11b] Disposition.** Item 1 resolved gate by gate (§The gates as
+landed): G2/G3 and G7's conjunction LANDED and validated on both real
+episodes; G1 unimplementable as specced (fix recorded); G4/G6 deferred by
+ADR-0011 with their mechanisms named; item 4 (H-41) landed policy-gated;
+the `first-episode-validate` leg DONE (row 23 closed). Item 8 stays open
+— `mcp-service/` was frozen again this CP. Still owed by later CPs, the
+complete inheritance for CP-12: the G7 settings-hash clause (harness echo,
+`pi_harness.py` freeze-lift), G1's `prompt_source` statement (`config.py`
+freeze-lift, with the taskbank), G4's bring-up walk + G6's tail-ids pin
+(CP-04′), the H-41 knob's YAML mirror field (`config.py` freeze-lift),
+and the per-episode codec binding residual (row 22, estate-owned).
 
 ## [CP-10] A cutoff hole that no trace-side check can see
 
