@@ -1,0 +1,54 @@
+{
+  "task_id": "golden-task",
+  "instruction": "Summarize the case.",
+  "num_samples": 1,
+  "timeout_seconds": 900.0,
+  "runtime": {
+    "backend": "docker",
+    "image": "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3",
+    "network": "bridge"
+  },
+  "agent": {
+    "import_path": "gsj_rollout.pi_harness:PiHarness",
+    "model_name": "gsj/Qwen/Qwen3-0.6B",
+    "settings": {
+      "case_id": "case_0001",
+      "timestep": 12,
+      "clone_url_for": "http://host.docker.internal:3000/gsj-staging/{case_id}.git",
+      "mcp_url_base": "http://host.docker.internal:8790",
+      "mcp_token_secret_env": "GSJ_MCP_TOKEN_SECRET",
+      "mcp_token_ttl_s": 3600,
+      "tools_allowlist": [
+        "read",
+        "ls",
+        "grep",
+        "find",
+        "write",
+        "edit",
+        "bash",
+        "mcp_gsj_search_case",
+        "mcp_gsj_search_decisions",
+        "mcp_gsj_case_status",
+        "mcp_gsj_decision_stats"
+      ],
+      "artifacts_dir": "/tmp/gsj-artifacts",
+      "workdir": "/workspace",
+      "context_window": 32768,
+      "max_tokens": 8192,
+      "thinking": "off"
+    }
+  },
+  "builder": {
+    "strategy": "gsj_rollout.builder:ValidatingPrefixMergingBuilder",
+    "config": {
+      "end_of_turn_token_id": 151645,
+      "generation_prompt_glue_ids": [
+        151667,
+        271,
+        151668,
+        271
+      ]
+    }
+  },
+  "callback_url": "http://127.0.0.1:8300/callbacks/session_result"
+}

@@ -1,9 +1,18 @@
-"""gsj-harness-rollout-server — consumer surface (empty for now).
+"""gsj-harness-rollout-server — the consumer surface (CP-08, ADR-0008 §7).
 
-The package exports nothing beyond its version at CP-00. Runs on BOTH
-sides: the trainer imports `client` and `checks` from here, the server
-runs `pi_harness`, `receiver`, `config`, and `cli`. Logic arrives per the
-plan in docs/CHARTER.md §6.
+The trainer imports from here: `RolloutClient`/`Trace` (submit + collect),
+`checks` (the same validators the receiver ran — law 6), `load_config`/
+`RunConfig` (the one YAML). Deliberately not exported: `pi_harness` and
+`builder` (Polar loads them by import path and they import `polar`, which
+only exists in Polar's venv) and `receiver`/`cli` (server-internal,
+reached via the `gsj-rollout` console script). Importing `gsj_rollout`
+never imports `polar`.
 """
 
+from . import checks
+from .client import RolloutClient, Trace
+from .config import RunConfig, load_config
+
 __version__ = "0.1.0"
+
+__all__ = ["RolloutClient", "Trace", "checks", "load_config", "RunConfig", "__version__"]

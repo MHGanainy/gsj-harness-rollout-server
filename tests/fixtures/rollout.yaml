@@ -1,0 +1,35 @@
+# The one YAML (config.py, ADR-0008 §1) — Mac-estate values mirroring the
+# CP-07 episode. This file is the test fixture AND the working example.
+estate:
+  clone_url_for: "http://host.docker.internal:3000/gsj-staging/{case_id}.git"
+  mcp_url_base: "http://host.docker.internal:8790"
+  serving_base_url: "http://127.0.0.1:8021"
+  model: "Qwen/Qwen3-0.6B"
+runtime:
+  image: "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
+  network: bridge
+harness:
+  tools_allowlist:
+    - read
+    - ls
+    - grep
+    - find
+    - write
+    - edit
+    - bash
+    - mcp_gsj_search_case
+    - mcp_gsj_search_decisions
+    - mcp_gsj_case_status
+    - mcp_gsj_decision_stats
+  artifacts_dir: /tmp/gsj-artifacts
+builder:
+  end_of_turn_token_id: 151645          # <|im_end|> on the served tokenizer (A-15)
+  generation_prompt_glue_ids: [151667, 271, 151668, 271]  # Qwen3 no-think glue (A-21)
+polar:
+  gateway:
+    public_url: "http://192.168.0.158:8100"   # the LAN IP serves host dispatch AND the sandbox
+receiver:
+  traces_dir: /tmp/gsj-traces
+user:                                    # reserved free-form — the library never reads it
+  trainer_batch_size: 64
+  anything: {nested: [1, 2, 3]}

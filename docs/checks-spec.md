@@ -234,6 +234,19 @@ Two standing consequences:
   a check). The receiver's list is unchanged: the G7 conjunction, logprob
   discipline, and gates G1–G7 stay `checks.py`'s job at CP-10/CP-11 —
   duplicating them in the subclass now would guarantee drift.
+  **CP-08 fixed the seam** (rules untouched, per the STOP wall): one
+  entry point, `checks.validate_session_result(session_result) ->
+  list[str]` (byte-stable `{id}:{slug}[:detail]` findings, empty =
+  accepted, never raises on content), called by BOTH the receiver
+  (`receiver.ingest`) and the client (`client.partition_session_results`)
+  — law 6's two legs on the same code. It composes an **admission**
+  layer, live now, that only honors what the builder already decided
+  (`ADM1:status_not_completed`, `ADM2:builder_findings_present` + the
+  builder's own findings re-emitted, `ADM3:trajectory_missing`,
+  `ADM4:no_traces`, `ADM5:malformed_trace`) with
+  `run_trace_checks(trace)`, the stub every rule
+  in this document lands in at CP-10/CP-11 — it returns no findings
+  unconditionally today.
 
 ## The pi 0.83.0 wire dialect (CP-06, measured)
 

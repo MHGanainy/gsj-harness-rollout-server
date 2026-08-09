@@ -1,0 +1,19 @@
+# GOLDEN — what config.render_topology produces from tests/fixtures/rollout.yaml.
+# CP-09 depends on this rendering being right; change deliberately or not at all.
+rollout:
+  host: 127.0.0.1
+  port: 8080
+gateway:
+  heartbeat_interval_seconds: 30
+  nodes:
+  - id: gsj-node-01
+    host: 0.0.0.0
+    port: 8100
+    public_url: http://192.168.0.158:8100
+    model_served: Qwen/Qwen3-0.6B
+    inference:
+      engine: vllm
+      base_url: http://127.0.0.1:8021
+    max_init_workers: 4
+    max_run_workers: 2
+    max_postrun_workers: 4
