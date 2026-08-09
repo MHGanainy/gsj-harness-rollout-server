@@ -7,7 +7,7 @@
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays under 1,500 lines, excluding vendored Polar, tests, and the moved components (`corpus/`, `mcp-service/`, `forgejo/`). A checkpoint that pushes past it must stop and justify.
+2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`corpus/`, `mcp-service/`, `forgejo/`). A checkpoint that pushes past it must stop and justify.
 3. **The predecessor is frozen.** No checkpoint here modifies `gsj-envloader`.
 4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe, expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
