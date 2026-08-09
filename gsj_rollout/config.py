@@ -22,6 +22,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import checks
+
 COLLECT_SEMANTICS = """\
 Collect-N semantics (gap row 26):
 - A COLLECTED episode is a SessionResult that is (a) status COMPLETED,
@@ -75,6 +77,16 @@ class BuilderConfig(_Section):
     generation_prompt_glue_ids: list[int] | None = None  # template-specific (A-21)
 
 
+class ChecksConfig(_Section):
+    """The `CheckPolicy` operator surface (CP-11). Field-for-field mirror of
+    `checks.CheckPolicy` with defaults read from it, never restated; the
+    reasoning lives in `docs/checks-spec.md` §The logprob discipline. A CUDA
+    estate sets `zero_at_mask1_max_rate: 0.0` (row 27)."""
+
+    sentinel_threshold: float = checks.CheckPolicy.sentinel_threshold
+    zero_at_mask1_max_rate: float = checks.CheckPolicy.zero_at_mask1_max_rate
+
+
 class RolloutConfig(_Section):
     host: str = "127.0.0.1"
     port: int = 8080
@@ -124,6 +136,7 @@ class RunConfig(_Section):
     runtime: RuntimeConfig
     harness: HarnessConfig
     builder: BuilderConfig
+    checks: ChecksConfig = Field(default_factory=ChecksConfig)
     polar: PolarConfig
     receiver: ReceiverConfig
     user: dict[str, Any] = Field(default_factory=dict)  # reserved, never read
@@ -143,7 +156,7 @@ def load_config(path: str | Path) -> RunConfig:
     if not isinstance(loaded, dict):
         raise ValueError(f"config {path} must contain a top-level mapping")
     try:
-        return RunConfig.model_validate(loaded)
+        cfg = RunConfig.model_validate(loaded)
     except ValidationError as exc:
         details = []
         for err in exc.errors():
@@ -154,6 +167,12 @@ def load_config(path: str | Path) -> RunConfig:
             else:
                 details.append(f"'{'.'.join(loc)}': {err['msg']}")
         raise ValueError(f"config {path} invalid — " + "; ".join(details)) from exc
+    # `checks:` becomes the process-default policy: law 6's two call sites
+    # (`receiver.ingest`, `client.partition_session_results`) reach the rules
+    # only through `validate_session_result`'s default, and the one YAML is
+    # the complete construction surface — last `load_config` wins.
+    checks.DEFAULT_POLICY = checks.CheckPolicy(**cfg.checks.model_dump())
+    return cfg
 
 
 def render_topology(cfg: RunConfig) -> dict[str, Any]:
@@ -226,6 +245,14 @@ def render_task_request(
         "instruction": instruction,
         "num_samples": int(episodes),
         "timeout_seconds": float(timeout_seconds),
+        # G5's structural timestep (CP-11): `TaskRequest.metadata` rides the
+        # callback verbatim and its keys are hoisted into every trace's
+        # top-level metadata (`prefix_merging.py:371-375`), where
+        # `checks._episode_timestep` looks first — independent of whether
+        # the agent ever called `case_status`. Polar's reserved keys
+        # (`session_id`/`task_id` are setdefault-shadowed, `evaluation`/
+        # `policy_version` overwritten) must never appear here.
+        "metadata": {"case_id": case_id, "timestep": int(timestep)},
         "runtime": {
             "backend": cfg.runtime.backend,
             "image": cfg.runtime.image,

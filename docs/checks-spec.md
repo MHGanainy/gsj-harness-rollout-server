@@ -1,7 +1,13 @@
 # checks-spec — the `checks.py` specification
 
 Captured at CP-01, while the predecessor is fresh, so CP-10/CP-11
-**implement rather than re-derive**. Normative sources: the predecessor's
+**implement rather than re-derive**. **[CP-11] This document is the SOLE
+home of rule reasoning**: the budget migration moved `checks.py`'s
+in-code prose here wholesale (367 → 285 lines; every rule body
+byte-untouched, the one code change being the declared `policy=None`
+call-time-default seam of §The CheckPolicy operator surface; the 59-test
+suite the proof), leaving one-line pointers in code — an auditor reads
+here, the module enforces (ADR-0009). Normative sources: the predecessor's
 `gsj/envloader/gates.py` and `gsj/envloader/pin.py` @ v0.8.0 (frozen — read
 them, never modify them, law 3), its README §6, `mcp-service/README.md`
 (the G3/G5 surface), and CP-00's report notes. `checks.py` runs on **both
@@ -26,6 +32,30 @@ they are stale by construction under Polar's mounts, and the first valid
 approved sets in this repo come from the derive → re-pin →
 first-episode-validate walk (CP-07/CP-10/CP-11). The captured evidence the
 walk starts from is in `pins/` (inventory at the end of this doc).
+
+**[CP-11] The walk executed — `pins/pins.gsj.json` is the approved-set
+home, `pins/derive_pins.py` re-derives it (exit nonzero on divergence).**
+Every value on the walk's list came out derivable from evidence this repo
+owns, and every one **reproduced the predecessor's pinned value exactly**
+— which is a measurement, not an inheritance: G3 hashed from the wire
+`tools` array of both real episodes (CP-07 and CP-09), G2 from both
+episodes' wire system prompts (the docker-mode `/workspace` singleton
+property HOLDS on this stack — 4,466 chars / 4,476 UTF-8 bytes,
+byte-identical across episodes
+and to the derived singleton), G7 from the harness's own rendered
+constant, G1 from the corpus staging cards, G4's tokenizer OID from both
+model snapshots (identical — the mlx conversion carries `tokenizer.json`
+byte-for-byte), and G4's template pinned to the **served** snapshot's
+hash per finding (a) with the codec hash recorded-not-approved. "Stale by
+construction" therefore resolved to *value-stable in practice*, exactly
+as CP-04's estate-invariance measurement predicted; what changed is the
+provenance — the values are now first-class artifacts of THIS repo's wire
+evidence, not literals trusted across repos. The `first-episode-validate`
+leg stays open for CP-11b (it needs a gate consuming the file plus a
+fresh episode; estate re-collection was STOP-walled this CP). Only
+`chat_template_hash` is Mac-estate-specific (the served snapshot is the
+Mac's vllm-metal serving artifact); CP-04′ re-derives it by design when
+the Direction-A template lands.
 
 ## The four hashing conventions
 
@@ -197,6 +227,27 @@ them: no renormalization transform appears anywhere in the discipline
 math, and a trainer consuming `response_logprobs` as behavior-policy
 values is consuming raw model logprobs (plus, at turn ≥ 2, the
 4-token-per-prior-turn context approximation of F2).
+
+### [CP-11] The CheckPolicy operator surface
+
+"A CUDA estate sets it to `0.0`" now has a mechanism. The one YAML gains
+a `checks:` section (`config.ChecksConfig`) that mirrors `CheckPolicy`
+field-for-field, with defaults **read from `CheckPolicy` itself** so the
+two can never drift. The threading is deliberate and worth recording,
+because the obvious route was unavailable: both law-6 call sites
+(`receiver.ingest`, `client.partition_session_results`) call
+`validate_session_result(result)` with the default policy, and both files
+were frozen at CP-11 — so `load_config` **rebinds
+`checks.DEFAULT_POLICY`** from the section, and the checks entry points
+resolve their `policy=None` default **at call time**, not at def time
+(the one-line seam change in `checks.py`; rules untouched). Consequences,
+stated plainly: an explicitly passed policy always wins; the last
+`load_config` in a process wins (one YAML per process is the design —
+ADR-0008 §1); and a library consumer that never loads a config gets the
+spec defaults. ADR-0010 records the decision and its alternatives.
+Proven end to end in `tests/test_config.py`: loading a YAML with
+`zero_at_mask1_max_rate: 0.0` makes the frozen call shape reject the
+CP-07 trace with `LP6:…:27/441>0.0`.
 
 ### Replay: deliberately NOT implemented (CP-10 decision)
 
@@ -545,15 +596,27 @@ from what Polar captures. Mechanics as built:
   appears nowhere in the trace. They are not reconstructable receiver-side
   at all; the enforcement they backstopped is the `timestep-{T}` branch
   clone itself (CP-07, live). Recorded rather than faked.
-- **The known weakness**: today T reaches the check only via the
-  `case_status` fallback, because nothing puts the timestep into trace
-  metadata — `TaskRequest.metadata` is the structural home and
-  `config.py` renders it. That is a one-line change, on CP-11's list.
-  Until then, an episode whose agent never calls `mcp_gsj_case_status` is
-  rejected `G5:missing_evidence:timestep` — loud and fixable, which is
-  the correct side to fail on, but it IS a live rejection risk. Note the
-  circularity while it lasts: a service that misreports T defeats the
-  backstop, because it states the number the check compares against.
+- **The known weakness — RESOLVED at CP-11, the structural timestep.**
+  `config.render_task_request` now puts `{case_id, timestep}` into
+  `TaskRequest.metadata`, and the leg was verified hop-by-hop against the
+  vendored code (executed, not read): the manager copies it verbatim into
+  the dispatch (`pipeline.py:189`), the gateway proxy stamps it onto every
+  completion record (`server.py:371-377` — this is also where
+  `session_id`/`task_id` are `setdefault`-added, which is why the CP-09
+  bodies carried exactly those two keys), and the builder hoists the first
+  completion's metadata to the **top level of each trace's metadata**
+  (`prefix_merging.py:371-375`) — precisely the `metadata.timestep` the
+  check reads FIRST. So the `case_status` fallback is now a redundancy,
+  kept (it covers traces predating the change, e.g. every dumped fixture),
+  and the fail-closed posture is unchanged. Reserved-key constraint,
+  binding on anything ever added to task metadata: `session_id`/`task_id`
+  are setdefault-shadowed by ours, `evaluation` is clobbered by the eval
+  merge (`node.py:737`), `policy_version` collides with the version stamp
+  (`storage.py:152`) — never use them. Note `TaskRequest` is pydantic
+  `extra="ignore"`: a typo'd top-level key is silently dropped, so the
+  golden-file test is the guard that the `metadata` key stays spelled
+  right. Residual circularity: none for post-CP-11 episodes; a service
+  misreporting T only matters for fixture-era traces that lack metadata.
 - **The census's known blind spots**, enumerated so a shape change is
   recognized rather than rediscovered: the two regexes are quote-anchored
   and decimal (`"page": "18"` as a string does not match — the binding
@@ -643,6 +706,20 @@ What this CP touched and deliberately left, so CP-11 starts from evidence:
 9. **The `--depth 1` clone** (see the cutoff note below) — the fix is in
    `pi_harness.py`, frozen this CP.
 
+**[CP-11] Disposition.** Items 2 (the structural timestep), 5 (the pins
+walk — derive and re-pin legs), 6 (the budget: prose migrated here,
+`checks.py` 367 → 285; ADR-0009 raises its allowance), 7 (the
+`CheckPolicy` operator surface, ADR-0010) and 9 (the `--depth 1` clone,
+plus the reflog scrub the verification forced) landed this CP. Item 3
+(G5's checkout-census clauses) is **decided: dropped with a note** (gap
+row 13 carries the reasoning). Still open for CP-11b: item 1 (gates
+G1–G4/G6/G7 + the G7 stats conjunction — G3/G7/G1/G2 now have approved
+sets and are landable; G4 has its sets but needs a decision on where the
+receiver gets codec evidence; G6 has its tail but needs the decode-side
+tokenizer question answered), item 4 (the H-41 red flag), item 8 (the
+`mcp-service/README.md` correction — the component stayed frozen again),
+and the pins walk's `first-episode-validate` leg.
+
 ## [CP-10] A cutoff hole that no trace-side check can see
 
 Found while adversarially verifying G5, verified end to end, and recorded
@@ -681,6 +758,30 @@ Attribution and severity, stated honestly:
   and it closes the channel at the source rather than trying to detect it
   downstream.
 
+**[CP-11] Closed, verified, and one finding the fix itself produced.**
+The clone step is now `git clone --depth 1 --branch timestep-{T}
+--single-branch <url> <workdir> && git -C <workdir> remote remove origin
+&& rm -rf <workdir>/.git/logs`. Reproduction and cure ran in a scratch
+clone of a corpus case repo built with the exact ingest recipe and the
+real `case_0001` staging pages (the estate is torn down on this host —
+said plainly): before, `git show HEAD~1:md/page_0018.md` returned the
+post-cutoff page and `git log` leaked "full document (18 pages)"; after,
+`HEAD~1` is `fatal: invalid object name`, `git log` shows the one
+truncation commit, `git remote` is empty, and `git cat-file -e` proves
+both main's commit and the page-18 blob are absent from the object store
+— closed at the object level, not the ref level. The worktree is
+byte-identical to the unshallow clone (`diff -r`), and `read`/`grep`/
+`find`/`ls`/`rg` all work unchanged. **The finding: dropping the remote
+does NOT deny re-fetch by itself** — `.git/logs/HEAD` retains `clone:
+from <url>` (measured), which is why the reflog scrub is part of the
+step; after it, no URL is recoverable anywhere under `.git/`. **The
+residual, named honestly**: an agent that *guesses* the Forgejo endpoint
+can still re-clone over the network, because the estate as built allows
+anonymous read (CP-04: "anonymous clone 4 refs/repo"). That is estate
+posture, not a rollout-server property, it is shared with the
+predecessor's estate, and its cure (credentialed clone URLs or egress
+policy) belongs to the estate bring-up — recorded in gap row 2.
+
 ## Carried evidence inventory (`pins/`)
 
 | file | anchors |
@@ -691,3 +792,5 @@ Attribution and severity, stated honestly:
 | `settings.rendered.json` | G7 settings text (`{compaction: {enabled: false}}`) |
 | `g6_tail.captured.txt` | G6 verbatim tail (41 bytes) |
 | `derive_g2.py` | the byte-substitution derivation (`--work-root` per-case mode; `--constant-path` docker-singleton mode) |
+| `pins.gsj.json` | **[CP-11] the approved sets** — this repo's first valid pins, one provenance block per key (episode, artifact, host, Mac-specific flag) |
+| `derive_pins.py` | **[CP-11] the reproducible walk** — re-derives every approved value from the provenance-named evidence, exits nonzero on divergence; CP-04′ reruns it (served template diverges there by design) |

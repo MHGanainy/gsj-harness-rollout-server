@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""The CP-11 pins walk, reproducible: re-derives every `pins.gsj.json`
+approved value from the evidence named in its provenance block and exits
+nonzero on any divergence. Run from the repo root; CP-04' reruns it on the
+H200 estate (expect `chat_template_hash` to diverge there BY DESIGN — the
+Direction-A template flip re-pins it; see pins.gsj.json provenance).
+
+Conventions are `docs/checks-spec.md` §The four hashing conventions,
+reproduced exactly (canonical_json == the predecessor's store.py:88-91);
+the anchor test against pins/tools.captured.json proves the convention
+before any value is trusted.
+
+Snapshot roots default to the Mac estate's HF cache; override with
+GSJ_CODEC_SNAPSHOT / GSJ_SERVED_SNAPSHOT.
+"""
+
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+HF = Path.home() / ".cache/huggingface/hub"
+CODEC = Path(os.environ.get(
+    "GSJ_CODEC_SNAPSHOT",
+    HF / "models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"))
+SERVED = Path(os.environ.get(
+    "GSJ_SERVED_SNAPSHOT",
+    HF / "models--mlx-community--Qwen3-0.6B-bf16/snapshots/42096995f6402fde107068cf530136fe64b604f8"))
+
+
+def canonical_json(obj) -> str:  # the predecessor's convention, byte-exact
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":"), allow_nan=False)
+
+
+def sha256_canonical_json(obj) -> str:
+    return hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def git_blob_oid(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\x00" % len(data) + data).hexdigest()
+
+
+def main() -> int:
+    pins = json.loads((REPO / "pins/pins.gsj.json").read_text())["pins"]
+    failures: list[str] = []
+
+    def expect(key: str, value: str, label: str) -> None:
+        ok = value in pins[key]
+        print(f"{'ok  ' if ok else 'FAIL'} {key} <- {label}: {value}")
+        if not ok:
+            failures.append(f"{key}: {label} derived {value}, approved {pins[key]}")
+
+    # Convention anchor first — if this fails, nothing below is trustworthy.
+    anchor = sha256_canonical_json(json.loads((REPO / "pins/tools.captured.json").read_text()))
+    expect("tool_roster_hash", anchor, "convention anchor pins/tools.captured.json")
+
+    for episode in ("pi-corpus", "fidelity"):
+        trace = json.loads((REPO / f"docs/polar/{episode}/trace.json").read_text())
+        expect("tool_roster_hash", sha256_canonical_json(trace["tools"]),
+               f"docs/polar/{episode}/trace.json tools[]")
+        first = trace["prompt_messages"][0]
+        assert first["role"] == "system" and isinstance(first["content"], str), episode
+        expect("system_prompt_hash", sha256_bytes(first["content"].encode("utf-8")),
+               f"docs/polar/{episode}/trace.json prompt_messages[0]")
+
+    expect("system_prompt_hash",
+           sha256_bytes((REPO / "pins/container/system_prompt.container.derived.txt").read_bytes()),
+           "pins/container/system_prompt.container.derived.txt")
+    expect("settings_hash",
+           sha256_canonical_json(json.loads((REPO / "pins/settings.rendered.json").read_text())),
+           "pins/settings.rendered.json")
+    expect("settings_hash", sha256_canonical_json({"compaction": {"enabled": False}}),
+           "pi_harness settings_json constant")
+    for skill in ("summarize", "analyze"):
+        expect("skill_card_hash",
+               sha256_bytes((REPO / f"corpus/staging/skills/{skill}/SKILL.md").read_bytes()),
+               f"corpus/staging/skills/{skill}/SKILL.md")
+    for label, snap in (("codec", CODEC), ("served", SERVED)):
+        if not snap.exists():
+            print(f"skip {label} snapshot (absent): {snap}")
+            continue
+        expect("tokenizer_hash", git_blob_oid((snap / "tokenizer.json").read_bytes()),
+               f"{label} tokenizer.json")
+        template = json.loads((snap / "tokenizer_config.json").read_text())["chat_template"]
+        digest = sha256_bytes(template.encode("utf-8"))
+        if label == "served":
+            expect("chat_template_hash", digest, "served tokenizer_config.json chat_template")
+        else:  # measured and recorded, deliberately NOT approved — finding (a)
+            print(f"note chat_template_hash [codec, not approved]: {digest}")
+    expect("g6_expected_tail",
+           (REPO / "pins/g6_tail.captured.txt").read_text(),
+           "pins/g6_tail.captured.txt")
+
+    if failures:
+        print("\nDIVERGED:\n  " + "\n  ".join(failures))
+        return 1
+    print("\nall approved values reproduced")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

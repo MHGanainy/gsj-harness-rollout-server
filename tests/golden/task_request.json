@@ -3,6 +3,10 @@
   "instruction": "Summarize the case.",
   "num_samples": 1,
   "timeout_seconds": 900.0,
+  "metadata": {
+    "case_id": "case_0001",
+    "timestep": 12
+  },
   "runtime": {
     "backend": "docker",
     "image": "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3",

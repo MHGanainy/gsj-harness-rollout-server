@@ -84,3 +84,39 @@ def test_task_request_render_matches_golden():
     assert rendered == golden
     # The roster chain's pinned input (row 31): config == rendered settings.
     assert rendered["agent"]["settings"]["tools_allowlist"] == cfg.harness.tools_allowlist
+
+
+# --- CP-11: the structural timestep + the CheckPolicy operator surface ----
+
+
+def test_task_request_metadata_carries_the_task_identity():
+    """G5's structural timestep: `TaskRequest.metadata` rides the callback
+    verbatim and is hoisted into every trace's top-level metadata
+    (`prefix_merging.py:371-375`), so T stops depending on the agent having
+    called `case_status`. Polar setdefault-shadows `session_id`/`task_id`
+    and overwrites `evaluation`/`policy_version` — reserved, never ours."""
+    cfg = load_config(FIXTURE)
+    rendered = render_task_request(cfg, task_id="t", instruction="i",
+                                   case_id="case_0001", timestep=12)
+    assert rendered["metadata"] == {"case_id": "case_0001", "timestep": 12}
+    assert not {"session_id", "task_id", "evaluation", "policy_version"} & rendered["metadata"].keys()
+
+
+def test_checks_section_reaches_the_frozen_call_sites(tmp_path, callback_body, monkeypatch):
+    """Step 5's point: the knob must turn WITHOUT touching receiver/client.
+    Loading a YAML with `checks:` rebinds the process-default policy, and
+    the frozen call shape `validate_session_result(result)` picks it up."""
+    import gsj_rollout.checks as checks
+
+    monkeypatch.setattr(checks, "DEFAULT_POLICY", checks.DEFAULT_POLICY)  # register restore
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["checks"] = {"zero_at_mask1_max_rate": 0.0}  # the CUDA-estate strictness (row 27)
+    path = tmp_path / "cuda.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    cfg = load_config(path)
+    assert cfg.checks.zero_at_mask1_max_rate == 0.0
+    assert cfg.checks.sentinel_threshold == -9000.0  # untouched fields keep CheckPolicy defaults
+    assert checks.DEFAULT_POLICY == checks.CheckPolicy(zero_at_mask1_max_rate=0.0)
+    # The CP-07 trace carries 27/441 exact-0.0 at mask==1: clean under the
+    # default allowance, rejected under the configured strictness.
+    assert "LP6:zero_logprob_rate_at_mask1:27/441>0.0" in checks.validate_session_result(callback_body)

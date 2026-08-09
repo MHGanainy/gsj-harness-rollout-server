@@ -124,7 +124,20 @@ class PiHarness(BaseHarness):
                 f"printf '%s' {shlex.quote(json.dumps(settings_json))} > {_AGENT_DIR}/settings.json && "
                 f"printf '%s' {shlex.quote(json.dumps(models_template))} > {_AGENT_DIR}/models.json.tmpl"
             ),
-            f"git clone --branch {shlex.quote(branch)} --single-branch {shlex.quote(clone_url)} {shlex.quote(workdir)}",
+            # --depth 1 + remote drop + reflog scrub close the row-2
+            # git-history cutoff channel (CP-10): every timestep-{T} branch
+            # is one truncation commit on top of main's full-document
+            # commit, so an unshallow clone hands `bash` every post-cutoff
+            # page via `git show HEAD~1:…`, offline. The remote drop alone
+            # does NOT deny re-fetch — the reflogs (`.git/logs/HEAD` AND
+            # `.git/logs/refs/heads/<branch>`) keep "clone: from <url>"
+            # (CP-11, measured) — hence the whole-dir logs scrub.
+            (
+                f"git clone --depth 1 --branch {shlex.quote(branch)} --single-branch "
+                f"{shlex.quote(clone_url)} {shlex.quote(workdir)} && "
+                f"git -C {shlex.quote(workdir)} remote remove origin && "
+                f"rm -rf {shlex.quote(workdir)}/.git/logs"
+            ),
         )
         # Fail loudly (H-41 / CP-06 trap): the presets discard exec results,
         # which is how the workdir chicken-and-egg failure stayed silent.
