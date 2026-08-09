@@ -1,0 +1,12 @@
+token payload (verbatim):  {"case_id":"case_0001","timestep":12,"episode_id":"sk-polar-probe-episode","exp":1786285220}
+tampered payload:          {"case_id":"case_0001","timestep":18,"episode_id":"sk-polar-probe-episode","exp":1786285220}
+=== VALID token -> initialize === HTTP 200
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"experimental":{},"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"gsj","version":""}}}
+
+
+=== TAMPERED token (timestep 12->18, original signature) === HTTP 401
+{"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": "unauthorized: token invalid: Signature verification failed"}}
+
+ASSERT valid authorizes (200): PASS
+ASSERT tampered rejected (401): PASS

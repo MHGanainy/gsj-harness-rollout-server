@@ -190,6 +190,7 @@ and adversarially re-verified; citations are into `vendor/polar/`.
 | S2 | merge break: EOT unknown (no natural-stop completion in the chain — e.g. every turn `length`) or EOT absent from a canonical tail | `_slice_interstitial` → None (`prefix_merging.py:326-331`) → `break` (`:230-239`) → tail completions dropped | `chains_reconstructed_truncated ≥ 1`, still COMPLETED | `truncated == 0` |
 | S3 | retry/resample with an identical prompt | equal tip passes the prefix test, canonical tail is empty, `.index` raises → break (`:328-331`) — retry and everything after it dropped, first attempt trained | one truncated chain | `truncated == 0`; builder-subclass duplicate-prompt check |
 | S4 | context compaction / harness edits earlier messages | prompt no longer extends the tip → fresh chain (`:123-127`) | 2+ clean "full" chains | `chains_total == 1` |
+| S4′ | **generation-prompt-only template glue** (CP-07, measured): the served chat template appends glue to each *generation* prompt but omits it from the *history* re-render (Qwen3 `enable_thinking: false` → empty think block `[151667, 271, 151668, 271]`), so consecutive prompts are never token-prefix-stable | same mechanism as S4 (`:123-127`), but on EVERY multi-turn episode, not just on compaction | 2+ clean "full" chains, `chains_total == N turns` | **repaired, not just detected**: the `ValidatingPrefixMergingBuilder` stitches the glue out of the grouping input before delegating (config `generation_prompt_glue_ids`, A-21/ADR-0007, strict-extension only); the receiver's `chains_total == 1` is the backstop if the ids are unpinned or mis-pinned (fails closed to split chains) |
 | S5 | **EOT misdetected** (auto-detect adopted the last token of a stop-parameter/stop-sequence finish, which is arbitrary) | `_resolve_eot_id` trusts the first natural-stop completion (`:293-302`); `.index(wrong_id)` then mis-splits every tail — assistant-body fragments duplicated into the stream as mask-0 tokens, or real interstitial swallowed | full clean chain, correct stats | **prevention only**: A-15 — explicit `end_of_turn_token_id` in builder config, subclass rejects when unset |
 | S6 | a mid-chain completion with EMPTY `response_ids` (partial capture) | `prev_raw_response == []` → `canonical_tail[k:]` (`:332-334`) drops the canonical assistant body before the first EOT — a token gap vs what the engine saw; no stat records it | full clean chain | builder-subclass per-completion `response_ids` non-empty |
 | S7 | harness discards a truncated reply and re-prompts (`finish_reason=="length"` mid-chain) | prefix check passes; the first EOT in the tail closes the *new user message*, so its content is dropped while the discarded raw body stays at `mask==1` — trains on thrown-away tokens, omits real context (`:212-239,326-334`) | full clean chain | builder-subclass rule: mid-chain `finish_reason=="length"` is a hard failure |
@@ -216,6 +217,23 @@ Two standing consequences:
   POSTed body (trace-level gates, logprob discipline, the G7 stats rule)
   because law 6 trusts nothing across the wire. Shared validators live in
   `checks.py`; the subclass imports them.
+  **CP-07 built the subclass** (`gsj_rollout/builder.py`,
+  `ValidatingPrefixMergingBuilder`): all ten subclass-only rows from the
+  CP-06 sized table landed — explicit-EOT-present (`A15:`), per-completion
+  `prompt_ids`/`response_ids` non-empty (`S1:`/`S6:`), `len(choices) == 1`
+  (`S8:`), duplicate-consecutive-prompt (`S3:`), mid-chain
+  `finish_reason == "length"` (`S7:`), roster stability (`R11:`), per-turn
+  `policy_version` homogeneity (`S9:`), the pi agent-shape check replacing
+  inert P1 (`A12:non_agent_shape`), and `completion_filter.excluded == []`
+  (`A12:completion_filter_excluded_nonempty`). Findings are byte-stable
+  `{id}:{slug}[:detail]` strings on
+  `trajectory.metadata["gsj_validation"].findings`; any non-empty list
+  flips the trajectory to `status="ERROR"`. **None had to move to the
+  receiver** — every check found what it needed on the `CompletionSession`.
+  The subclass also carries the ADR-0007 glue stitch (a merge repair, not
+  a check). The receiver's list is unchanged: the G7 conjunction, logprob
+  discipline, and gates G1–G7 stay `checks.py`'s job at CP-10/CP-11 —
+  duplicating them in the subclass now would guarantee drift.
 
 ## The pi 0.83.0 wire dialect (CP-06, measured)
 
@@ -277,6 +295,17 @@ says tools were offered but which contains zero parsed tool calls is a
 red flag, and the environment guard (the predecessor's `driver_factory`
 refuses a parser-less env) must have an equivalent on the Polar side —
 absence of a parser must be an error, never a silent no-tools episode.
+**CP-07 measured the Polar-side equivalent, from the engine side**: pi
+sends `tool_choice: auto`, and vLLM/vllm-metal answer HTTP 400 —
+`"auto" tool choice requires --enable-auto-tool-choice and
+--tool-call-parser to be set` — unless the engine is served with
+`--enable-auto-tool-choice --tool-call-parser hermes`. The first CP-07
+submit ERRORed "no completions" (loud, per design) until the engine was
+restarted with those flags. This is the H-41 dependency from the vLLM
+side: a tool-parser-less engine yields zero completions, not a silent
+no-tools episode — so CP-09's engine bring-up must pin those serve flags,
+and `checks.py`'s "roster offered but zero tool calls" red flag stays the
+receiver-side backstop.
 
 ## G3's actual mechanism (stricter than a config field)
 

@@ -1,0 +1,4 @@
+{"event": "tool_call", "episode_id": "sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5", "case_id": "case_0001", "timestep": 12, "tool": "search_case", "k": 5, "n_results": 5, "latency_ms": 0.92, "cache_hit": true}
+{"event": "tool_call", "episode_id": "sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5", "case_id": "case_0001", "timestep": 12, "tool": "search_decisions", "k": 5, "n_results": 5, "latency_ms": 0.14, "cache_hit": true}
+{"event": "tool_call", "episode_id": "sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5", "case_id": "case_0001", "timestep": 12, "tool": "search_case", "k": 5, "n_results": 5, "latency_ms": 0.08, "cache_hit": true}
+{"event": "tool_call", "episode_id": "sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5", "case_id": "case_0001", "timestep": 12, "tool": "case_status", "k": null, "n_results": 1, "latency_ms": 0.01, "cache_hit": null}

@@ -1,8 +1,58 @@
 # docs/polar — real Polar artifacts
 
-**`pi/` supersedes the top-level mlx-derived files for every question
-about *our* traffic** (CP-06). The top-level CP-03 artifacts stay as the
-record of the first smoke run and of the S1 degeneration proof.
+**`pi-corpus/` is the authoritative record of *our* traffic** (CP-07: pi
+0.83.0 against the real corpus, real MCP service, cutoff live). `pi/`
+(CP-06 stub) and the top-level CP-03 mlx files stay as the record of the
+build-up: `pi/` for the wire dialect proved against a stub, CP-03 for the
+first smoke run and the S1 degeneration proof.
+
+## pi-corpus/ — the CP-07 real episode (pi 0.83.0, our corpus, cutoff live)
+
+Captured 2026-08-09 from CP-07: pi 0.83.0 (image
+`ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3`) driven by
+`gsj_rollout/pi_harness.py` via `agent.import_path`, through the gateway
+proxy against vllm-metal (vLLM 0.26.0+cpu / MLX bf16, `Qwen/Qwen3-0.6B`,
+`--max-model-len 32768`), with `pi-mcp-extension` loaded and the live
+`mcp-service` clamp. Builder
+`gsj_rollout.builder:ValidatingPrefixMergingBuilder` with
+`end_of_turn_token_id: 151645` and `generation_prompt_glue_ids:
+[151667, 271, 151668, 271]` (A-15 + ADR-0007). All files come from the
+same session `sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5` of task
+`cp07-pi-corpus`, triple `(case_0001, timestep-12, skill:summarize)` —
+2 completions, `chains_total == 1`, `glue_stitched == 1`.
+
+- `callback_session_result.json` — the full `SessionResult` callback body
+  with `status`/`error` intact (fetched from the rollout manager's
+  in-memory results via `GET /rollout/task/{id}`; the on-disk `ses_*.json`
+  strips `trajectory.status`/`error`, `pipeline.py:423-436`). Carries the
+  merged trace, `reconstruction_stats`, `completion_filter`, and the
+  builder's `gsj_validation` metadata (`findings: []`).
+- `trace.json` — the merged multi-turn `Trace`: `prompt_ids` 2965,
+  `response_ids` 7196 (441 sampled mask-1 + 6755 interstitial mask-0),
+  aligned `response_logprobs` (no positive, no sentinel, `0.0` only at
+  mask-0 plus 27 MLX-bf16 mask-1 zeros — row 27), the 11-tool roster,
+  `finish_reason: "stop"`.
+- `pi_transcript.jsonl` — pi's `--mode json` event stream, downloaded by
+  `postprocess()` before teardown: 2 assistant `message_end`, `agent_end`
+  present, tool executions incl. `write`/`read` (ok) and the four
+  `mcp_gsj_*` (ok) — the completions-vs-turns evidence (2 records == 2
+  turns).
+- `mcp_authority_log.jsonl` — the `mcp-service` `tool_call` stderr lines
+  for this session: every one carries `case_id: case_0001, timestep: 12,
+  episode_id: sk-polar-c4eef751…` — **proof the cutoff came from the
+  token's verified claims**, and that `episode_id` = the Polar session id
+  joins the two logs (ADR-0006).
+- `adversarial_probe.txt` — the security evidence, run inside the pi
+  sandbox image: the valid token authorizes (HTTP 200); the same token
+  with `timestep` mutated 12→18 (original signature kept) is rejected
+  HTTP 401 `-32001` "Signature verification failed". The agent can read
+  the token but cannot forge its scope.
+
+Not captured here (same as `pi/`): the true post-engine-prepare wire body
+is not persisted by Polar; per-completion records do not ride the callback
+(session-level checks therefore live builder-side — CP-05). The MLX-bf16
+`0.0`-at-mask-1 logprobs are a platform property of this Mac pair (row 27,
+A-16); the H200 pair re-establishes production numerics.
 
 ## pi/ — the CP-06 spike artifacts (pi 0.83.0 through Polar)
 
