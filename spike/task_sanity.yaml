@@ -1,0 +1,24 @@
+# CP-06 Step 1 sanity gate: a scripted two-turn session through the full
+# proxy -> capture -> builder path must produce chains_total == 1.
+task_id: cp06-sanity-two-turn
+instruction: "two-turn scripted probe (instruction unused by the shell harness)"
+num_samples: 1
+timeout_seconds: 300
+runtime:
+  backend: docker
+  image: python:3.11-slim
+  network: host
+  prepare:
+    - type: upload_file
+      source: /Users/elganayni/mg/workspace/gsj-harness-rollout-server/spike/two_turn_probe.py
+      target: /polar/session/two_turn_probe.py
+agent:
+  harness: shell
+  custom_shell:
+    command: "python3 /polar/session/two_turn_probe.py 2>&1 | tee /polar/session/logs/agent/probe.txt"
+builder:
+  strategy: prefix_merging
+  config:
+    # A-15: explicit, never auto-detected. Derived from the stub's vocab
+    # table (spike/stub_backend.py SPECIALS: "<|eot|>" = 260).
+    end_of_turn_token_id: 260

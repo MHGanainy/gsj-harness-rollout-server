@@ -9,3 +9,8 @@ build/
 # forgejo/ live-instance data + API tokens (never committed — ADR-0002)
 forgejo/forgejo-data/
 forgejo/.token*
+# CP-06 spike scratch outputs (curated evidence lives in spike/captures/
+# and docs/polar/pi/; these are regenerable run outputs)
+spike/rollout_results/
+spike/pi-local/node_modules/
+spike/pi-local/workspace/

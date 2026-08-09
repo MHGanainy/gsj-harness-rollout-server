@@ -1,0 +1,25 @@
+# CP-06 spike topology. Divergences from examples/calculator/topology.vllm.yaml:
+# one node, the stub backend instead of vLLM, and the LAN-IP public_url —
+# CP-03 finding 2: on macOS Docker Desktop, task network "host" lands in the
+# VM netns and cannot reach the host loopback; the host LAN IP is the one URL
+# that serves both the host-side rollout dispatch and the in-sandbox
+# OPENAI_BASE_URL.
+rollout:
+  host: 127.0.0.1
+  port: 8080
+  public_url: http://127.0.0.1:8080
+  save_dir: /Users/elganayni/mg/workspace/gsj-harness-rollout-server/spike/rollout_results
+gateway:
+  heartbeat_interval_seconds: 30
+  nodes:
+    - id: spike-node-01
+      host: 0.0.0.0
+      port: 8100
+      public_url: http://192.168.0.158:8100
+      max_init_workers: 4
+      max_run_workers: 2
+      max_postrun_workers: 4
+      model_served: stub-model
+      inference:
+        engine: vllm
+        base_url: http://127.0.0.1:8021

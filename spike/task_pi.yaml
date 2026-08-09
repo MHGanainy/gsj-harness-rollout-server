@@ -1,0 +1,25 @@
+# CP-06 Step 4: pi 0.83.0 through Polar, end to end, against the stub.
+task_id: cp06-pi-hello
+instruction: "Create a file named hello.txt containing exactly the line: hello from pi"
+num_samples: 1
+timeout_seconds: 600
+# NOTE (spike finding): runtime.workdir is deliberately NOT set. It would
+# apply to every exec including the harness setup() that creates the
+# workspace — docker exec -w on a not-yet-existing dir fails before setup
+# can run (observed: step 0 exit 127, zero records). The run step carries
+# its own cwd instead.
+runtime:
+  backend: docker
+  image: gsj-spike-pi:0.83.0
+  network: host
+agent:
+  import_path: "pi_harness_spike:PiSpikeHarness"
+  model_name: "gsj/stub-model"
+  settings:
+    thinking: "off"
+builder:
+  strategy: prefix_merging
+  config:
+    # A-15: explicit, never auto-detected. Derived from the stub's vocab
+    # table (spike/stub_backend.py SPECIALS: "<|eot|>" = 260).
+    end_of_turn_token_id: 260

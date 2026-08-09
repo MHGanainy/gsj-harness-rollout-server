@@ -1,4 +1,48 @@
-# docs/polar — real Polar artifacts from the CP-03 smoke run
+# docs/polar — real Polar artifacts
+
+**`pi/` supersedes the top-level mlx-derived files for every question
+about *our* traffic** (CP-06). The top-level CP-03 artifacts stay as the
+record of the first smoke run and of the S1 degeneration proof.
+
+## pi/ — the CP-06 spike artifacts (pi 0.83.0 through Polar)
+
+Captured 2026-08-09 from the CP-06 spike: pi 0.83.0 (the predecessor's
+byte-exact npm pins) driven by `spike/pi_harness_spike.py` via
+`agent.import_path`, docker sandbox (`gsj-spike-pi:0.83.0`), through the
+gateway proxy against the CP-06 stub backend (`spike/stub_backend.py`,
+engine `vllm`, `end_of_turn_token_id: 260` explicit per A-15). All four
+files come from the same session `sk-polar-3e3d7ce4-ea6f-4690-958a-3db2f51300bf`
+of task `cp06-pi-hello` (2 completions, `chains_total == 1`).
+
+- `pi_request.raw.json` — `original_request` of the second completion
+  (richest shape: system string + user content-part list + assistant
+  `tool_calls` echo + tool result): **exactly what pi sent**. Note the
+  always-present `stream: true`, `stream_options`, `store: false`,
+  `max_completion_tokens`, `chat_template_kwargs.enable_thinking: false`.
+- `pi_request.transformed.json` — the same completion's persisted
+  `transformed_request`. Sole transformer delta on pi traffic:
+  `max_tokens` added (copied from `max_completion_tokens`, original key
+  retained). `messages`/`tools` byte-equal to the raw form.
+- `trace.json` — the merged multi-turn `Trace`: `prompt_ids` (2734),
+  `response_ids` (149 = 119 sampled mask-1 + 30 interstitial mask-0),
+  aligned `response_logprobs`, `tools` (the 7-tool roster),
+  `finish_reason: "stop"`.
+- `callback_session_result.json` — the full `SessionResult` callback body
+  (same provenance as the CP-03 artifact: `GET /rollout/task/{id}`, the
+  manager appends the callback-validated objects verbatim).
+
+The **true wire request** (post-engine-prepare: `+logprobs`,
+`+return_token_ids`, `+top_logprobs: 0`, `stream` forced `false`,
+`stream_options` removed) is not persisted by Polar anywhere; the stub's
+own dump is the only observation point — committed at
+`spike/captures/pi_polar_stub.jsonl`. Measured against the persisted
+`transformed_request`: the deltas are exactly those five keys —
+`messages` and `tools` ride unchanged, so the persisted form IS the wire
+form for everything the gates hash.
+
+---
+
+# The CP-03 smoke-run artifacts (mlx, mini_swe_agent)
 
 Captured 2026-08-09 from the calculator example running end-to-end on the
 patched vendored pin (`f0e8343a` + P1–P3): 1 gateway node, docker sandboxes,

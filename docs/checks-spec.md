@@ -160,8 +160,12 @@ conjunction, never a subset:
 chains_total == 1
 ∧ chains_reconstructed_truncated == 0
 ∧ completions_merged == completions_total
-∧ raw_completions_total == completions_total     # valid once A-12 verifies
-                                                 # pi makes no auxiliary calls
+∧ raw_completions_total == completions_total     # A-12 at CP-06: no auxiliary
+                                                 # calls observed on the spike
+                                                 # episode — AND P1 is inert
+                                                 # against pi, so this equality
+                                                 # is the only receiver-side
+                                                 # signal there were no drops
 ```
 
 `completions_merged == completions_total` is what catches **filter
@@ -212,6 +216,55 @@ Two standing consequences:
   POSTed body (trace-level gates, logprob discipline, the G7 stats rule)
   because law 6 trusts nothing across the wire. Shared validators live in
   `checks.py`; the subclass imports them.
+
+## The pi 0.83.0 wire dialect (CP-06, measured)
+
+The facts the checks key on, captured live (`spike/captures/*.jsonl`,
+artifacts in `docs/polar/pi/`); every one was identical across the direct
+run and the through-Polar run:
+
+- **`stream: true` on every request, always** — pi-ai's openai-completions
+  client streams unconditionally, with `stream_options:
+  {"include_usage": true}`. Consequences: (a) **P1 is inert against pi**
+  (the `key in request` membership test at `record_filters.py:108` is
+  defeated by every pi call, auxiliary or not — verified by executing the
+  filter against captured bodies, `spike/p1_verdict.py`); the
+  agent-shape defense moves to the builder subclass; (b) the gateway
+  answers pi with its synthetic single-chunk SSE
+  (`gateway/server.py:736,771-810`) while the engine-side wire is always
+  `stream: false` — pi 0.83.0 parses the single-chunk form correctly;
+  (c) a persisted `transformed_request` may carry `stream: true` while
+  the wire sent `false` — never key a check on the persisted `stream`
+  value.
+- **Request keys, agent turns** (both forms): `model`, `messages`,
+  `tools`, `stream`, `stream_options`, `store` (false — bare key present),
+  `max_completion_tokens` (from models.json `maxTokens`; the field NAME
+  follows `compat.maxTokensField` — unset here, so the 0.83.0 default
+  `max_completion_tokens`), `chat_template_kwargs: {"enable_thinking":
+  false, "preserve_thinking": true}` (the `thinkingFormat:
+  "qwen-chat-template"` + `--thinking off` path; `preserve_thinking` is
+  new relative to the predecessor's record). **Never present**: `n`,
+  `stop`, `temperature`, `top_p`, `context_management`, `thinking`,
+  `output_config` — so `len(choices) == 1` holds and S5's stop-parameter
+  hazard is dormant on today's pi (A-15 stays pinned regardless).
+- **Message shapes**: exactly one `system` message, top of list, plain
+  string (so the gateway's system-fold is a no-op); `user` content is a
+  content-part list (`[{"type":"text","text":...}]` — G2/G6 code must
+  flatten); `tool` results may be plain strings; the assistant echo is
+  verbatim (`content: null` + OpenAI `tool_calls`, `arguments` string
+  byte-preserved) — which is exactly why the token-prefix test holds
+  across pi turns.
+- **Roster**: the `--tools` allowlist renders 1:1 into the wire `tools`
+  array (7 requested → 7 sent), byte-identical across
+  `original_request` == `transformed_request` == engine wire (G3's input
+  — gap rows 11/31).
+- **Session-key binding is load-bearing**: capture attribution is the
+  `Authorization: Bearer` key == Polar session id. The harness MUST
+  substitute `$OPENAI_API_KEY` into pi's `models.json` `apiKey`; a static
+  apiKey fragments capture into per-request orphan sessions (the real
+  session then builds with zero completions → builder ERROR "no trainable
+  completions" — loud, but the episode is lost). CP-07 inherits this as a
+  harness requirement.
 
 ## The H-41 lesson (why loud failure is load-bearing)
 
