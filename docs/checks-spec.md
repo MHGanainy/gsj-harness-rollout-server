@@ -97,12 +97,21 @@ placeholder). Consequences:
 - `0.0` at a `mask == 1` position is suspicious enough to fail — a real
   sampled token with probability exactly 1.0 does not occur in this
   regime;
-- **[added at CP-02]** absent/`None` `response_logprobs` on a trainable
-  trace is a hard failure. The pin's `_finalize_logprobs` nulls the
-  **entire array** if any `mask == 1` slot lacks a logprob, and upstream
-  rejects the result only when slime's `require_trainable_logprobs` is
-  configured on — `checks.py` must not inherit that config-gated
-  behavior;
+- **[added at CP-02, corrected at CP-05]** absent/`None` `response_logprobs`
+  on a trainable trace is a hard failure. The pin's `_finalize_logprobs`
+  nulls the **entire array** if any `mask == 1` slot lacks a logprob
+  (`prefix_merging.py:364`). Correction: at the pin, upstream's rejection
+  is **status-derived, not config-gated** — `require_trainable_logprobs`
+  is only a kwarg fed from `trainable = status not in (ABORTED, FAILED)`
+  (`adapter.py:120,268`; full-tree grep found no config surface), so a
+  trainable trace with any `mask == 1` and missing logprobs raises
+  `RolloutLogprobError` trainer-side. Our rule stays: the receiver fails
+  it earlier, at the source, and on both sides of the wire;
+- **[added at CP-05]** an **empty** `loss_mask` on a trace with non-empty
+  `response_ids` is a hard failure. The pin's `Trace` validator skips the
+  length check whenever the mask is empty (`models.py:116` —
+  `if self.loss_mask and …`), so the wire contract admits an N-token trace
+  with no mask; `checks.py` must never inherit that escape;
 - **[added at CP-02]** trace `finish_reason` must be in the allowlist
   `{stop, tool_calls, stop_sequence, length}` — this catches **tail**
   aborts (`finish_reason == "abort"`) for free; **mid-chain** aborts are
@@ -143,6 +152,66 @@ allowlist (logprob-discipline section) as defense-in-depth for tail
 aborts. Note also: silent chain truncation at the pin still returns
 COMPLETED — G7 must fail on `chains_reconstructed_truncated > 0`, not
 just on chain counts.
+
+**[tightened at CP-05]** The receiver-side G7 stats rule is the
+conjunction, never a subset:
+
+```
+chains_total == 1
+∧ chains_reconstructed_truncated == 0
+∧ completions_merged == completions_total
+∧ raw_completions_total == completions_total     # valid once A-12 verifies
+                                                 # pi makes no auxiliary calls
+```
+
+`completions_merged == completions_total` is what catches **filter
+amputation**: P1's filter runs *before* grouping, so a chain whose tail
+completions were dropped still counts `chains_reconstructed_full` — the
+`kept == len(chain)` test runs against the post-filter chain
+(`prefix_merging.py:261-262`) and the first two conditions are blind to
+it. The fourth condition makes any filter drop loud; under A-12 a pi
+episode has no legitimate drops, so `completion_filter.excluded` must be
+empty.
+
+## The silent-degradation catalogue (CP-05 source audit)
+
+The exact conditions under which the pin produces a degenerate trace that
+LOOKS clean — every one of these ends `status=COMPLETED` with plausible
+stats. This is the class our checks exist to catch. All confirmed in code
+and adversarially re-verified; citations are into `vendor/polar/`.
+
+| # | condition | mechanism | looks like | caught by |
+|---|---|---|---|---|
+| S1 | no engine token ids (the CP-03 live case) | empty `prompt_ids` ⇒ `0 < n` fails (`prefix_merging.py:399`) ⇒ every completion its own chain, each counted `chains_reconstructed_full` | N clean length-1 chains, `truncated == 0` | `chains_total == 1` |
+| S2 | merge break: EOT unknown (no natural-stop completion in the chain — e.g. every turn `length`) or EOT absent from a canonical tail | `_slice_interstitial` → None (`prefix_merging.py:326-331`) → `break` (`:230-239`) → tail completions dropped | `chains_reconstructed_truncated ≥ 1`, still COMPLETED | `truncated == 0` |
+| S3 | retry/resample with an identical prompt | equal tip passes the prefix test, canonical tail is empty, `.index` raises → break (`:328-331`) — retry and everything after it dropped, first attempt trained | one truncated chain | `truncated == 0`; builder-subclass duplicate-prompt check |
+| S4 | context compaction / harness edits earlier messages | prompt no longer extends the tip → fresh chain (`:123-127`) | 2+ clean "full" chains | `chains_total == 1` |
+| S5 | **EOT misdetected** (auto-detect adopted the last token of a stop-parameter/stop-sequence finish, which is arbitrary) | `_resolve_eot_id` trusts the first natural-stop completion (`:293-302`); `.index(wrong_id)` then mis-splits every tail — assistant-body fragments duplicated into the stream as mask-0 tokens, or real interstitial swallowed | full clean chain, correct stats | **prevention only**: A-15 — explicit `end_of_turn_token_id` in builder config, subclass rejects when unset |
+| S6 | a mid-chain completion with EMPTY `response_ids` (partial capture) | `prev_raw_response == []` → `canonical_tail[k:]` (`:332-334`) drops the canonical assistant body before the first EOT — a token gap vs what the engine saw; no stat records it | full clean chain | builder-subclass per-completion `response_ids` non-empty |
+| S7 | harness discards a truncated reply and re-prompts (`finish_reason=="length"` mid-chain) | prefix check passes; the first EOT in the tail closes the *new user message*, so its content is dropped while the discarded raw body stays at `mask==1` — trains on thrown-away tokens, omits real context (`:212-239,326-334`) | full clean chain | builder-subclass rule: mid-chain `finish_reason=="length"` is a hard failure |
+| S8 | `n > 1` sampling, or a harness continuing from `choices[j>0]` | only `choices[0]` is ever read (`record_utils.py:131-134`); other choices vanish; a continue-from-`j>0` merges choice 0's body at `mask==1` against conditioning the model never had | full clean chain | builder-subclass: `len(choices) == 1` per completion |
+| S9 | mixed policy versions merged into one chain | `_chain_metadata` presents the FIRST completion's metadata as the chain's (`prefix_merging.py:371-375`), no homogeneity check; the storage comment's "cross-version fallback" does not exist in the vendored builder | single-version-looking trace | receiver + subclass: all `completion_metadata[*].policy_version` equal (P3; A-13 until versions are declared) |
+
+Two standing consequences:
+
+- **G6 must decode token ids, never `response_messages`.** The
+  message-level record can silently desync from the token stream: `msg_acc`
+  bookkeeping is count-only (`prefix_merging.py:197-198,246-254`), so a
+  harness/transformer that splits or merges messages shifts the slice while
+  the token stream stays correct. `response_messages` is advisory,
+  forensic-only; every gate that reads "decoded turns" decodes
+  `response_ids` spans at `loss_mask` transitions.
+- **Where checks live (the CP-05 registry-seam recommendation): both.**
+  A `PrefixMergingBuilder` subclass in `gsj_rollout` (selected by
+  `builder.strategy = "gsj_rollout.<module>:<Class>"`, zero vendored
+  patches) runs the *session-level* checks that the callback payload
+  cannot carry (per-completion token presence, choices arity, roster
+  stability, per-turn version homogeneity, filter-drop review, EOT config
+  present) and REJECTS via `status=ERROR` — the node only escalates,
+  never clears (`node.py:579-624`). The receiver runs `checks.py` on the
+  POSTed body (trace-level gates, logprob discipline, the G7 stats rule)
+  because law 6 trusts nothing across the wire. Shared validators live in
+  `checks.py`; the subclass imports them.
 
 ## The H-41 lesson (why loud failure is load-bearing)
 
