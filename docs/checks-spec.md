@@ -83,14 +83,36 @@ problem — gap row 16).
 `0.0` permitted **only** at `mask == 0` positions (the record-semantics
 placeholder). Consequences:
 
-- the fork-reported `-9999.0` sentinel (A-7, UNVERIFIED) is **exactly what
-  this rejects** — the guard lands in `checks.py` regardless of whether
-  CP-02 verifies the report;
+- **[corrected at CP-02]** the original text here claimed the `-9999.0`
+  sentinel "is exactly what this rejects" — that is **arithmetically
+  false**: `-9999.0` is finite, ≤ 0, and not `0.0`, so it passes every
+  rule above. The guard must be **explicit**: any `mask == 1` logprob
+  **≤ −9000.0 is a hard failure** (vLLM writes `-9999.0` both as the
+  missing-logprob field default and as its clamp floor — verified at the
+  pin that upstream never value-checks it; CP-02, A-7/D2). Known FP
+  surface, accepted: a genuine ultra-low logprob clamped to the floor is
+  indistinguishable from missing — degenerate either way;
 - NaN/±inf anywhere is a hard failure;
 - a positive logprob anywhere is a hard failure;
 - `0.0` at a `mask == 1` position is suspicious enough to fail — a real
   sampled token with probability exactly 1.0 does not occur in this
-  regime.
+  regime;
+- **[added at CP-02]** absent/`None` `response_logprobs` on a trainable
+  trace is a hard failure. The pin's `_finalize_logprobs` nulls the
+  **entire array** if any `mask == 1` slot lacks a logprob, and upstream
+  rejects the result only when slime's `require_trainable_logprobs` is
+  configured on — `checks.py` must not inherit that config-gated
+  behavior;
+- **[added at CP-02]** trace `finish_reason` must be in the allowlist
+  `{stop, tool_calls, stop_sequence, length}` — this catches **tail**
+  aborts (`finish_reason == "abort"`) for free; **mid-chain** aborts are
+  invisible on the wire at the pin and are guarded by carried patch P2,
+  not by `checks.py` (D3);
+- **[added at CP-02]** re-vendor canary: a trace whose metadata carries a
+  `reasoning_loss_mask` key with `masked_tokens > 0` fails — the
+  reasoning-masking code is fork-only today (D4 refuted upstream), and
+  this tripwire costs one line while making its silent arrival via a
+  future re-vendor loud.
 
 Alignment note carried from the predecessor: the response arrays
 (`responses`, `response_mask`, `loss_mask`, `rollout_log_probs`) are
@@ -109,8 +131,18 @@ chain snapshot of **exactly**:
 - 1 finalized trajectory.
 
 Polar's capture layer must surface an equivalent snapshot **or G7 fails
-closed** (gap row 15). The fork-reported abort→ERROR defect (A-7) is
-adjacent: an aborted episode must never present a clean chain snapshot.
+closed** (gap row 15). **CP-02 verified both halves of this**: the pin's
+`prefix_merging` emits `reconstruction_stats` (chains_total,
+chains_reconstructed_full/truncated, completions_total/merged) into
+trajectory metadata, so the snapshot is readable receiver-side with zero
+vendored patching — but the abort→ERROR defect (D3) is **confirmed**: at
+the pin a mid-chain abort merges cleanly and DOES present a clean
+snapshot, so G7 alone cannot see it. The guard is carried patch P2
+(abort → session `status=ERROR`); `checks.py` adds the `finish_reason`
+allowlist (logprob-discipline section) as defense-in-depth for tail
+aborts. Note also: silent chain truncation at the pin still returns
+COMPLETED — G7 must fail on `chains_reconstructed_truncated > 0`, not
+just on chain counts.
 
 ## The H-41 lesson (why loud failure is load-bearing)
 
