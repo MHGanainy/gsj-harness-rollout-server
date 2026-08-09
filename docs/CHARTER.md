@@ -1,0 +1,217 @@
+# CHARTER — gsj-harness-rollout-server
+
+The normative document. `CLAUDE.md` governs process; this file governs
+content. Predecessor: `gsj-envloader` @ v0.8.0 — alive, frozen, not
+retired; the fallback and the golden reference.
+
+## 1. What we are building
+
+A **rollout server for our corpus**. Given a task `(case, timestep,
+prompt)` it runs our agent in an isolated sandbox with temporally-scoped
+retrieval and emits a training-ready trajectory. Trainer-agnostic,
+algorithm-agnostic, parameterization-agnostic. Episode execution and
+trajectory reconstruction are NVIDIA Polar's, vendored by SHA; our code is
+the thin shell that points Polar at our corpus, our MCP service, our pinned
+pi, and our checks.
+
+**The scope law**: "The rollout server owns: task → sandbox → agent →
+trace. Nothing else. If it stores, schedules, scores, weights, versions,
+or trains — it's out."
+
+**Size budget**: our own code stays under **1,500 lines**, excluding
+vendored Polar, tests, and the moved components (`corpus/`,
+`mcp-service/`, `forgejo/`). A checkpoint that pushes past it must stop
+and justify.
+
+## 2. Why this repo exists
+
+The predecessor works and is externally verified — the zero-CLI proof and
+the recorded runs in `gsj-envloader-examples` are real evidence. But
+roughly **1,800 of its lines are episode execution and capture**
+(`task.py`'s checkout→run→harvest→reset lifecycle with docker bolted
+inside it, `uniagent_driver.py`'s per-episode gateway sessions,
+`collector.py`'s finalize pipeline), and that layer was expensive to
+maintain: the G2 approved set had to be re-derived at nearly every image,
+rename, or mount change; the capture transport changed three times; a
+silently load-bearing parser dependency (sglang, H-41) once produced
+gates-green but tool-free episodes; and dismantling the dev harness around
+it took two dedicated checkpoints. This repo tests whether Polar can own
+that layer. **We are not migrating; the predecessor stays alive.** If the
+answer is no, we say so and stop (§9).
+
+## 3. What we start with
+
+**Carried over** (moved, not rewritten — CP-01):
+
+| component | ~lines | what it is |
+| --- | --- | --- |
+| `corpus/` | ~1,076 | the corpus source of truth + five-phase ingestion pipeline |
+| `mcp-service/` | ~1,038 | the hosted streamable-http MCP service: per-episode JWTs, per-session cutoff clamp |
+| `forgejo/` | ~120 | git-host bring-up: case repos with `timestep-{T}` branches |
+| pins / G2 tooling | ~170 | `gsj-pin` approved-set generator + `derive_g2.py` byte-substitution derivation |
+| the corpus contract | — | `corpus-contract.md`, the normative corpus document |
+
+**Adopted**:
+
+| component | how | what it owns |
+| --- | --- | --- |
+| Polar (NVIDIA) | vendored by SHA at CP-03; no releases, so pinned commit + recorded re-vendor recipe + carried patches | episode execution, sandbox lifecycle (start/stop/exec/upload/download), the model proxy, trajectory reconstruction (`prefix_merging`), the slime bridge |
+
+**Written here** (the budget per module):
+
+| module | budget (lines) |
+| --- | --- |
+| `pi_harness.py` | 50–150 |
+| `receiver.py` | 50–100 |
+| `checks.py` | 150–250 |
+| `config.py` | ~100 |
+| `client.py` | ~80 |
+| `cli.py` | ~60 |
+
+Sum 490–740 — the 1,500 ceiling is headroom, not a target.
+
+**Deliberately dropped** (and whose problem each becomes):
+
+- the store — trainer's problem
+- the loader (`ready`/`mix`/leases/serve accounting/SPI) — trainer's problem
+- staleness tracking — trainer's problem
+- collation — trainer's problem
+- `GsjCaseTask` — Polar's problem
+- `uniagent_driver` — Polar's problem
+- `collector` — Polar's problem
+
+## 4. What we assume
+
+Every new assumption gets a row here immediately. **Unverified is not
+false** — a reported defect stays UNVERIFIED until a checkpoint verifies
+it.
+
+| # | assumption | basis | if false |
+| --- | --- | --- | --- |
+| A-1 | Polar's `prefix_merging` reconstructs multi-turn token streams correctly | the paper + README claim it; **not line-verified by us** | CP-09 fidelity fails against the golden reference with no fix in our code → abandon (§9) |
+| A-2 | Polar's proxy handles pi 0.83.0's traffic unmodified | the proxy is provider-generic by design; untested against 0.83.0 | a forked translation layer would be needed → abandon (§9) |
+| A-3 | pi package identity: **RESOLVED** — same tool; `@mariozechner` deprecated → `@earendil-works`; Polar's preset pins 0.67.68, we run 0.83.0 | npm deprecation trail traced | n/a (resolved); if the rename hid a fork, the CP-05 source audit catches it |
+| A-4 | the per-episode cutoff token is injectable via `run_steps()` | Polar's episode API takes per-episode parameters | the cutoff must ride another channel (env, MCP session claim); CP-10 decides — no channel at all → abandon (§9) |
+| A-5 | the callback payload is sufficient for `checks.py` (token ids, `loss_mask`, logprobs, metadata) | Polar emits training-ready traces for its slime bridge | receiver must re-fetch or reconstruct; re-scope at CP-08 |
+| A-6 | slime can run OPD against Polar traces | Polar ships a slime bridge | trainer needs an adapter — trainer's problem, but it weakens the CP-12 verdict |
+| A-7 | the four reported fork defects are **UNVERIFIED, not false**: whitelist leak, `-9999.0` logprob sentinel, abort→ERROR, reasoning mask | second-hand reports; CP-02 audits the fork | any real one becomes a carried patch (law 4); the sentinel guard lands in `checks.py` either way |
+| A-8 | vendoring a release-less branch is sustainable | pinned SHA + recorded re-vendor recipe + carried patches | maintenance cost balloons; re-decide the dependency posture in an ADR |
+| A-9 | the carried components transfer unmodified | they were built host-portable behind the corpus contract; predecessor law forbade host-layout dependence in library code | fixes happen here (the predecessor is frozen) and the touched row flips to GAP until cured |
+| A-10 | reward sparsity at demo scale is a method/scale property, not infrastructure | the predecessor's recorded runs show the same | still not a rollout-server defect — out of scope by the scope law |
+| A-11 | **Apptainer deferred** — Polar supports it natively; we stay on Docker so the CP-09 comparison has one variable | Polar's README lists the Apptainer runtime; the predecessor was Docker-only, so Docker is the controlled variable | revisit on a cluster without a daemon; law 5 keeps `gsj_rollout/` runtime-agnostic so nothing needs rewriting |
+
+## 5. What we are testing
+
+Four questions:
+
+1. **Does Polar run our pi?** Our pinned pi 0.83.0, launched by an
+   `import_path` harness, through Polar's proxy, inside a Polar-managed
+   sandbox.
+2. **Does our cutoff survive?** The timestep's page cutoff enforced
+   per-episode, end to end, through our MCP service — nothing past page T
+   visible through any channel.
+3. **Are the traces trustworthy?** Token ids, `loss_mask`, and logprobs
+   that pass `checks.py` — the gates' evidence reconstructable from what
+   Polar captures.
+4. **Can a trainer consume them?** Submit with `client.py`, receive
+   validated traces, feed slime.
+
+The success criterion, verbatim: *one real episode against our corpus,
+through our MCP service, with the cutoff enforced, producing a trace whose
+token ids, `loss_mask`, and logprobs verifiably match the golden reference
+the predecessor produced for the same task.*
+
+## 6. The plan
+
+GPU needed only at CP-04 and CP-09. Decision points — where the plan may
+legitimately stop — are **CP-05**, **CP-09**, and **CP-12**.
+
+| CP | what | notes |
+| --- | --- | --- |
+| CP-00 | scaffold | this checkpoint |
+| CP-01 | moves | `corpus/`, `mcp-service/`, `forgejo/`, pins tooling, corpus contract |
+| CP-02 | fork audit | the four reported defects (A-7): verify or refute each |
+| CP-03 | vendor Polar | pinned SHA, re-vendor recipe, `[server]` deps become real |
+| CP-04 | golden reference | predecessor produces the reference trace (GPU) |
+| CP-05 | source audit | Polar line-read against A-1/A-4/A-5 — **decision point** |
+| CP-06 | harness spike + stub | smallest pi-under-Polar episode |
+| CP-07 | the harness | `pi_harness.py` + first `checks.py` validators |
+| CP-08 | receiver / config / CLI | `receiver.py`, `config.py`, `client.py`, `cli.py` |
+| CP-09 | fidelity | trace vs golden reference (GPU) — **decision point** |
+| CP-10 | sentinels + cutoff | logprob sentinel guard; cutoff enforcement proven |
+| CP-11 | surviving gates | which of G1–G7 survive as `checks.py` validators |
+| CP-12 | the verdict | the gap register closes the argument — **decision point** |
+
+## 7. Gap register
+
+The table this repo is judged by. **Every CP updates this table.** A
+capability silently disappearing is exactly the failure this table exists
+to prevent — DROPPED is a decision with a named owner, never an accident.
+Status ∈ `PARITY | DROPPED | GAP | BETTER | TBD`.
+
+| # | capability | gsj-envloader | here | status | notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moves at CP-01, unmodified | TBD | flip to PARITY when CP-01 lands |
+| 2 | retrieval cutoff | timestep T = page cutoff: checkout pinned to `timestep-{T}` branch; MCP per-session cutoff clamp; G5 enforces at collection | injected per episode via `run_steps()` (A-4); the MCP clamp carries over | TBD | proven at CP-10; not injectable at all → abandon (§9) |
+| 3 | git host | Forgejo estate: case repos with timestep branches; compose + bring-up/teardown scripts | moves at CP-01 | TBD | do not inherit the H200 networking archaeology (static container IP, `host.docker.internal`) blindly |
+| 4 | taskbank | `taskbank.py` builds the §3.1 parquet: skill rows resolve at rollout, free rows verbatim | tasks arrive as `(case, timestep, prompt)` via `client.submit` | TBD | whether any builder tooling moves is CP-01's call |
+| 5 | episode isolation | fresh per-episode checkout + ephemeral `docker run --rm` + per-episode gateway actor | Polar sandbox: start/stop/exec/upload/download | TBD | CP-06/CP-07 |
+| 6 | harvest-before-reset | type-level guarantee: `_reset` requires a `HarvestResult`; artifacts copied out before any git command | Polar's problem — its lifecycle must give an equivalent guarantee | TBD | CP-05 source audit checks for it |
+| 7 | token/logprob capture | gateway codec renders the pinned template; token-level loss mask; sampling-time `rollout_log_probs`; capture-once | Polar's proxy + trace reconstruction | TBD | fidelity is CP-09 |
+| 8 | multi-turn stitching | chains over the rendered stream; call offsets cross-checked against mask transitions | Polar `prefix_merging` (A-1 — not line-verified) | TBD | the central bet of the whole repo |
+| 9 | gate G1 skill_card | sha256 of the rollout-resolved skill-card text ∈ approved set; free prompts pass | `checks.py` validator | TBD | CP-11 decides survival |
+| 10 | gate G2 system_prompt | sha256 of the wire system prompt ∈ approved set; path-sensitive, collapsed to a singleton by constant container paths | `checks.py`; different sandbox mount paths silently change every hash | TBD | expect a re-derive walk when Polar's mounts differ |
+| 11 | gate G3 tool_roster | sha256 over canonical JSON of the tools array **as sent on the wire** | `checks.py`; needs wire-roster capture from Polar's proxy | TBD | inseparable from row 31 |
+| 12 | gate G4 codec | tokenizer.json git-blob OID + chat-template sha256 ∈ approved sets | `checks.py` | TBD | four distinct hashing conventions across the gates — reproduce exactly |
+| 13 | gate G5 page_cutoff | pin-free: max checkout page == T, pages contiguous from 1, every search-result page ≤ T | `checks.py`; needs a page census reconstructable from the trace | TBD | unreconstructable from the trace → abandon (§9) |
+| 14 | gate G6 thinking_off | every assistant-turn opening ends with a pinned verbatim tail; zero turns fails closed | `checks.py`; needs decoded turn openings | TBD | |
+| 15 | gate G7 no_compaction | settings canonical-JSON hash + `compaction.enabled == false` + chain snapshot exactly (1 chain, 0 rollbacks, 0 dropped tokens, 1 finalized) | `checks.py`; Polar must surface a chain-state equivalent | TBD | the reported abort→ERROR defect (A-7) is adjacent |
+| 16 | quarantine | two layers: hygiene (any gate failure ⇒ never served, kept for forensics) + row-level cap-quarantine | receiver drops failing traces at the source; no store to quarantine into | DROPPED | dropped with the store (§3); the at-source rejection half survives by law 6 — forensic retention is the trainer's problem |
+| 17 | store | append-only content-addressed Parquet `TrajectoryStore` | — | DROPPED | trainer's problem |
+| 18 | ready/mix | pinned predicate grammar + composition planner | — | DROPPED | trainer's problem |
+| 19 | staleness | `policy_lag` vs the shared version counter; teacher tapes null-lag by definition | — | DROPPED | trainer's problem |
+| 20 | serve accounting | lease-based serve/commit in one transaction; `serve_count`; SPI thermostat | — | DROPPED | trainer's problem |
+| 21 | collation | four shipped collators (`Default`/`SFT`/`OPD`/`RLVR`); no truncation anywhere by design | — | DROPPED | trainer's problem |
+| 22 | provenance | `env.provenance`: the four evidence hashes, codec fingerprint, applied sampling block, exact invocation argv | trace metadata must carry an equivalent | TBD | CP-08/CP-09 |
+| 23 | pins | `gsj-pin`: approved-set JSON, generated data, zero hash literals in code | tooling carried (~170 lines); `checks.py` consumes the same format | TBD | CP-01 |
+| 24 | deterministic env pinning | uni-agent by SHA; sglang exact-pinned; generated `collector-requirements.txt`; image tag in provenance | Polar vendored by SHA (law 4) + pinned pi 0.83.0 | TBD | |
+| 25 | one-YAML config | one YAML is the complete construction surface for both sides | `config.py` (~100 lines) | TBD | CP-08 |
+| 26 | bounded collection | `gsj-collect`: bounded rounds, graceful drain, stated exit codes | Polar's scheduler owns episode counts | TBD | H-34's lesson stands: bounded exit, signal handling, progress output are table stakes |
+| 27 | logprob sentinel guard | validators require `rollout_log_probs` finite and ≤ 0 everywhere — written to admit the `0.0` that record semantics place at mask==0 positions | `checks.py` must also guard the fork's reported `-9999.0` sentinel (A-7) | TBD | CP-10 |
+| 28 | async staging | no capability by this name; nearest referents: per-episode asyncio gateway loop, collector streaming rounds | the receiver is a callback endpoint — asynchronous by construction | TBD | pin down what this must mean at CP-08 |
+| 29 | multi-provider harness support | deliberately single-harness: pi via pinned uni-agent; "provider" meant only the pi models.json id and the tool-call parser | Polar's `import_path` runs arbitrary harnesses; we need only pi | TBD | potential BETTER, unverified |
+| 30 | HPC runtime | none — Docker-only, single H200 host, SSH-tunnel topology | Polar supports Apptainer natively; deferred by A-11 | TBD | potential BETTER; law 5 keeps it free |
+| 31 | tool roster visible in config | `tools_allowlist` is a required, pinned `TaskConfig` field rendered to `--tools` argv; G3 hashes the wire-rendered roster | **if `pi_harness.py` bakes the roster into argv literals, G3 has no pinned input** | GAP | keep the roster a hashed field in `config.py`; close at CP-07/CP-08 |
+
+## 8. Standing rules
+
+The seven scope laws as operating rules:
+
+1. Own task → sandbox → agent → trace and refuse everything else: no
+   storing, scheduling, scoring, weighting, versioning, or training.
+2. Count our own lines every checkpoint; crossing 1,500 stops the work
+   until justified in an ADR.
+3. Never touch `gsj-envloader` — read it, compare against it, fall back to
+   it, but no checkpoint modifies it.
+4. Vendor Polar by pinned SHA with a recorded re-vendor recipe; carry
+   patches as first-class, documented artifacts.
+5. Keep `gsj_rollout/` runtime-agnostic: the runtime is a config value and
+   Polar's sandbox interface (start/stop/exec/upload/download) is the only
+   contract assumed.
+6. Ship one `checks.py` and run it on both sides of the wire — the
+   receiver drops bad traces at the source, the trainer re-verifies on
+   arrival.
+7. Treat findings as deliverables: a checkpoint that proves Polar cannot
+   do something is a success, recorded in the gap register, not a failure
+   to route around.
+
+## 9. What would make us abandon this
+
+Stated in advance so the decision isn't made under sunk cost. Any of:
+
+- `prefix_merging` output does not match the golden reference and the
+  mismatch has no fix in **our** code.
+- The proxy needs a forked translation layer to speak to pi 0.83.0.
+- The cutoff cannot be injected per-episode through any sanctioned channel.
+- G5 (the page cutoff) is unreconstructable from the trace.
+- Our own code exceeds ~1,500 lines — the "thin shell" premise is false.

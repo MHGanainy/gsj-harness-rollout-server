@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gsj-harness-rollout-server"
+version = "0.1.0"
+description = "Rollout server for the gsj corpus: task -> sandbox -> agent -> trace, built on NVIDIA Polar."
+requires-python = ">=3.11"
+# Core deps are the trainer-side weight, nothing more (ADR-0001):
+dependencies = [
+    "pydantic",
+    "httpx",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# [server] is deliberately empty until CP-03 vendors Polar and the real
+# runtime deps are known; it is the documented placeholder for them.
+server = []
+dev = ["pytest"]
+
+[project.scripts]
+gsj-rollout = "gsj_rollout.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gsj_rollout"]
