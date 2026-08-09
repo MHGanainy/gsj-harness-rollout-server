@@ -77,6 +77,17 @@ its owning gate; any non-empty failure list means the trace is dropped at
 the receiver (the trainer-side quarantine/forensics story is the trainer's
 problem — gap row 16).
 
+**[CP-10] The vocabulary is now a code-level contract**:
+`checks.FINDING_VOCABULARY` enumerates every `{id}:{slug}` the module can
+emit and is **snapshot-tested** — a rename breaks the test, which is the
+point. Four families are live: `ADM*` (admission, CP-08), `LP1`–`LP8`
+(the logprob discipline's array rules), `TR1`/`TR2` (the same section's
+two non-array tripwires — the `finish_reason` allowlist and the re-vendor
+canary), and `G5:*`. The gate families `G1`–`G4`/`G6`/`G7` are CP-11's.
+Per-position rules report **one finding per rule** with
+`:first={index}:count={n}` rather than one per position, so a
+systematically broken array cannot flood the list.
+
 ## The logprob discipline
 
 `rollout_log_probs` must be **finite and ≤ 0 everywhere**, with a literal
@@ -94,9 +105,13 @@ placeholder). Consequences:
   indistinguishable from missing — degenerate either way;
 - NaN/±inf anywhere is a hard failure;
 - a positive logprob anywhere is a hard failure;
-- `0.0` at a `mask == 1` position is suspicious enough to fail — a real
-  sampled token with probability exactly 1.0 does not occur in this
-  regime;
+- **[platform-conditioned at CP-10 — this bullet as written is
+  superseded]** `0.0` at a `mask == 1` position is suspicious enough to
+  fail — a real sampled token with probability exactly 1.0 does not occur
+  in this regime. **CP-04 and CP-09 measured that it does**, on both
+  stacks, as a bf16 artifact; the landed rule is an allowance (`LP6`,
+  default 0.25 of `mask == 1` positions) and `0.0` restores exactly the
+  behavior this bullet describes. See §[CP-10] As landed;
 - **[added at CP-02, corrected at CP-05]** absent/`None` `response_logprobs`
   on a trainable trace is a hard failure. The pin's `_finalize_logprobs`
   nulls the **entire array** if any `mask == 1` slot lacks a logprob
@@ -127,6 +142,92 @@ Alignment note carried from the predecessor: the response arrays
 (`responses`, `response_mask`, `loss_mask`, `rollout_log_probs`) are
 **R-aligned** (response-length), not P+R — validation that indexes them
 over the full sequence is wrong by construction.
+
+### [CP-10] As landed, rule by rule
+
+The section above is the specification; this is what `checks.py` now
+implements, with the finding id each rule emits. All of it runs inside
+`run_trace_checks`, so both legs of law 6 get the identical rules.
+
+| id | rule | threshold / source |
+|---|---|---|
+| `LP1:response_logprobs_absent` | null/absent array on a trainable trace | trainable = any `mask == 1` (also fires on non-empty `response_ids` with an empty mask) |
+| `LP2:response_logprobs_length_ne_response_ids` | length ≠ `len(response_ids)` | the spec says "shorter"; ≠ subsumes it and catches the longer case the pin's validator would also reject |
+| `LP3:sentinel_logprob_at_mask1` | logprob ≤ `sentinel_threshold` at `mask == 1` | **−9000.0**, `CheckPolicy.sentinel_threshold` |
+| `LP4:nonfinite_logprob` | NaN/±inf **anywhere**, or a non-numeric value | Python's `json` accepts `NaN`/`Infinity` literals, so the wire really can carry them |
+| `LP5:positive_logprob` | value > 0 **anywhere** | — |
+| `LP6:zero_logprob_rate_at_mask1` | exact-`0.0` share of `mask == 1` positions above the allowance | **0.25**, `CheckPolicy.zero_at_mask1_max_rate` — platform-conditioned, see below |
+| `LP7:empty_loss_mask` | empty mask with non-empty `response_ids` | the `models.py:116` validator escape |
+| `LP8:loss_mask_length_ne_response_ids` | mask length ≠ `len(response_ids)` | — |
+| `LP9:loss_mask_value_not_binary` | any mask entry that is not int `0`/`1` (bools excluded) | **the rule every other mask-keyed rule depends on** — see below |
+| `TR1:finish_reason_not_allowed` | `finish_reason` ∉ `{stop, tool_calls, stop_sequence, length}` | tail aborts |
+| `TR2:reasoning_loss_mask_masked_tokens` | metadata `reasoning_loss_mask.masked_tokens` is anything but a recognized zero | the re-vendor canary — deliberately NOT type-narrowed |
+
+**`LP9` is not decoration; it closes a fail-open the CP-10 adversarial
+pass found in the first implementation.** Every other mask-keyed rule
+tests `flag == 1`, which is `False` for `"1"`, `2`, `1.0`-as-string and
+JSON `NaN`. So a mask whose entries were stringified by a serializer bug
+(or a hostile payload on either wire leg) made `LP1`, `LP3` and `LP6`
+simultaneously vacuous — a trace with null logprobs, or an array of pure
+`-9999.0` sentinels, was ACCEPTED on both legs of law 6, with `LP7` and
+`LP8` blind to it because the mask was neither empty nor mis-sized. The
+mask is 0/1 ints or it is not evidence. The same reasoning explains why
+`TR2` no longer type-checks its value: a canary for an unknown future
+upstream change must not assume the encoding that change will use (a
+`masked_tokens` of `3.0` or `"3"` used to pass silently).
+
+**The suspicious-zero rule is platform-conditioned, not inherited and not
+dropped** (row 27 resolves). It is an *allowance*, `CheckPolicy.
+zero_at_mask1_max_rate`, defaulting to **0.25** of `mask == 1` positions.
+The numbers behind that default, both from CP-09 and both on
+otherwise-discipline-clean traces: the predecessor's golden 20/292
+(6.8%) and Polar's collected 15/363 (4.1%), measured to be **bf16
+rounding of genuinely-near-zero RAW logprobs** (the raw replay hypothesis
+fits at the platform numerics floor; the sampling-renormalized hypothesis
+fits ~6× worse). 0.25 is ~3.6× the higher measurement: no measured trace
+trips it, a degenerate mostly-zero array still does. A CUDA estate that
+wants the original strictness sets it to `0.0` — the rule then fires on
+any single `0.0` at `mask == 1`, exactly as first specced. The mechanism
+is a knob rather than an engine sniff because the trace carries no
+engine identity (row 22: sampling and engine provenance are ESTATE
+provenance, not trace provenance).
+
+Two consequences of RAW semantics, recorded so no later rule re-derives
+them: no renormalization transform appears anywhere in the discipline
+math, and a trainer consuming `response_logprobs` as behavior-policy
+values is consuming raw model logprobs (plus, at turn ≥ 2, the
+4-token-per-prior-turn context approximation of F2).
+
+### Replay: deliberately NOT implemented (CP-10 decision)
+
+No replay-style rule lives in `checks.py`, and the reasons are recorded
+here so a later CP re-opens the decision with evidence rather than
+appetite:
+
+1. it needs an engine — `checks.py` runs receiver-side and trainer-side,
+   neither of which has one;
+2. **it cannot run at all on Mac estates** (F3): vllm-metal hardcodes
+   `prompt_logprobs_dict={}` (`vllm_metal/v1/model_runner.py:2235`) and
+   the `/v1/completions` `echo` path 500s;
+3. **its tolerance anchor does not transfer** (F4): the 0.005/0.05 bounds
+   are the predecessor's same-engine CP-18 measurement, while the
+   beside-the-engine floor measured at CP-09 is mean 0.007–0.016 on BOTH
+   stacks symmetrically;
+4. **on a multi-turn trace the check itself could be wrong** (F2): it
+   must first de-stitch the ADR-0007 generation-prompt glue, and the
+   de-stitch identity is *session-specific, not structural* — the merged
+   stream keeps prior turns' RAW sampled ids while the wire prompt
+   carries the canonical re-render. They coincided on the CP-09 session
+   (6554/6554 tokens, verified) but the vendored builder's own header
+   warns they can diverge, and the raw wire body is not persisted at the
+   pin (row 7).
+
+If one is ever built, the binding rules are: de-stitch via the
+config-pinned `generation_prompt_glue_ids` before teacher-forcing
+anything; re-render and calibrate rather than assume the identity; and
+prefer **capture-vs-capture on identical contexts** (CP-09: mean |Δ| =
+0.000114), which is the sharpest instrument this platform admits and
+needs no tolerance re-anchoring.
 
 ## G7's chain snapshot
 
@@ -414,6 +515,171 @@ CP-11). A backend that renames the key or reformats the path blinds the
 gate — `mcp-service/README.md` §Compatibility requirements is binding. If
 the page census is unreconstructable from what Polar captures, that is an
 abandonment trigger (§9).
+
+**[CP-10] Landed, one CP earlier than planned** (`checks.check_page_cutoff`),
+and the abandonment trigger is not touched — the census IS reconstructable
+from what Polar captures. Mechanics as built:
+
+- **Inputs**: the trace's `prompt_messages` + `response_messages`, scanned
+  in order. Tool names ride the assistant turn's
+  `tool_calls[].function.name`; results carry only `tool_call_id`, so the
+  name is resolved by id. Content is flattened through the finding-(b)
+  normalizer before matching (below).
+- **Filter**: `mcp_gsj_search_case` results only. Decisions results are
+  cutoff-exempt (the predecessor's ADR-0007(e)), and a built-in `read` of
+  `md/page_0007.md` cites the *checkout*, which the `timestep-{T}` branch
+  already clamps — both are measured live on the fixtures: the CP-07
+  episode's `read` results cite `md/page_0007.md` and correctly
+  contribute nothing.
+- **T comes from the trace, never from a caller.** Precedence:
+  `metadata.timestep`, then `metadata.task_metadata.timestep`, then the
+  `mcp_gsj_case_status` result's own `"timestep"` — which the service
+  states from the same verified token claims that drive the clamp.
+  Neither source ⇒ `G5:missing_evidence:timestep`, fail-closed.
+- **Findings**: `G5:search_page_gt_timestep:{page}>{T}` (the
+  predecessor's constant, detail included) and
+  `G5:missing_evidence:timestep`.
+- **What did NOT land, and why**: the predecessor's other two G5 clauses
+  — max checkout page == T, checkout pages contiguous from 1 — need the
+  *checkout* census, which is a property of the sandbox filesystem and
+  appears nowhere in the trace. They are not reconstructable receiver-side
+  at all; the enforcement they backstopped is the `timestep-{T}` branch
+  clone itself (CP-07, live). Recorded rather than faked.
+- **The known weakness**: today T reaches the check only via the
+  `case_status` fallback, because nothing puts the timestep into trace
+  metadata — `TaskRequest.metadata` is the structural home and
+  `config.py` renders it. That is a one-line change, on CP-11's list.
+  Until then, an episode whose agent never calls `mcp_gsj_case_status` is
+  rejected `G5:missing_evidence:timestep` — loud and fixable, which is
+  the correct side to fail on, but it IS a live rejection risk. Note the
+  circularity while it lasts: a service that misreports T defeats the
+  backstop, because it states the number the check compares against.
+- **The census's known blind spots**, enumerated so a shape change is
+  recognized rather than rediscovered: the two regexes are quote-anchored
+  and decimal (`"page": "18"` as a string does not match — the binding
+  compatibility contract, `mcp-service/README.md`); a tool result whose
+  `tool_call_id` resolves to no scanned call is dropped from the census
+  (its pages go uncounted) while T may still resolve; and duplicate
+  `tool_call_id`s resolve last-write-wins, so a search call shadowed by a
+  same-id exempt call disappears. Content-envelope blindness was the
+  fourth and is fixed: `_content_text` now accepts typed parts, a bare
+  part mapping, and plain-string list items.
+
+## [CP-10] The template findings that bind the gates
+
+From the template investigation (the same session that produced the
+ADR-0007 amendment). Two of the three findings are binding on `checks.py`.
+
+**Finding (a) — G4's blind spot.** G4 as specced pins the *codec*
+snapshot's chat template (`Qwen/Qwen3-0.6B` @ `c1899de…`, template sha256
+`a55ee1b1…`), but the engine serves and renders with the *served*
+snapshot's (`mlx-community/Qwen3-0.6B-bf16` @ `42096995…`, template sha256
+`87a2728c…`). **The two are different files** — 4168 vs 4116 chars — and
+the gate as specced would pass while never having measured the artifact
+that actually built the prompt. Harmless today and measured to be so: the
+differences are confined to `content`/`reasoning_content` type guards, the
+`add_generation_prompt` tail is byte-identical, and both render
+byte-identically on pi's normalized message shapes. **The binding rule:
+G4's chat-template input is the template the engine actually renders
+with.** Where both snapshots are in play, the gate needs both hashes in
+its approved set, or an explicit statement of which one it pins and why.
+CP-04′'s template flip fixes this incidentally — adopting a template via
+`--chat-template <file>` makes the served template an explicit pinned
+file with a hash of its own.
+
+**Finding (b) — the silent one, and the only one that changed code this
+CP.** Both templates coerce a non-string `content` to `''` (codec:
+`{%- if message.content is string %}…{%- else %}{%- set content = '' %}`).
+pi sends `user` content as a content-part list. So an **offline re-render**
+of a message log through the pinned template silently produces *empty
+user turns* — a prompt that never existed, hashed and compared as though
+it did. Live serving is safe (vLLM flattens content parts before
+templating), which is exactly why this would never surface in an episode.
+**The binding rule: any check that re-renders prompts from message logs,
+or reads message content at all, normalizes content parts first.**
+Landed as `checks._content_text`, used by the G5 census; G2/G6 at CP-11
+inherit it.
+
+**Finding (c)** is an assumption, not a check: thinking-ON is a strictly
+worse regime for the stitch (A-22 in the charter) — the history render
+strips *variable-length* reasoning per turn, so a fixed-ids stitch cannot
+repair it and the receiver rejects, loudly. No `checks.py` consequence
+beyond that guarantee of loudness.
+
+## CP-11's inherited list
+
+What this CP touched and deliberately left, so CP-11 starts from evidence:
+
+1. **Gates G1–G4, G6, G7** and the G7 stats conjunction — untouched by
+   the STOP wall, fully specified above.
+2. **G5's structural timestep**: put the episode timestep into
+   `TaskRequest.metadata` in `config.py:render_task_request` so it rides
+   into trace metadata; then the `case_status` fallback becomes a
+   redundancy rather than the only source.
+3. **G5's checkout-census clauses** (max page == T, contiguity):
+   unreconstructable from the trace — either drop them with a note or
+   source them from a sandbox-side probe the harness records.
+4. **The H-41 red flag** ("roster offered but zero tool calls") — named
+   in this document, not yet a rule.
+5. **The pins walk**: no approved sets exist in this repo yet (row 23),
+   so every hash-based gate needs derive → re-pin → first-episode-validate
+   before it can be turned on.
+6. **The size budget**: `checks.py` is at 367 lines against its 150–250
+   charter allowance, and `gsj_rollout/` totals 1480/1500. Six gates and
+   four hashing conventions do not fit in 20 lines — CP-11 must either
+   move the reasoning wholesale into this document and leave one-line
+   pointers in code, or raise the per-module allowance in an ADR.
+7. **`CheckPolicy` has no operator surface.** `receiver.ingest` and
+   `client.partition_session_results` call `validate_session_result` with
+   the defaults, and `config.py` (frozen this CP) has no policy section —
+   so this document's "a CUDA estate sets it to `0.0`" currently has no
+   mechanism. Wire it to the one YAML, or the H200 estate silently
+   inherits Mac-calibrated thresholds.
+8. **`mcp-service/README.md` §Compatibility still says `checks.py`
+   reimplements the G5 regexes "at CP-11"** — they landed at CP-10. The
+   component was frozen this CP; the one-line correction rides the next
+   freeze-lift, and until then an auditor reading from the service side
+   is told a live gate does not exist yet.
+9. **The `--depth 1` clone** (see the cutoff note below) — the fix is in
+   `pi_harness.py`, frozen this CP.
+
+## [CP-10] A cutoff hole that no trace-side check can see
+
+Found while adversarially verifying G5, verified end to end, and recorded
+here because it is exactly the class §7 of `CLAUDE.md` calls a deliverable:
+**the page cutoff is bypassable inside the sandbox through git history,
+and neither the server-side clamp nor G5's backstop can see it.**
+
+The mechanism, each step verified: `corpus/ingest_corpus.py:601-612` builds
+every `timestep-{T}` branch as ONE truncation commit on top of `main`'s
+full-document commit, so the branch tip's parent contains every page;
+`pi_harness.py:127` clones `--branch timestep-{T} --single-branch` with no
+`--depth`, so that parent commit and all its blobs land in
+`/workspace/.git`; and `bash` is on the measured wire roster (both
+fixtures: `[read, ls, grep, find, write, edit, bash, mcp_gsj_*]`).
+Reproduced with the exact recipe and clone flags: with the worktree
+showing pages 1–2 at T=2, `git show HEAD~1:md/page_0003.md` returns the
+future page, offline, with no MCP call involved. `git log` alone leaks the
+document's total page count via the commit subject.
+
+Attribution and severity, stated honestly:
+
+- **It is inherited, not introduced.** The predecessor clones the WHOLE
+  repository (`task.py:826-839`, `git clone -q <url>`, no `--branch`, no
+  `--depth`) and then pins the worktree to `origin/timestep-{T}` — so its
+  sandbox contains every branch including `main`. Ours is strictly
+  narrower. Row 2's PARITY claim survives; §5's "nothing past page T
+  visible through any channel" does not, on either stack.
+- **No trace-side check can catch it**, by construction: the leak flows
+  through `bash` output, not through an `mcp_gsj_*` result, so the census
+  is blind to it by the same scoping decision that makes the decisions
+  exemption correct. G5 is not the wrong shape; this is simply not G5's
+  channel.
+- **The fix is one flag**, at the next `pi_harness.py` freeze-lift:
+  `--depth 1` on the clone (plus dropping the `origin` remote, since the
+  clone URL is reachable and credentialed from inside the sandbox). Cheap,
+  and it closes the channel at the source rather than trying to detect it
+  downstream.
 
 ## Carried evidence inventory (`pins/`)
 
