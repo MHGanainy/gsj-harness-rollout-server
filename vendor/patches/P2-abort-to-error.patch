@@ -1,0 +1,171 @@
+P2 — abort -> session ERROR
+===========================
+origin:   BryanChen408/ProRL-Agent-Server (fork), commit 3c930e6da34d
+          ("trajectory: reject aborted session via trajectory.status=ERROR
+          (dev_09)", 2026-07-06), hunks 1-2 only, hand-adapted to upstream
+          stable @ f0e8343a. Hunk 3 deletes fork-only code (the dev_07
+          had_abort metadata flag) that never existed upstream — skipped;
+          grep-verified absent at the pin.
+what:     Any completion with finish_reason=="abort" anywhere in a session
+          => trajectory.status="ERROR", error="aborted generation
+          (weight-update cutoff)" in PrefixMergingBuilder.build().
+why:      CP-02/D3, CONFIRMED end-to-end: statuses at the pin are
+          {COMPLETED, TIMEOUT, ERROR}; finish_reason=="abort" is handled
+          nowhere in src/polar; a mid-chain abort merges cleanly (the
+          finalized Trace keeps only the LAST kept completion's
+          finish_reason), presents a clean chain snapshot, and trains.
+          checks.py's finish_reason allowlist catches only TAIL aborts;
+          mid-chain aborts are invisible on the wire — this capture-layer
+          patch is the only possible guard.
+propagation (verified intact at the pin, CP-03): build() ERROR ->
+          gateway node only escalates status, never clears it
+          (node.py:579-587; eval merge copies traces/metadata only,
+          node.py:738) -> SessionResult.status (node.py:614-624) -> POST
+          callback (node.py:855-861) -> rollout server accepts verbatim ->
+          slime bridge _sample_status: ERROR/error => Sample.Status.FAILED
+          (adapter.py:252-260) -> loss_mask=[0]*len (adapter.py:128-129),
+          excluded from reward baselines (reward_post_process.py:123-127).
+evidence: docs/reports/CP-02.md defect table D3; ADR-0004.
+adaptation vs fork:
+          - fork base's build() carried chain accounting inline; at the pin
+            it lives in _finalize_chain, so the check is placed after
+            final_traces construction, immediately before the return (the
+            only status="COMPLETED" site in the file);
+          - file mode kept 100644 (the fork carries prefix_merging.py as
+            100755);
+          - applies on top of P1 (context includes P1's filter wiring);
+          - adds tests/trajectory/test_prefix_merging_abort.py (the fork
+            commit carried no tests).
+
+diff --git a/src/polar/trajectory/builder/prefix_merging.py b/src/polar/trajectory/builder/prefix_merging.py
+index 4eee785..6d8980f 100644
+--- a/src/polar/trajectory/builder/prefix_merging.py
++++ b/src/polar/trajectory/builder/prefix_merging.py
+@@ -52,6 +52,18 @@ logger = logging.getLogger(__name__)
+ _NATURAL_STOP_REASONS = frozenset({"stop", "tool_calls", "stop_sequence"})
+ 
+ 
++def _completion_finish_reason(completion: CompletionRecord) -> str | None:
++    """Raw per-completion finish_reason from a completion record (pre-merge).
++
++    dev_09: any completion with finish_reason=="abort" (weight-update cutoff)
++    marks the WHOLE session non-trainable via trajectory.status="ERROR".
++    """
++    resp = completion.response if isinstance(completion.response, dict) else {}
++    choices = resp.get("choices")
++    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
++    return first.get("finish_reason")
++
++
+ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+     """Rebuild a chain's merged token stream using raw + canonical-interstitial.
+ 
+@@ -126,8 +138,16 @@ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+         }
+         final_traces = [self._finalize_chain(chain, stats) for chain in chains]
+ 
++        # dev_09: any raw completion aborted (weight-update cutoff) -> whole session
++        # is non-trainable. status="ERROR" propagates via gateway (SessionResult.status
++        # = trajectory.status) to slime, which only trains status=="COMPLETED" sessions
++        # -> the aborted session is dropped and oversampling backfills a clean one.
++        session_had_abort = any(
++            _completion_finish_reason(c) == "abort" for c in session.completions
++        )
+         return Trajectory(
+-            status="COMPLETED",
++            status="ERROR" if session_had_abort else "COMPLETED",
++            error="aborted generation (weight-update cutoff)" if session_had_abort else None,
+             metadata={
+                 "builder": "prefix_merging",
+                 "session_id": session.session_id,
+diff --git a/tests/trajectory/test_prefix_merging_abort.py b/tests/trajectory/test_prefix_merging_abort.py
+new file mode 100644
+index 0000000..95015f5
+--- /dev/null
++++ b/tests/trajectory/test_prefix_merging_abort.py
+@@ -0,0 +1,85 @@
++"""Session-level abort detection (carried patch P2, fork dev_09).
++
++A completion with ``finish_reason == "abort"`` (weight-update cutoff) anywhere
++in a session marks the whole trajectory ERROR. The merged Trace keeps only the
++last kept completion's ``finish_reason`` (see ``_finalize_chain``), so a
++mid-chain abort is otherwise invisible on the wire — the session-level scan in
++``build()`` is the only reliable detection point.
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++from polar.trajectory.builder.prefix_merging import PrefixMergingBuilder
++from polar.trajectory.models import CompletionRecord, CompletionSession
++
++
++def _record(
++    completion_id: str,
++    prompt_ids: list[int],
++    response_ids: list[int],
++    *,
++    finish_reason: str = "stop",
++) -> CompletionRecord:
++    return CompletionRecord(
++        completion_id=completion_id,
++        timestamp=f"2026-01-01T00:00:{int(completion_id[-1]):02d}+00:00",
++        # `system` marks agent-side traffic so record_filters keeps the record.
++        request={"system": "harness", "messages": [{"role": "user", "content": completion_id}]},
++        response={
++            "choices": [
++                {
++                    "input_token_ids": prompt_ids,
++                    "message": {"role": "assistant", "content": completion_id},
++                    "finish_reason": finish_reason,
++                    "logprobs": {
++                        "content": [
++                            {"token_id": token_id, "logprob": -0.1}
++                            for token_id in response_ids
++                        ]
++                    },
++                }
++            ]
++        },
++    )
++
++
++def test_mid_chain_abort_marks_session_error() -> None:
++    # c1 aborts mid-chain; c2 resumes on new weights and stops naturally. The
++    # merged trace carries c2's clean finish_reason — only the session-level
++    # scan can see the abort.
++    c1 = _record("c-1", [1, 2], [3], finish_reason="abort")
++    c2 = _record("c-2", [1, 2, 3, 9], [4], finish_reason="stop")
++    session = CompletionSession(session_id="s1", completions=[c1, c2])
++
++    trajectory = asyncio.run(
++        PrefixMergingBuilder(end_of_turn_token_id=9).build(session)
++    )
++
++    assert trajectory.status == "ERROR"
++    assert trajectory.error == "aborted generation (weight-update cutoff)"
++
++
++def test_tail_abort_marks_session_error() -> None:
++    c1 = _record("c-1", [1, 2], [3], finish_reason="abort")
++    session = CompletionSession(session_id="s1", completions=[c1])
++
++    trajectory = asyncio.run(
++        PrefixMergingBuilder(end_of_turn_token_id=9).build(session)
++    )
++
++    assert trajectory.status == "ERROR"
++    assert trajectory.error == "aborted generation (weight-update cutoff)"
++
++
++def test_clean_session_stays_completed() -> None:
++    c1 = _record("c-1", [1, 2], [3], finish_reason="stop")
++    session = CompletionSession(session_id="s1", completions=[c1])
++
++    trajectory = asyncio.run(
++        PrefixMergingBuilder(end_of_turn_token_id=9).build(session)
++    )
++
++    assert trajectory.status == "COMPLETED"
++    assert trajectory.error is None

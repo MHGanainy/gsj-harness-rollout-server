@@ -1,0 +1,200 @@
+P3 — policy-version storage half
+================================
+origin:   BryanChen408/ProRL-Agent-Server (fork), commit 08e59e75f679
+          ("per-turn policy_version stamping + cross-version session
+          exclusion", 2026-07-12), gateway/storage.py hunks ONLY (45
+          insertions + 1 replacement), hand-adapted to upstream stable @
+          f0e8343a. NOT carried: the /admin/policy_version endpoint
+          (gateway/server.py, 68 lines), the rollout-server forwarding
+          (rollout/server.py, 10 lines), and the prefix_merging
+          version-span fallback (32 lines) — CP-02 judged those halves
+          efficiency, not integrity, and they depend on fork-only machinery
+          absent at the pin (closed-session guard, _forward_gateway_admin).
+what:     SessionStore gains a live _current_policy_version
+          (set_policy_version / get_policy_version), a per-session
+          gen_version, and session_would_span(); save_message stamps the
+          live version onto record.metadata["policy_version"] per turn;
+          AND the metadata persistence fix: the writer payload is built
+          from dict(record.metadata), not the raw metadata parameter —
+          without it, per-turn stamps (or ANY post-construction mutation of
+          record.metadata) never reach the persisted completion files.
+          NOTE the pin contains the same string twice: the record-
+          construction site (16-space indent) must stay; only the writer-
+          payload site (20-space indent) changes.
+why:      CP-02/D5: at the pin, a session spanning a weight sync is
+          assembled COMPLETED with a clean chain snapshot and only the
+          stale submission-time version — the declared "well-formed but
+          semantically wrong" blind class, retroactively unauditable.
+          Per-turn stamping makes it auditable; the gsj receiver then
+          enforces "all per-turn stamps equal".
+!! INERT: until a trainer declares versions, nothing calls
+!!        set_policy_version: _current_policy_version stays None, no stamp
+!!        is written (key absent, not None), session_would_span is always
+!!        False, and the persisted JSON is byte-identical to the unpatched
+!!        pin. Charter A-13 (trainer drains all in-flight sessions before
+!!        every weight sync) covers the interim.
+evidence: docs/reports/CP-02.md defect table D5 + insertion-point answer;
+          ADR-0004; charter gap row 22 (metadata persistence bug note).
+adaptation vs fork:
+          - fork-base context lines that don't exist at the pin dropped
+            (completion_metrics field, _late_message_drop_count,
+            build_completion_metric_event / enqueue_metric calls);
+          - hunks re-anchored on pin context (fork base runs ~30-70 lines
+            ahead of the pin for the same anchors);
+          - adds tests/gateway/test_storage_policy_version.py (stamp +
+            persistence + span + inert-without-declaration).
+
+diff --git a/src/polar/gateway/storage.py b/src/polar/gateway/storage.py
+index 6e55c24..6d0ef07 100644
+--- a/src/polar/gateway/storage.py
++++ b/src/polar/gateway/storage.py
+@@ -23,6 +23,9 @@ class _SessionState:
+     api_type: str | None = None
+     metadata: dict[str, Any] = field(default_factory=dict)
+     completions: list[CompletionRecord] = field(default_factory=list)
++    # policy_version live when this session generated its FIRST turn.  The version-span
++    # guard rejects the session's next request if current_version != gen_version.
++    gen_version: int | None = None
+ 
+ 
+ class SessionStore:
+@@ -32,6 +35,35 @@ class SessionStore:
+         self._lock = threading.RLock()
+         self._sessions: dict[str, _SessionState] = {}
+         self._completion_writer = completion_writer
++        # Live policy_version, bumped by the trainer at each weight sync (during the
++        # engine pause, before resume) via POST /admin/policy_version.  Stamped onto
++        # each completion and used for the version-span guard.  None = never set yet.
++        self._current_policy_version: int | None = None
++
++    def set_policy_version(self, version: int) -> None:
++        """Set the live policy_version (called at each weight sync, during pause)."""
++        with self._lock:
++            self._current_policy_version = int(version)
++
++    def get_policy_version(self) -> int | None:
++        with self._lock:
++            return self._current_policy_version
++
++    def session_gen_version(self, session_id: str) -> int | None:
++        """O(1) read of a session's first-generation version (version-span guard)."""
++        with self._lock:
++            state = self._sessions.get(session_id)
++            return state.gen_version if state is not None else None
++
++    def session_would_span(self, session_id: str) -> bool:
++        """True iff this session already generated under a version != current, so its
++        NEXT turn would span a weight update (mixed-weight).  O(1); reject before
++        generating.  False for fresh sessions (no gen_version) and when version unset."""
++        with self._lock:
++            cur = self._current_policy_version
++            state = self._sessions.get(session_id)
++            gen = state.gen_version if state is not None else None
++            return cur is not None and gen is not None and cur != gen
+ 
+     def close(self) -> None:
+         with self._lock:
+@@ -112,6 +144,14 @@ class SessionStore:
+                 api_type=api_type,
+                 metadata=metadata,
+             )
++            # version-span guard: stamp the live policy_version onto this completion and
++            # record the session's first-generation version.  Used by the gateway entry
++            # interception (reject next turn if current != gen_version) and the
++            # prefix_merging cross-version fallback.
++            if self._current_policy_version is not None:
++                record.metadata["policy_version"] = self._current_policy_version
++                if state.gen_version is None:
++                    state.gen_version = self._current_policy_version
+             state.completions.append(record)
+             state.completion_count = len(state.completions)
+             effective_task_id = state.task_id
+@@ -133,7 +173,11 @@ class SessionStore:
+                     "original_request": original_request or {},
+                     "transformed_request": request,
+                     "response": response,
+-                    "metadata": dict(metadata or {}),
++                    # version-span: persist record.metadata (carries the live per-turn
++                    # policy_version stamped in save_message), NOT the raw session-level
++                    # scheduler metadata param -- else disk shows the constant submission
++                    # version and cross-version can't be audited from the persisted files.
++                    "metadata": dict(record.metadata),
+                 },
+             )
+         return record.completion_id
+diff --git a/tests/gateway/test_storage_policy_version.py b/tests/gateway/test_storage_policy_version.py
+new file mode 100644
+index 0000000..d48e950
+--- /dev/null
++++ b/tests/gateway/test_storage_policy_version.py
+@@ -0,0 +1,70 @@
++"""Per-turn policy_version stamping in SessionStore (carried patch P3, storage half).
++
++Inert until ``set_policy_version()`` is called: with no version declared, the
++store's in-memory records and persisted payloads are identical to the unpatched
++pin's. The persistence half (writer payload built from ``record.metadata``, not
++the raw ``metadata`` parameter) is what makes the per-turn stamp reach disk.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++from polar.gateway.storage import SessionStore
++
++_REQUEST = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
++_RESPONSE = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
++
++
++class _CapturingWriter:
++    def __init__(self) -> None:
++        self.records: list[dict[str, Any]] = []
++
++    def enqueue(self, *, task_id, session_id, completion_id, record) -> None:
++        self.records.append(record)
++
++
++def test_save_message_stamps_live_policy_version_and_persists_it() -> None:
++    writer = _CapturingWriter()
++    store = SessionStore(completion_writer=writer)
++    store.set_policy_version(3)
++
++    store.save_message("s1", _REQUEST, _RESPONSE, metadata={"submitted_version": 1})
++
++    [completion] = store.get_completions("s1")
++    assert completion["metadata"]["policy_version"] == 3
++    assert completion["metadata"]["submitted_version"] == 1
++    # The persistence fix: the stamp reaches the writer payload (disk), not just memory.
++    [persisted] = writer.records
++    assert persisted["metadata"]["policy_version"] == 3
++    assert persisted["metadata"]["submitted_version"] == 1
++
++
++def test_session_would_span_only_after_a_version_bump() -> None:
++    store = SessionStore()
++    store.set_policy_version(3)
++    store.save_message("s1", _REQUEST, _RESPONSE)
++
++    assert store.session_gen_version("s1") == 3
++    assert store.session_would_span("s1") is False
++
++    store.set_policy_version(4)
++
++    assert store.session_would_span("s1") is True
++    # A fresh session has no gen_version yet and never spans.
++    assert store.session_would_span("s2") is False
++
++
++def test_inert_without_a_declared_version() -> None:
++    writer = _CapturingWriter()
++    store = SessionStore(completion_writer=writer)
++
++    store.save_message("s1", _REQUEST, _RESPONSE, metadata={"submitted_version": 1})
++
++    [completion] = store.get_completions("s1")
++    assert "policy_version" not in completion["metadata"]
++    [persisted] = writer.records
++    assert persisted["metadata"] == {"submitted_version": 1}
++    assert store.get_policy_version() is None
++    assert store.session_gen_version("s1") is None
++    assert store.session_would_span("s1") is False

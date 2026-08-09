@@ -15,8 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# [server] is deliberately empty until CP-03 vendors Polar and the real
-# runtime deps are known; it is the documented placeholder for them.
+# [server] stays deliberately empty, now as a decision rather than a
+# placeholder (CP-03, ADR-0005): Polar runs from its own vendor/polar/.venv
+# (uv, Python 3.12, upstream's install recipe), and at CP-06 the dependency
+# points the other way — Polar's venv hosts gsj_rollout via import_path,
+# which works because our core deps are a subset of Polar's five (A-14).
 server = []
 dev = ["pytest"]
 

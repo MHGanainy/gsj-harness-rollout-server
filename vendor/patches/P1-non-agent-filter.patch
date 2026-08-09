@@ -1,0 +1,756 @@
+P1 — non-agent completion filter
+================================
+origin:   BryanChen408/ProRL-Agent-Server (fork), commits d764ecce0d0b
+          ("Filter non-trainable completions in trajectory builders",
+          2026-06-21) + cb6132824ad4 (shape-only fix: drop the content
+          whitelist, 2026-07-27), squashed to the post-fix state and
+          hand-adapted to upstream stable @ f0e8343a (fork base = stable~2;
+          neither commit cherry-picks cleanly).
+what:     Adds src/polar/trajectory/builder/record_filters.py — a shape-only
+          _is_non_agent_side_completion (single user message, no system, no
+          tools, no SDK-only keys => non-agent) plus truncated-marker and
+          empty-choices filters — and wires filter_trainable_completions()
+          into both builders (per_request, prefix_merging). All-filtered
+          sessions => trajectory ERROR "no trainable completions after
+          completion filter"; filter bookkeeping lands in trajectory
+          metadata under "completion_filter"; prefix_merging stats gain
+          raw_completions_total (pre-filter) next to completions_total
+          (post-filter).
+why:      CP-02/D1, confirmed WORSE than reported: upstream at the pin has
+          NO non-agent filter at all (record_filters.py is fork-born), so
+          every auxiliary harness LLM call becomes a well-formed
+          chain_length=1 trainable trace carrying full session reward.
+          Fork validation: 38/38 dirty caught, 0/1488 false kills, measured
+          density up to 27% of a batch. This patch is ADDITIVE at the pin,
+          not a fix of existing upstream code.
+evidence: docs/reports/CP-02.md defect table D1; ADR-0004.
+!! FLAG:  The shape criteria were validated against a DIFFERENT harness's
+!!        wire dialect (Anthropic-API-shaped: top-level `system` key,
+!!        `thinking` / `stream` / `context_management` / `output_config`).
+!!        They MUST be re-validated against pi 0.83.0's actual wire dialect
+!!        at CP-06 (charter A-12) before any gsj rollout is trusted.
+adaptation vs fork:
+          - squashed to the post-fix filter (the content whitelist never
+            existed in this repo's history);
+          - prefix_merging hunks re-authored against pin context (pin's
+            stats dict has no completions_preserved/completions_dropped;
+            pin metadata uses len(chains), not len(final_traces));
+          - fork's builder-level tests re-hosted in the new
+            tests/trajectory/test_builder_filter_wiring.py (the fork-base
+            test files don't match / don't exist at the pin);
+          - four pin fixture sites amended with the fork's own
+            "system": "harness" agent-side marker (two tests in
+            test_per_request_builder.py + two shared record helpers in
+            test_engine_trajectory_equivalence.py feeding six tests — their
+            bare single-user-message requests are exactly the shape the
+            filter drops);
+          - tests/trajectory/test_record_filters.py is fork-verbatim.
+
+diff --git a/src/polar/trajectory/builder/per_request.py b/src/polar/trajectory/builder/per_request.py
+index f542185..fad6f04 100644
+--- a/src/polar/trajectory/builder/per_request.py
++++ b/src/polar/trajectory/builder/per_request.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ from polar.trajectory.builder.base import BaseTrajectoryBuilder
++from polar.trajectory.builder.record_filters import filter_trainable_completions
+ from polar.trajectory.builder.record_utils import build_trace_from_completion
+ from polar.trajectory.models import CompletionSession, Trajectory
+ 
+@@ -11,6 +12,7 @@ class PerRequestBuilder(BaseTrajectoryBuilder):
+     """Convert every stored completion record into one trajectory trace."""
+ 
+     async def build(self, session: CompletionSession) -> Trajectory:
++        filter_result = filter_trainable_completions(session.completions)
+         if not session.completions:
+             return Trajectory(
+                 status="ERROR",
+@@ -24,6 +26,20 @@ class PerRequestBuilder(BaseTrajectoryBuilder):
+                 traces=[],
+                 error="no completions",
+             )
++        if not filter_result.kept:
++            return Trajectory(
++                status="ERROR",
++                metadata={
++                    "builder": "per_request",
++                    "session_id": session.session_id,
++                    "task_metadata": dict(session.metadata),
++                    "record_count": len(session.completions),
++                    "completion_filter": filter_result.metadata,
++                    **_top_level_scheduler_metadata(session.metadata),
++                },
++                traces=[],
++                error="no trainable completions after completion filter",
++            )
+ 
+         return Trajectory(
+             status="COMPLETED",
+@@ -36,12 +52,13 @@ class PerRequestBuilder(BaseTrajectoryBuilder):
+                 "model_used": session.model_used,
+                 "record_count": len(session.completions),
+                 "task_metadata": dict(session.metadata),
+-                "trace_count": len(session.completions),
++                "trace_count": len(filter_result.kept),
++                "completion_filter": filter_result.metadata,
+                 **_top_level_scheduler_metadata(session.metadata),
+             },
+             traces=[
+                 build_trace_from_completion(completion)
+-                for completion in session.completions
++                for completion in filter_result.kept
+             ],
+         )
+ 
+diff --git a/src/polar/trajectory/builder/prefix_merging.py b/src/polar/trajectory/builder/prefix_merging.py
+index 02c84d3..4eee785 100644
+--- a/src/polar/trajectory/builder/prefix_merging.py
++++ b/src/polar/trajectory/builder/prefix_merging.py
+@@ -42,6 +42,7 @@ from copy import deepcopy
+ from typing import Any
+ 
+ from polar.trajectory.builder.base import BaseTrajectoryBuilder
++from polar.trajectory.builder.record_filters import filter_trainable_completions
+ from polar.trajectory.builder.record_utils import build_trace_from_completion
+ from polar.trajectory.models import CompletionRecord, CompletionSession, Trace, Trajectory
+ 
+@@ -73,6 +74,7 @@ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+         self._configured_eot_id = end_of_turn_token_id
+ 
+     async def build(self, session: CompletionSession) -> Trajectory:
++        filter_result = filter_trainable_completions(session.completions)
+         if not session.completions:
+             return Trajectory(
+                 status="ERROR",
+@@ -86,11 +88,25 @@ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+                 traces=[],
+                 error="no completions",
+             )
++        if not filter_result.kept:
++            return Trajectory(
++                status="ERROR",
++                metadata={
++                    "builder": "prefix_merging",
++                    "session_id": session.session_id,
++                    "task_metadata": dict(session.metadata),
++                    "record_count": len(session.completions),
++                    "completion_filter": filter_result.metadata,
++                    **_top_level_scheduler_metadata(session.metadata),
++                },
++                traces=[],
++                error="no trainable completions after completion filter",
++            )
+ 
+         chains: list[list[CompletionRecord]] = []
+         chain_tips: list[list[int]] = []  # last completion's prompt_ids, per chain
+ 
+-        for completion in session.completions:
++        for completion in filter_result.kept:
+             prompt_ids = build_trace_from_completion(completion).prompt_ids
+             chain_idx = self._find_extendable_chain(prompt_ids, chain_tips)
+             if chain_idx is None:
+@@ -104,7 +120,8 @@ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+             "chains_total": len(chains),
+             "chains_reconstructed_full": 0,
+             "chains_reconstructed_truncated": 0,
+-            "completions_total": len(session.completions),
++            "raw_completions_total": len(session.completions),
++            "completions_total": len(filter_result.kept),
+             "completions_merged": 0,
+         }
+         final_traces = [self._finalize_chain(chain, stats) for chain in chains]
+@@ -122,6 +139,7 @@ class PrefixMergingBuilder(BaseTrajectoryBuilder):
+                 "task_metadata": dict(session.metadata),
+                 "trace_count": len(chains),
+                 "reconstruction_stats": stats,
++                "completion_filter": filter_result.metadata,
+                 **_top_level_scheduler_metadata(session.metadata),
+             },
+             traces=final_traces,
+diff --git a/src/polar/trajectory/builder/record_filters.py b/src/polar/trajectory/builder/record_filters.py
+new file mode 100644
+index 0000000..1a7b4aa
+--- /dev/null
++++ b/src/polar/trajectory/builder/record_filters.py
+@@ -0,0 +1,117 @@
++"""Filters for completion records that must not become trainable traces."""
++
++from __future__ import annotations
++
++from collections import Counter
++from dataclasses import dataclass
++from typing import Any
++
++from polar.trajectory.models import CompletionRecord
++
++
++@dataclass(frozen=True, slots=True)
++class CompletionFilterResult:
++    kept: list[CompletionRecord]
++    metadata: dict[str, Any]
++
++
++def filter_trainable_completions(
++    completions: list[CompletionRecord],
++) -> CompletionFilterResult:
++    kept: list[CompletionRecord] = []
++    excluded: list[dict[str, str]] = []
++    reasons: Counter[str] = Counter()
++    for completion in completions:
++        reason = exclude_completion_reason(completion)
++        if reason is None:
++            kept.append(completion)
++            continue
++        reasons[reason] += 1
++        excluded.append(
++            {
++                "completion_id": completion.completion_id,
++                "reason": reason,
++            }
++        )
++
++    return CompletionFilterResult(
++        kept=kept,
++        metadata={
++            "input_completions": len(completions),
++            "kept_completions": len(kept),
++            "excluded_completions": len(excluded),
++            "excluded_reasons": dict(sorted(reasons.items())),
++            "excluded_completion_ids": [item["completion_id"] for item in excluded],
++            "excluded": excluded,
++        },
++    )
++
++
++def exclude_completion_reason(completion: CompletionRecord) -> str | None:
++    if _has_truncated_marker(completion.model_dump(mode="python")):
++        return "persisted_truncated_completion"
++    if _has_empty_choices(completion):
++        return "empty_completion"
++    if _is_non_agent_side_completion(completion):
++        return "non_agent_side_completion"
++    return None
++
++
++def _has_truncated_marker(value: Any) -> bool:
++    if isinstance(value, dict):
++        if value.get("__truncated") is True:
++            return True
++        return any(_has_truncated_marker(item) for item in value.values())
++    if isinstance(value, list):
++        return any(_has_truncated_marker(item) for item in value)
++    return False
++
++
++def _has_empty_choices(completion: CompletionRecord) -> bool:
++    response = completion.response if isinstance(completion.response, dict) else {}
++    choices = response.get("choices")
++    return not (
++        isinstance(choices, list)
++        and choices
++        and isinstance(choices[0], dict)
++    )
++
++
++def _is_non_agent_side_completion(completion: CompletionRecord) -> bool:
++    """True when a request cannot have come from the agent loop.
++
++    Judged purely on request *shape*, never on payload text. Every agent-side
++    call carries the harness system prompt, the tool schema, and at least one
++    SDK-only field (``thinking`` / ``stream`` / ...); a request with a lone user
++    message and none of those is a bare completion the harness emitted outside
++    the agent loop — typically the body of a large file the agent just Read.
++
++    Content matching used to gate this check against one hardcoded Triton
++    handbook, so the same shape carrying any other payload (cmake sources,
++    judge output, skill frontmatter) slipped through and became a trainable
++    trace. Shape alone is sufficient and task-agnostic.
++    """
++    request = _request_for_shape_check(completion)
++    messages = request.get("messages")
++    if not isinstance(messages, list) or len(messages) != 1:
++        return False
++    message = messages[0]
++    if not isinstance(message, dict) or message.get("role") != "user":
++        return False
++    if request.get("system") is not None:
++        return False
++    if any(isinstance(item, dict) and item.get("role") == "system" for item in messages):
++        return False
++    tools = request.get("tools")
++    if isinstance(tools, list) and tools:
++        return False
++    if any(key in request for key in ("context_management", "thinking", "output_config", "stream")):
++        return False
++    return True
++
++
++def _request_for_shape_check(completion: CompletionRecord) -> dict[str, Any]:
++    for request in (completion.original_request, completion.request):
++        if isinstance(request, dict) and request:
++            return request
++    return {}
+diff --git a/tests/trajectory/test_builder_filter_wiring.py b/tests/trajectory/test_builder_filter_wiring.py
+new file mode 100644
+index 0000000..08de69f
+--- /dev/null
++++ b/tests/trajectory/test_builder_filter_wiring.py
+@@ -0,0 +1,201 @@
++"""Builder-level wiring for the completion filter (carried patch P1).
++
++The fork validated the wiring inside its own ``test_per_request_builder.py``
++and ``test_prefix_merging_builder.py``; neither fork-base file matches the pin
++(the second does not exist here at all), so the portable assertions are
++re-hosted in this file. The prefix-merging assertions drop the fork-base-only
++stats keys (``completions_preserved`` / ``completions_dropped``) the pin does
++not emit.
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++from polar.trajectory.builder.per_request import PerRequestBuilder
++from polar.trajectory.builder.prefix_merging import PrefixMergingBuilder
++from polar.trajectory.models import CompletionRecord, CompletionSession
++
++
++def _normal_record(
++    completion_id: str,
++    prompt_ids: list[int],
++    response_ids: list[int],
++) -> CompletionRecord:
++    return CompletionRecord(
++        completion_id=completion_id,
++        timestamp=f"2026-01-01T00:00:{len(completion_id):02d}+00:00",
++        # `system` marks agent-side traffic so record_filters keeps the record.
++        request={"system": "harness", "messages": [{"role": "user", "content": completion_id}]},
++        response={
++            "choices": [
++                {
++                    "input_token_ids": prompt_ids,
++                    "message": {"role": "assistant", "content": completion_id},
++                    "finish_reason": "stop",
++                    "logprobs": {
++                        "content": [
++                            {"token_id": token_id, "logprob": -0.1}
++                            for token_id in response_ids
++                        ]
++                    },
++                }
++            ]
++        },
++    )
++
++
++def _side_read_record(completion_id: str) -> CompletionRecord:
++    # A bare request the harness emitted outside the agent loop, carrying the body of
++    # a file the agent just Read. Dropped on shape (lone user message, no system /
++    # tools / SDK fields), so any payload is covered — not just one known document.
++    request = {
++        "messages": [
++            {
++                "role": "user",
++                "content": "# Copyright (c) 2025 Huawei\nfunction(ascendc_compile_kernel)\nendfunction()\n",
++            }
++        ],
++    }
++    return CompletionRecord(
++        completion_id=completion_id,
++        timestamp=f"2026-01-01T00:00:{len(completion_id):02d}+00:00",
++        original_request=request,
++        request=request,
++        response={
++            "choices": [
++                {
++                    "input_token_ids": [1],
++                    "message": {"role": "assistant", "content": "doc review"},
++                    "finish_reason": "stop",
++                    "logprobs": {"content": [{"token_id": 10, "logprob": -0.1}]},
++                }
++            ]
++        },
++    )
++
++
++def _truncated_record(completion_id: str) -> CompletionRecord:
++    return CompletionRecord(
++        completion_id=completion_id,
++        timestamp=f"2026-01-01T00:00:{len(completion_id):02d}+00:00",
++        request={"messages": [{"role": "user", "content": completion_id}]},
++        response={"id": "r1", "__truncated": True},
++    )
++
++
++def _empty_record(completion_id: str) -> CompletionRecord:
++    return CompletionRecord(
++        completion_id=completion_id,
++        timestamp=f"2026-01-01T00:00:{len(completion_id):02d}+00:00",
++        request={"messages": [{"role": "user", "content": completion_id}]},
++        response={"id": "r1", "choices": []},
++    )
++
++
++def test_per_request_builder_filters_non_trainable_completions() -> None:
++    session = CompletionSession(
++        session_id="session-1",
++        completions=[
++            _normal_record("keep-1", [1], [10]),
++            _side_read_record("side-1"),
++            _truncated_record("truncated-1"),
++            _empty_record("empty-1"),
++        ],
++    )
++
++    trajectory = asyncio.run(PerRequestBuilder().build(session))
++
++    assert trajectory.status == "COMPLETED"
++    assert len(trajectory.traces) == 1
++    assert "source_completion_ids" not in trajectory.traces[0].metadata
++    assert trajectory.metadata["record_count"] == 4
++    assert trajectory.metadata["trace_count"] == 1
++    completion_filter = trajectory.metadata["completion_filter"]
++    assert completion_filter["input_completions"] == 4
++    assert completion_filter["kept_completions"] == 1
++    assert completion_filter["excluded_completions"] == 3
++    assert completion_filter["excluded_reasons"] == {
++        "empty_completion": 1,
++        "non_agent_side_completion": 1,
++        "persisted_truncated_completion": 1,
++    }
++    assert set(completion_filter["excluded_completion_ids"]) == {
++        "side-1",
++        "truncated-1",
++        "empty-1",
++    }
++    assert {
++        (item["completion_id"], item["reason"])
++        for item in completion_filter["excluded"]
++    } == {
++        ("side-1", "non_agent_side_completion"),
++        ("truncated-1", "persisted_truncated_completion"),
++        ("empty-1", "empty_completion"),
++    }
++
++
++def test_per_request_builder_returns_error_when_filter_removes_everything() -> None:
++    session = CompletionSession(
++        session_id="session-1",
++        completions=[
++            _side_read_record("side-1"),
++            _empty_record("empty-1"),
++        ],
++    )
++
++    trajectory = asyncio.run(PerRequestBuilder().build(session))
++
++    assert trajectory.status == "ERROR"
++    assert trajectory.error == "no trainable completions after completion filter"
++    assert trajectory.traces == []
++    assert set(trajectory.metadata["completion_filter"]["excluded_completion_ids"]) == {
++        "side-1",
++        "empty-1",
++    }
++
++
++def test_prefix_merging_filters_before_grouping_and_reports_raw_counts() -> None:
++    session = CompletionSession(
++        session_id="session-1",
++        completions=[
++            _normal_record("keep-1", [1], [10]),
++            _side_read_record("side-1"),
++            _truncated_record("truncated-1"),
++            _empty_record("empty-1"),
++        ],
++    )
++
++    trajectory = asyncio.run(
++        PrefixMergingBuilder(end_of_turn_token_id=99).build(session)
++    )
++
++    assert trajectory.status == "COMPLETED"
++    assert len(trajectory.traces) == 1
++    stats = trajectory.metadata["reconstruction_stats"]
++    assert stats["raw_completions_total"] == 4
++    assert stats["completions_total"] == 1
++    assert stats["chains_total"] == 1
++    completion_filter = trajectory.metadata["completion_filter"]
++    assert completion_filter["excluded_completions"] == 3
++    assert set(completion_filter["excluded_completion_ids"]) == {
++        "side-1",
++        "truncated-1",
++        "empty-1",
++    }
++
++
++def test_prefix_merging_returns_error_when_filter_removes_everything() -> None:
++    session = CompletionSession(
++        session_id="session-1",
++        completions=[
++            _side_read_record("side-1"),
++            _empty_record("empty-1"),
++        ],
++    )
++
++    trajectory = asyncio.run(PrefixMergingBuilder().build(session))
++
++    assert trajectory.status == "ERROR"
++    assert trajectory.error == "no trainable completions after completion filter"
++    assert trajectory.traces == []
+diff --git a/tests/trajectory/test_engine_trajectory_equivalence.py b/tests/trajectory/test_engine_trajectory_equivalence.py
+index c3acad8..16350f2 100644
+--- a/tests/trajectory/test_engine_trajectory_equivalence.py
++++ b/tests/trajectory/test_engine_trajectory_equivalence.py
+@@ -59,7 +59,8 @@ def _sglang_record(
+     response = SGLangEngine().normalize_response(response)
+     return CompletionRecord(
+         completion_id=completion_id,
+-        request={"messages": prompt_messages},
++        # `system` marks agent-side traffic so record_filters keeps the record.
++        request={"system": "harness", "messages": prompt_messages},
+         response=response,
+     )
+ 
+@@ -99,7 +100,7 @@ def _vllm_record(
+     response = VLLMEngine().normalize_response(response)
+     return CompletionRecord(
+         completion_id=completion_id,
+-        request={"messages": prompt_messages},
++        request={"system": "harness", "messages": prompt_messages},
+         response=response,
+     )
+ 
+diff --git a/tests/trajectory/test_per_request_builder.py b/tests/trajectory/test_per_request_builder.py
+index 7bfc2b5..26a6494 100644
+--- a/tests/trajectory/test_per_request_builder.py
++++ b/tests/trajectory/test_per_request_builder.py
+@@ -80,7 +80,8 @@ def test_per_request_builder_accepts_raw_source_sglang_token_fields() -> None:
+         completions=[
+             CompletionRecord(
+                 completion_id="completion-1",
+-                request={"messages": [{"role": "user", "content": "Say hi"}]},
++                # `system` marks agent-side traffic so record_filters keeps the record.
++                request={"system": "harness", "messages": [{"role": "user", "content": "Say hi"}]},
+                 response={
+                     "choices": [
+                         {
+@@ -120,7 +121,8 @@ def test_per_request_builder_does_not_mix_unaligned_token_sources() -> None:
+         completions=[
+             CompletionRecord(
+                 completion_id="completion-1",
+-                request={"messages": [{"role": "user", "content": "Say hi"}]},
++                # `system` marks agent-side traffic so record_filters keeps the record.
++                request={"system": "harness", "messages": [{"role": "user", "content": "Say hi"}]},
+                 response={
+                     "choices": [
+                         {
+diff --git a/tests/trajectory/test_record_filters.py b/tests/trajectory/test_record_filters.py
+new file mode 100644
+index 0000000..ea23b47
+--- /dev/null
++++ b/tests/trajectory/test_record_filters.py
+@@ -0,0 +1,203 @@
++"""Shape-only exclusion of non-agent-side completions.
++
++Regression cover for the hardcoded-Triton-handbook whitelist that used to gate
++``_is_non_agent_side_completion``: the shape check was right, but only fired when
++the payload was one specific document, so the same bare-request shape carrying
++cmake sources / judge output / skill frontmatter became a trainable trace. Cases
++below mirror shapes observed in real rollout dumps.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++from polar.trajectory.builder.record_filters import (
++    exclude_completion_reason,
++    filter_trainable_completions,
++)
++from polar.trajectory.models import CompletionRecord
++
++_RESPONSE: dict[str, Any] = {
++    "choices": [{"message": {"role": "assistant", "content": "ok"}}],
++}
++
++_CMAKE_BODY = (
++    "# ------------------------------------------------------------------\n"
++    "# Copyright (c) 2025 Huawei Technologies Co., Ltd.\n"
++    "function(ascendc_compile_kernel target_name)\n"
++    "    set(CMAKE_CXX_STANDARD 17)\n"
++    "endfunction()\n"
++)
++
++_TRITON_HANDBOOK = "# Triton Ascend 基础知识参考手册\n\n本文档汇集 Triton Ascend 编程要点。\n"
++
++
++def _completion(request: dict[str, Any], *, completion_id: str = "c1") -> CompletionRecord:
++    return CompletionRecord(
++        completion_id=completion_id,
++        request=request,
++        response=_RESPONSE,
++    )
++
++
++def _bare_request(content: Any) -> dict[str, Any]:
++    """The offending shape: lone user message, no system / tools / SDK fields."""
++    return {"messages": [{"role": "user", "content": content}]}
++
++
++def _agent_request(**extra: Any) -> dict[str, Any]:
++    request: dict[str, Any] = {
++        "system": "You are Claude Code, Anthropic's official CLI for Claude.",
++        "messages": [{"role": "user", "content": "Implement the 3_Add operator."}],
++        "tools": [{"type": "function", "function": {"name": "Read"}}],
++        "stream": True,
++    }
++    request.update(extra)
++    return request
++
++
++# --- the shape is excluded regardless of payload -----------------------------
++
++
++def test_excludes_bare_request_carrying_cmake_source() -> None:
++    """The AscendC-era leak: a Read of function.cmake came back as a bare request."""
++    completion = _completion(_bare_request(_CMAKE_BODY))
++
++    assert exclude_completion_reason(completion) == "non_agent_side_completion"
++
++
++def test_still_excludes_the_triton_handbook_that_motivated_the_old_whitelist() -> None:
++    completion = _completion(_bare_request(_TRITON_HANDBOOK))
++
++    assert exclude_completion_reason(completion) == "non_agent_side_completion"
++
++
++def test_excludes_bare_request_carrying_judge_output() -> None:
++    body = "数值验证失败: 测试第 1/3 组输入...\nDumping intermediate results to /root/.triton/dump/abc\n"
++    completion = _completion(_bare_request(body))
++
++    assert exclude_completion_reason(completion) == "non_agent_side_completion"
++
++
++def test_excludes_bare_request_with_structured_content_blocks() -> None:
++    completion = _completion(_bare_request([{"type": "text", "text": _CMAKE_BODY}]))
++
++    assert exclude_completion_reason(completion) == "non_agent_side_completion"
++
++
++def test_shape_check_reads_original_request_when_present() -> None:
++    completion = CompletionRecord(
++        completion_id="c1",
++        original_request=_bare_request(_CMAKE_BODY),
++        request=_agent_request(),
++        response=_RESPONSE,
++    )
++
++    assert exclude_completion_reason(completion) == "non_agent_side_completion"
++
++
++# --- agent-side traffic must survive -----------------------------------------
++
++
++def test_keeps_normal_agent_request() -> None:
++    assert exclude_completion_reason(_completion(_agent_request())) is None
++
++
++def test_keeps_single_user_message_when_system_prompt_is_present() -> None:
++    """A subagent's first turn: one user message, but a system prompt is set."""
++    request = {
++        "system": "You are a file search specialist. READ-ONLY MODE.",
++        "messages": [{"role": "user", "content": "Locate kernel/op_host/*.cpp"}],
++    }
++
++    assert exclude_completion_reason(_completion(request)) is None
++
++
++def test_keeps_single_user_message_when_system_is_inline() -> None:
++    request = {
++        "messages": [{"role": "system", "content": "You are Claude Code."}],
++    }
++
++    assert exclude_completion_reason(_completion(request)) is None
++
++
++def test_keeps_request_whose_only_agent_signal_is_tools() -> None:
++    request = {
++        "messages": [{"role": "user", "content": _CMAKE_BODY}],
++        "tools": [{"type": "function", "function": {"name": "Bash"}}],
++    }
++
++    assert exclude_completion_reason(_completion(request)) is None
++
++
++def test_keeps_request_whose_only_agent_signal_is_an_sdk_field() -> None:
++    for field, value in (
++        ("thinking", {"type": "enabled"}),
++        ("stream", True),
++        ("context_management", {"edits": []}),
++        ("output_config", {"format": "text"}),
++    ):
++        request = {"messages": [{"role": "user", "content": _CMAKE_BODY}], field: value}
++
++        assert exclude_completion_reason(_completion(request)) is None, field
++
++
++def test_keeps_resumed_agent_turn_with_no_tool_calls() -> None:
++    """Zero tool calls is not a signal: real trailing turns wrap up in prose.
++
++    Mirrors the legit short traces seen in dumps — a final segment woken by a
++    task-notification or an output-token-limit resume, which answers in prose
++    and calls nothing. Excluding on tool-call count would drop these.
++    """
++    request = _agent_request(
++        messages=[
++            {"role": "user", "content": "Implement the operator."},
++            {"role": "assistant", "content": "Generation phase exhausted (5/5)."},
++            {"role": "user", "content": "<task-notification>...</task-notification>"},
++        ],
++    )
++
++    assert exclude_completion_reason(_completion(request)) is None
++
++
++def test_keeps_multi_message_history_without_system_prompt() -> None:
++    request = {
++        "messages": [
++            {"role": "user", "content": "Fix the CopyOut bug."},
++            {"role": "assistant", "content": "Reading the kernel."},
++        ],
++    }
++
++    assert exclude_completion_reason(_completion(request)) is None
++
++
++# --- precedence and bookkeeping ----------------------------------------------
++
++
++def test_empty_completion_takes_precedence_over_shape() -> None:
++    completion = CompletionRecord(
++        completion_id="c1",
++        request=_bare_request(_CMAKE_BODY),
++        response={"choices": []},
++    )
++
++    assert exclude_completion_reason(completion) == "empty_completion"
++
++
++def test_missing_request_is_not_excluded() -> None:
++    assert exclude_completion_reason(_completion({})) is None
++
++
++def test_filter_records_excluded_ids_and_reasons() -> None:
++    kept_one = _completion(_agent_request(), completion_id="keep-1")
++    dropped = _completion(_bare_request(_CMAKE_BODY), completion_id="drop-1")
++    kept_two = _completion(_agent_request(), completion_id="keep-2")
++
++    result = filter_trainable_completions([kept_one, dropped, kept_two])
++
++    assert [item.completion_id for item in result.kept] == ["keep-1", "keep-2"]
++    assert result.metadata["input_completions"] == 3
++    assert result.metadata["kept_completions"] == 2
++    assert result.metadata["excluded_completions"] == 1
++    assert result.metadata["excluded_reasons"] == {"non_agent_side_completion": 1}
++    assert result.metadata["excluded_completion_ids"] == ["drop-1"]
