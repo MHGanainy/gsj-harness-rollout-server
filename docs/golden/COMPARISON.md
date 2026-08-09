@@ -114,3 +114,32 @@ survives as token-level comparison:
 - **Session-count**: the golden is one uninterrupted pi session; a CP-09
   episode fragmented by session-key misbinding (CP-06's orphan-session
   hazard) fails loudly builder-side before reaching this contract.
+
+## Results — CP-09, Mac pair (this contract, executed)
+
+Executed 2026-08-09 against `docs/golden/mac/` on the collected episode
+`sk-polar-180dd057-3b69-49d2-b834-6b67cf1ccba4` (the same triple, 7th
+attempt — 1–6 refused on the H-41 successful-built-in leg). Full
+comparison table, per-mismatch attribution, and the findings:
+**`docs/reports/CP-09.md`**. Verdict: **PASS WITH FINDINGS** — masks
+exact (zero-tolerance row satisfied), `prompt_ids` byte-identical
+(2965/2965), per-trace decode-fidelity exact at `mask==1`, glue template
+constants identical, logprob discipline clean on both traces, capture
+validated by direct golden-vs-collected agreement on identical-context
+positions (mean |Δ| = 0.000114, inside this contract's bounds with two
+orders of margin). Nothing attributable to Polar; no §9 trigger. Two
+execution deviations from the procedure as written, both platform-forced
+and recorded: the replay ran BESIDE the serving engine (vllm-metal
+cannot produce prompt logprobs — hardcoded empty dict + a 500ing `echo`
+path), and the stated replay tolerances proved same-engine-anchored (the
+beside-the-engine numerics floor is mean ≈ 0.007–0.016 on BOTH stacks
+symmetrically → platform per this contract's logprob row; the
+identical-context capture-vs-capture comparison replaces it as the
+capture-fidelity instrument). Named findings and owners: the engine
+sampling-defaults hazard (ours/config — fixed by the CP-09
+generation-config pin), the turn≥2 stitched-glue context delta on
+`response_logprobs` (ours — ADR-0007 semantics, verified causally), the
+vllm-metal teacher-force gap and the recurring row-27 `0.0` artifact
+(platform). The H200 pair (CP-04′/CP-09′) repeats this contract verbatim
+against `docs/golden/h200/`, where the replay can run through the engine
+as written.

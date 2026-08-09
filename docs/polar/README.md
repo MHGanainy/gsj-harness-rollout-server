@@ -1,10 +1,44 @@
 # docs/polar — real Polar artifacts
 
-**`pi-corpus/` is the authoritative record of *our* traffic** (CP-07: pi
-0.83.0 against the real corpus, real MCP service, cutoff live). `pi/`
-(CP-06 stub) and the top-level CP-03 mlx files stay as the record of the
-build-up: `pi/` for the wire dialect proved against a stub, CP-03 for the
-first smoke run and the S1 degeneration proof.
+**`fidelity/` is the CP-09 comparison episode** (collected through
+`gsj-rollout submit`, measured against `docs/golden/mac/` — verdict in
+`docs/reports/CP-09.md`). **`pi-corpus/` is the authoritative record of
+*our* traffic** (CP-07: pi 0.83.0 against the real corpus, real MCP
+service, cutoff live). `pi/` (CP-06 stub) and the top-level CP-03 mlx
+files stay as the record of the build-up: `pi/` for the wire dialect
+proved against a stub, CP-03 for the first smoke run and the S1
+degeneration proof.
+
+## fidelity/ — the CP-09 comparison episode (our submit path, end to end)
+
+Captured 2026-08-09 from CP-09: the same stack as `pi-corpus/` but
+submitted through **our** four surfaces — `gsj-rollout submit` rendered
+the `TaskRequest` from the one YAML, the manager's terminal callback
+landed on our receiver (accepted, persisted verbatim), and the engine ran
+under the CP-09 pinned configuration (CP-04 argv + CP-07 flags +
+`--generation-config` holding the codec snapshot's
+`generation_config.json` + `--enable-log-requests`; see the CP-09 report's
+Step 1 — without that pin, pi's parameterless requests sample at vLLM
+neutral defaults, silently). Session
+`sk-polar-180dd057-3b69-49d2-b834-6b67cf1ccba4`, task `cp09-fidelity-a7`
+(attempt 7 of 7 — 1–6 refused on the H-41 successful-built-in leg), the
+golden triple `(case_0001, timestep-12, skill:summarize)`; 2 completions,
+`chains_total == 1`, `glue_stitched == 1`, `finish: stop`.
+
+- `callback_session_result.json` — the receiver-persisted callback body,
+  byte-verbatim (status/error intact): the merged trace,
+  `reconstruction_stats` (the full G7 conjunction), `completion_filter`,
+  `gsj_validation` (`findings: []`).
+- `trace.json` — the merged trace: `prompt_ids` 2965 (**byte-identical to
+  the golden's `prompts`**), `response_ids` 3790 (363 sampled mask-1 +
+  3427 interstitial mask-0), aligned `response_logprobs` (`0.0` only at
+  mask-0 plus 15 MLX-bf16 mask-1 zeros — row 27), the 11-tool roster.
+- `pi_transcript.jsonl` — pi's `--mode json` stream: 2 assistant turns
+  (== 2 completions), tools `mcp_gsj_search_case/search_decisions/
+  case_status` ok, `write` ok (read/grep ERR — directory reads).
+- `mcp_authority_log.jsonl` — the session's `tool_call` events, each
+  authorized from the token's verified claims
+  (`case_id: case_0001, timestep: 12, episode_id: sk-polar-180dd057…`).
 
 ## pi-corpus/ — the CP-07 real episode (pi 0.83.0, our corpus, cutoff live)
 

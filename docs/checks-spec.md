@@ -318,7 +318,70 @@ restarted with those flags. This is the H-41 dependency from the vLLM
 side: a tool-parser-less engine yields zero completions, not a silent
 no-tools episode — so CP-09's engine bring-up must pin those serve flags,
 and `checks.py`'s "roster offered but zero tool calls" red flag stays the
-receiver-side backstop.
+receiver-side backstop. **CP-09 adds a second mandatory engine pin, and
+this one fails SILENT, not loud**: pi sends no sampling parameters, so the
+engine's request defaults ARE the sampling — and the served
+`mlx-community/Qwen3-0.6B-bf16` snapshot ships **no
+`generation_config.json`**, so under vLLM's default `--generation-config
+auto` the diff-sampling-params set is empty and every pi request samples
+at vLLM neutral defaults (`temperature 1.0, top_p 1.0, no top_k` —
+`vllm/config/model.py:1502-1555`). The CP-07 episode was collected this
+way and NOTHING flagged it: the trace carries no sampling evidence, the
+wire is not persisted (gap row 7), and every gate stays green — the exact
+clean-presenting class this document exists for. The bring-up rule:
+serve with an explicit generation-config pin (CP-09:
+`--generation-config <dir>` holding the codec snapshot's
+`generation_config.json`, sha256 `2325da0f…`), confirm the engine's
+startup override warning, and keep `--enable-log-requests` so the applied
+`SamplingParams` per request are auditable engine-side. No trace-side
+check can catch this at the pin.
+
+## CP-09 fidelity findings (what replay-style validation must know)
+
+The CP-09 comparison (`docs/reports/CP-09.md`, verdict PASS WITH
+FINDINGS) surfaced three facts any future logprob-validation rule or
+replay harness must respect:
+
+1. **Captured `response_logprobs` are RAW model logprobs**, not
+   sampling-renormalized values: teacher-forced replay under the raw
+   hypothesis fits at the platform numerics floor while the
+   temperature/top-k/top-p-renormalized hypothesis fits ~6× worse, on
+   both the golden and the Polar trace. The row-27 exact-`0.0`s are
+   near-delta raw logprobs rounded by bf16, present on both stacks
+   (20/292 golden, 15/363 collected).
+2. **Turn≥2 logprobs are conditioned on the WIRE context, not the merged
+   stream.** The S4′ repair (ADR-0007) stitches the generation-prompt
+   glue into the merged stream so grouping holds, but the engine's actual
+   turn≥2 prefill never contained the prior turns' glue (pi's history
+   re-render omits it). A replay that teacher-forces the merged stream
+   therefore reports phantom drift at turn≥2 (measured: mean |Δ| 0.0676
+   against the stream context vs 0.0133 against the reconstructed wire
+   context — `prompt_ids[:-len(glue)] + response_ids[:span_start]`). Any
+   replay check must de-stitch using the config-pinned
+   `generation_prompt_glue_ids`; the predecessor's token-in dialect has
+   no analogue (its wire context IS the stream). Trainers consuming
+   `response_logprobs` as behavior-policy values inherit the same
+   4-token-per-turn context approximation. **Caveat (CP-09 verification):
+   the de-stitch identity is session-specific, not structural** — the
+   merged stream keeps prior turns' RAW sampled ids while the wire prompt
+   carries the canonical re-render; they retokenized identically on the
+   CP-09 session (verified by exact re-render, 6554/6554 tokens), but the
+   vendored builder's own header warns they can diverge, and the raw wire
+   body is not persisted at the pin (gap row 7) — a replay harness must
+   re-render and calibrate, not assume.
+3. **vllm-metal cannot teacher-force at all**: the plugin hardcodes
+   `prompt_logprobs_dict={}` (`vllm_metal/v1/model_runner.py:2235`) and
+   the `/v1/completions` `echo` path 500s (`KeyError` in
+   `_create_completion_logprobs` because the prompt-logprob dicts never
+   include the actual token). Replay validation on Mac estates runs
+   beside the engine (CP-09: mlx_lm forward over the served snapshot,
+   same mlx version); the H200 pair replays through vLLM proper. The
+   contract's tolerance anchor (mean 0.005 / per-position 0.05, from the
+   predecessor's same-engine CP-18 measurement) does NOT transfer to a
+   beside-the-engine replay — CP-09 measured the cross-implementation
+   floor at mean ≈ 0.007–0.016 on both stacks symmetrically; the sharper
+   instrument is capture-vs-capture on identical contexts (CP-09: mean
+   |Δ| = 0.000114), which needs no tolerance re-anchoring.
 
 ## G3's actual mechanism (stricter than a config field)
 
