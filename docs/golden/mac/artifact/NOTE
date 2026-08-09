@@ -1,0 +1,4 @@
+No deliverable was produced by this episode: env.artifact.path = null —
+the model answered in-chat without writing out/ep-b4124a5aa0a8468d.md.
+The skill card instructs the write; the 0.6B policy simply did not comply.
+Recorded so the empty artifact/ directory is explicit and committable.
