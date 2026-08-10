@@ -5,7 +5,8 @@
   "timeout_seconds": 900.0,
   "metadata": {
     "case_id": "case_0001",
-    "timestep": 12
+    "timestep": 12,
+    "prompt_source": "free"
   },
   "runtime": {
     "backend": "docker",

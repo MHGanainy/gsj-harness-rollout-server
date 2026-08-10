@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import array
 import ast
+import copy
 import json
 import struct
 import sys
@@ -19,6 +20,30 @@ CALLBACK_FIXTURE = REPO_ROOT / "docs" / "polar" / "pi-corpus" / "callback_sessio
 FIDELITY_CALLBACK = REPO_ROOT / "docs" / "polar" / "fidelity" / "callback_session_result.json"
 FIDELITY_TRACE = REPO_ROOT / "docs" / "polar" / "fidelity" / "trace.json"
 GOLDEN_TOKENS = REPO_ROOT / "docs" / "golden" / "mac" / "tokens.npz"
+RENDERED_SETTINGS = REPO_ROOT / "pins" / "settings.rendered.json"
+
+
+def stamp_trace(trace: dict) -> dict:
+    """The post-CP-13 shape of a fixture-era trace: exactly the two
+    metadata statements a CP-13 collection stamps — config's
+    `prompt_source` (`free` is the frozen-CLI path's truth) and the
+    harness's settings echo (the pinned rendered document). The raw
+    fixtures stay verbatim; what they earn without these statements is
+    asserted explicitly (the golden-mapping precedent)."""
+    stamped = copy.deepcopy(trace)
+    metadata = dict(stamped.get("metadata") or {})
+    metadata["prompt_source"] = "free"
+    metadata["gsj_settings"] = json.loads(RENDERED_SETTINGS.read_text())
+    stamped["metadata"] = metadata
+    return stamped
+
+
+def stamp_body(session_result: dict) -> dict:
+    stamped = copy.deepcopy(session_result)
+    stamped["trajectory"]["traces"] = [
+        stamp_trace(trace) for trace in stamped["trajectory"]["traces"]
+    ]
+    return stamped
 
 
 @pytest.fixture(scope="session")
@@ -41,6 +66,24 @@ def fidelity_trace() -> dict:
     15 are exactly `0.0` (the measured MLX bf16 artifact, row 27)."""
     with FIDELITY_TRACE.open() as handle:
         return json.load(handle)
+
+
+@pytest.fixture
+def body13(callback_body) -> dict:
+    """The CP-07 body in the post-CP-13 shape (a fresh copy per test)."""
+    return stamp_body(callback_body)
+
+
+@pytest.fixture
+def fidelity_body13(fidelity_callback) -> dict:
+    """The CP-09 body in the post-CP-13 shape (a fresh copy per test)."""
+    return stamp_body(fidelity_callback)
+
+
+@pytest.fixture
+def trace13(fidelity_trace) -> dict:
+    """The CP-09 trace in the post-CP-13 shape (a fresh copy per test)."""
+    return stamp_trace(fidelity_trace)
 
 
 @pytest.fixture(scope="session")

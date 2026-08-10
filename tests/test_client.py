@@ -10,8 +10,8 @@ import gsj_rollout.checks as checks
 from gsj_rollout.client import RolloutClient, partition_session_results, traces_of
 
 
-def test_collect_returns_traces_and_calls_checks(fake_rollout_factory, callback_body, monkeypatch):
-    server = fake_rollout_factory([task_status([callback_body])])
+def test_collect_returns_traces_and_calls_checks(fake_rollout_factory, body13, monkeypatch):
+    server = fake_rollout_factory([task_status([body13])])
     calls: list[str] = []
     real = checks.validate_session_result
     monkeypatch.setattr(
@@ -23,32 +23,32 @@ def test_collect_returns_traces_and_calls_checks(fake_rollout_factory, callback_
     traces = client.collect([{"task_id": "t-1"}], timeout_s=5.0)
 
     # Law 6's teeth: the client ran the same checks on what IT fetched.
-    assert calls == [callback_body["session_id"]]
+    assert calls == [body13["session_id"]]
     assert len(traces) == 1
     assert len(traces[0].prompt_ids) == 2965
     assert traces[0].finish_reason == "stop"
-    assert traces[0].metadata["session_id"] == callback_body["session_id"]
+    assert traces[0].metadata["session_id"] == body13["session_id"]
 
 
-def test_collect_excludes_rejected_sessions(fake_rollout_factory, callback_body):
-    errored = copy.deepcopy(callback_body)
+def test_collect_excludes_rejected_sessions(fake_rollout_factory, body13):
+    errored = copy.deepcopy(body13)
     errored["session_id"] = "sk-polar-errored"
     errored["status"] = "ERROR"
-    server = fake_rollout_factory([task_status([callback_body, errored])])
+    server = fake_rollout_factory([task_status([body13, errored])])
 
     traces = RolloutClient(server.base_url, poll_interval_s=0.01).collect(
         [{"task_id": "t-1"}], timeout_s=5.0
     )
     assert len(traces) == 1  # the ERROR session's trace is not returned
 
-    accepted, rejected = partition_session_results([callback_body, errored])
-    assert [r["session_id"] for r in accepted] == [callback_body["session_id"]]
+    accepted, rejected = partition_session_results([body13, errored])
+    assert [r["session_id"] for r in accepted] == [body13["session_id"]]
     assert rejected[0][0]["session_id"] == "sk-polar-errored"
     assert "ADM1:status_not_completed:ERROR" in rejected[0][1]
 
 
-def test_collect_logs_rejections(fake_rollout_factory, callback_body, caplog):
-    errored = copy.deepcopy(callback_body)
+def test_collect_logs_rejections(fake_rollout_factory, body13, caplog):
+    errored = copy.deepcopy(body13)
     errored["session_id"] = "sk-polar-errored"
     errored["status"] = "ERROR"
     server = fake_rollout_factory([task_status([errored])])

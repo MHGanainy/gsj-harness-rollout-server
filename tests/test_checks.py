@@ -54,24 +54,38 @@ def test_never_raises_on_malformed_content():
                 {"role": "tool", "tool_call_id": {"k": 1}, "content": '{"page": 18}'},
             ],
         }]}},
+        # CP-13 verification shape: an UNHASHABLE tool-call `function.name`.
+        # `name in CUTOFF_SCOPED_TOOLS` hashes, so a dict/list name raised
+        # TypeError out of the census — the CP-11b corpus covered the
+        # unhashable `id` and `tool_call_id` but not the name.
+        {"status": "COMPLETED", "trajectory": {"metadata": {}, "traces": [{
+            "response_ids": [1], "loss_mask": [1], "response_logprobs": [-0.5],
+            "finish_reason": "stop", "metadata": {"timestep": 12},
+            "response_messages": [
+                {"role": "assistant", "content": None,
+                 "tool_calls": [{"id": "c1", "function": {"name": {"oops": 1}}},
+                                {"id": "c2", "function": {"name": ["oops"]}}]},
+                {"role": "tool", "tool_call_id": "c1", "content": '{"page": 18}'},
+            ],
+        }]}},
     ]
     for body in malformed:
         findings = checks.validate_session_result(body)
         assert isinstance(findings, list) and findings, f"must reject, not accept: {body!r}"
 
 
-def test_admission_vocabulary(callback_body):
-    assert checks.validate_session_result(callback_body) == []
+def test_admission_vocabulary(body13):
+    assert checks.validate_session_result(body13) == []
 
-    errored = copy.deepcopy(callback_body)
+    errored = copy.deepcopy(body13)
     errored["status"] = "TIMEOUT"
     assert "ADM1:status_not_completed:TIMEOUT" in checks.validate_session_result(errored)
 
-    no_traces = copy.deepcopy(callback_body)
+    no_traces = copy.deepcopy(body13)
     no_traces["trajectory"]["traces"] = []
     assert "ADM4:no_traces" in checks.validate_session_result(no_traces)
 
-    non_list_findings = copy.deepcopy(callback_body)
+    non_list_findings = copy.deepcopy(body13)
     non_list_findings["trajectory"]["metadata"]["gsj_validation"]["findings"] = "S1:oops"
     result = checks.validate_session_result(non_list_findings)
     assert "ADM2:builder_findings_present:1" in result and "S1:oops" in result
@@ -85,20 +99,34 @@ def test_run_trace_checks_seam_is_wired(callback_body, monkeypatch):
 # --- CP-10: the real traces pass clean -----------------------------------
 
 
-def test_cp09_collected_trace_passes_clean(fidelity_trace):
+def test_cp09_collected_trace_passes_clean(trace13):
     """The whole point of the platform-conditioning decision: this trace
     carries 15 exact-`0.0` logprobs at mask==1 and must NOT be rejected."""
-    logprobs, mask = fidelity_trace["response_logprobs"], fidelity_trace["loss_mask"]
+    logprobs, mask = trace13["response_logprobs"], trace13["loss_mask"]
     zeros = sum(1 for lp, m in zip(logprobs, mask) if m == 1 and lp == 0.0)
     assert (zeros, sum(mask)) == (15, 363), "fixture drifted from the CP-09 measurement"
-    assert checks.run_trace_checks(fidelity_trace) == []
+    assert checks.run_trace_checks(trace13) == []
 
 
-def test_cp07_corpus_trace_passes_clean(callback_body):
-    trace = callback_body["trajectory"]["traces"][0]
+def test_cp07_corpus_trace_passes_clean(body13):
+    trace = body13["trajectory"]["traces"][0]
     zeros = sum(1 for lp, m in zip(trace["response_logprobs"], trace["loss_mask"]) if m == 1 and lp == 0.0)
     assert (zeros, sum(trace["loss_mask"])) == (27, 441)
     assert checks.run_trace_checks(trace) == []
+
+
+def test_fixture_era_bodies_fail_closed_on_the_two_cp13_statements(
+    callback_body, fidelity_callback, fidelity_trace
+):
+    """CP-13 landed two fail-closed gates whose evidence (the stated
+    `prompt_source`, the settings echo) no pre-CP-13 artifact carries: the
+    raw bodies, verbatim, now earn exactly those two findings — the
+    golden-mapping precedent (honest fail-closed on evidence-less
+    artifacts), not a grandfather clause."""
+    expected = ["G1:missing_evidence:prompt_source", "G7:missing_evidence:settings"]
+    assert checks.run_trace_checks(fidelity_trace) == expected
+    assert checks.validate_session_result(callback_body) == expected
+    assert checks.validate_session_result(fidelity_callback) == expected
 
 
 def test_golden_tokens_pass_the_same_rules(golden_trace):
@@ -112,7 +140,8 @@ def test_golden_tokens_pass_the_same_rules(golden_trace):
     assert (zeros, sum(golden_trace["loss_mask"]), len(golden_trace["response_ids"])) == (20, 292, 3747)
     assert checks.check_logprob_discipline(golden_trace) == []
     assert checks.run_trace_checks(golden_trace) == [
-        "G3:missing_evidence:tools", "G2:missing_evidence:system_prompt"]
+        "G3:missing_evidence:tools", "G2:missing_evidence:system_prompt",
+        "G1:missing_evidence:prompt_source", "G7:missing_evidence:settings"]
 
 
 def test_suspicious_zero_rule_is_configurable_not_absent(fidelity_trace):
@@ -164,58 +193,58 @@ def _set(index, value):
          "TR2:reasoning_loss_mask_masked_tokens:12"),
     ],
 )
-def test_one_doctored_trace_per_rule(fidelity_trace, mutate, expected):
+def test_one_doctored_trace_per_rule(trace13, mutate, expected):
     # equality, not membership: a rule that co-fires with another is a rule
     # firing for a reason the doctoring did not create.
-    assert checks.run_trace_checks(_doctor(fidelity_trace, mutate)) == [expected]
+    assert checks.run_trace_checks(_doctor(trace13, mutate)) == [expected]
 
 
-def test_off_domain_loss_mask_cannot_disarm_the_discipline(fidelity_trace):
+def test_off_domain_loss_mask_cannot_disarm_the_discipline(trace13):
     """LP9. Every other mask-keyed rule tests `flag == 1`, which is False
     for "1", 2, and JSON NaN — so without a domain rule a single field's
     type change silently makes LP1/LP3/LP6 vacuous while the trace is
     accepted. Found by the CP-10 adversarial pass, fixed here."""
-    expected = f"LP9:loss_mask_value_not_binary:first=0:count={len(fidelity_trace['loss_mask'])}"
+    expected = f"LP9:loss_mask_value_not_binary:first=0:count={len(trace13['loss_mask'])}"
     for bad in ("1", 2, float("nan"), None):
-        stringly = _doctor(fidelity_trace, lambda t, bad=bad: t.update(
+        stringly = _doctor(trace13, lambda t, bad=bad: t.update(
             loss_mask=[bad] * len(t["loss_mask"]),
             response_logprobs=[-9999.0] * len(t["response_logprobs"]),
         ))
         assert checks.run_trace_checks(stringly) == [expected], bad
     # `True == 1` in Python, so a bool mask still reaches the sentinel rule:
     # LP9 rejects the mask AND LP3 sees the values — both firing is correct.
-    boolean = _doctor(fidelity_trace, lambda t: t.update(
+    boolean = _doctor(trace13, lambda t: t.update(
         loss_mask=[True] * len(t["loss_mask"]),
         response_logprobs=[-9999.0] * len(t["response_logprobs"])))
     assert checks.run_trace_checks(boolean) == [
         expected, "LP3:sentinel_logprob_at_mask1:first=0:count=3790"]
 
     # and the same mask with the logprobs simply absent
-    absent = _doctor(fidelity_trace, lambda t: t.update(
+    absent = _doctor(trace13, lambda t: t.update(
         loss_mask=["1"] * len(t["loss_mask"]), response_logprobs=None))
     assert "LP9:loss_mask_value_not_binary:first=0:count=3790" in checks.run_trace_checks(absent)
 
 
-def test_revendor_canary_is_not_type_narrowed(fidelity_trace):
+def test_revendor_canary_is_not_type_narrowed(trace13):
     """TR2 exists to make an UNKNOWN future upstream change loud, so it
     must not assume the encoding that change will use."""
     for masked in (12, 3.0, "3", [1]):
-        doctored = _doctor(fidelity_trace, lambda t, m=masked: t["metadata"].update(
+        doctored = _doctor(trace13, lambda t, m=masked: t["metadata"].update(
             reasoning_loss_mask={"masked_tokens": m}))
         assert checks.run_trace_checks(doctored) == [
             f"TR2:reasoning_loss_mask_masked_tokens:{masked}"
         ]
     for quiet in (0, "0", None):
-        doctored = _doctor(fidelity_trace, lambda t, q=quiet: t["metadata"].update(
+        doctored = _doctor(trace13, lambda t, q=quiet: t["metadata"].update(
             reasoning_loss_mask={"masked_tokens": q}))
         assert checks.run_trace_checks(doctored) == []
 
 
-def test_sentinel_at_mask0_is_not_a_finding(fidelity_trace):
+def test_sentinel_at_mask0_is_not_a_finding(trace13):
     """The sentinel rule is a mask==1 rule: interstitial positions are
     Polar's placeholders and carry no engine claim."""
-    mask0 = fidelity_trace["loss_mask"].index(0)
-    findings = checks.run_trace_checks(_doctor(fidelity_trace, _set(mask0, -9999.0)))
+    mask0 = trace13["loss_mask"].index(0)
+    findings = checks.run_trace_checks(_doctor(trace13, _set(mask0, -9999.0)))
     assert findings == []
 
 
@@ -231,17 +260,17 @@ def _tool_result(trace, name, text, call_id="doctored-1"):
     ]
 
 
-def test_search_case_page_beyond_the_timestep_fails(fidelity_trace):
+def test_search_case_page_beyond_the_timestep_fails(trace13):
     hit = '{"page": 18, "file": "md/page_0018.md", "text": "..."}'
-    doctored = _doctor(fidelity_trace, lambda t: _tool_result(t, "mcp_gsj_search_case", hit))
+    doctored = _doctor(trace13, lambda t: _tool_result(t, "mcp_gsj_search_case", hit))
     assert checks.run_trace_checks(doctored) == ["G5:search_page_gt_timestep:18>12"]
 
 
-def test_decisions_results_are_cutoff_exempt(fidelity_trace):
+def test_decisions_results_are_cutoff_exempt(trace13):
     """ADR-0007(e) of the predecessor: the decisions corpus is not
     page-scoped, so a high page number there must NOT fail."""
     hit = '{"decision_id": "D-2020-BGH-C-1", "page": 18, "file": "md/page_0018.md"}'
-    doctored = _doctor(fidelity_trace, lambda t: _tool_result(t, "mcp_gsj_search_decisions", hit))
+    doctored = _doctor(trace13, lambda t: _tool_result(t, "mcp_gsj_search_decisions", hit))
     assert checks.run_trace_checks(doctored) == []
 
 
@@ -264,7 +293,7 @@ def test_timestep_comes_from_the_trace_and_metadata_wins(fidelity_trace):
     assert "G5:search_page_gt_timestep:7>5" in checks.run_trace_checks(from_metadata)
 
 
-def test_no_timestep_anywhere_fails_closed(fidelity_trace):
+def test_no_timestep_anywhere_fails_closed(trace13):
     """An episode that never called `case_status` and whose metadata does
     not carry the timestep has no in-trace T — the gate fails closed
     rather than assuming one. The cure is structural (CP-11: put the
@@ -281,7 +310,7 @@ def test_no_timestep_anywhere_fails_closed(fidelity_trace):
         trace["response_messages"] = [m for m in trace["response_messages"]
                                       if m.get("tool_call_id") not in ids]
 
-    assert checks.run_trace_checks(_doctor(fidelity_trace, strip_case_status)) == [
+    assert checks.run_trace_checks(_doctor(trace13, strip_case_status)) == [
         "G5:missing_evidence:timestep"
     ]
 
@@ -292,11 +321,11 @@ def test_no_timestep_anywhere_fails_closed(fidelity_trace):
     ['{"page": 18}'],                              # a list of plain strings
     '{"page": 18}',                                # the plain-string shape
 ])
-def test_content_parts_are_normalized_before_matching(fidelity_trace, content):
+def test_content_parts_are_normalized_before_matching(trace13, content):
     """Finding (b): a typed-parts `content` must not read as empty. Reading
     a plausible envelope as empty text is how a census goes silently
     blind, so the flattener accepts every shape it can recognize."""
-    doctored = _doctor(fidelity_trace,
+    doctored = _doctor(trace13,
                        lambda t: _tool_result(t, "mcp_gsj_search_case", content))
     assert checks.run_trace_checks(doctored) == ["G5:search_page_gt_timestep:18>12"]
 
@@ -314,6 +343,9 @@ def test_failure_vocabulary_snapshot():
         "ADM3:trajectory_missing",
         "ADM4:no_traces",
         "ADM5:malformed_trace",
+        "G1:missing_evidence:prompt_source",
+        "G1:missing_evidence:skill_card_hash",
+        "G1:skill_card_hash_not_approved",
         "G2:missing_evidence:system_prompt",
         "G2:system_prompt_hash_not_approved",
         "G3:missing_evidence:tools",
@@ -324,7 +356,9 @@ def test_failure_vocabulary_snapshot():
         "G7:chains_truncated",
         "G7:completions_merged_ne_total",
         "G7:missing_evidence:reconstruction_stats",
+        "G7:missing_evidence:settings",
         "G7:raw_completions_ne_total",
+        "G7:settings_hash_not_approved",
         "H41:roster_offered_zero_tool_calls",
         "LP1:response_logprobs_absent",
         "LP2:response_logprobs_length_ne_response_ids",
@@ -371,48 +405,141 @@ def _independent_canonical_sha256(obj):
     ).encode("utf-8")).hexdigest()
 
 
-def test_gates_pass_clean_on_both_real_episodes(callback_body, fidelity_callback):
-    """The first-episode-validate leg (row 23): the approved sets admit
-    both known-good episodes — CP-07's and CP-09's — through the whole
-    seam, gates included."""
-    assert checks.validate_session_result(callback_body) == []
-    assert checks.validate_session_result(fidelity_callback) == []
+def test_gates_pass_clean_on_both_real_episodes(body13, fidelity_body13):
+    """The first-episode-validate leg (row 23), post-CP-13 shape: the
+    approved sets admit both known-good episodes — CP-07's and CP-09's —
+    through the whole seam, gates included. The two stamped statements are
+    exactly what a CP-13 submit+collect carries; the raw fixture-era
+    bodies earn the two missing-evidence findings (asserted above)."""
+    assert checks.validate_session_result(body13) == []
+    assert checks.validate_session_result(fidelity_body13) == []
 
 
-def test_g3_fails_on_a_doctored_roster(fidelity_trace):
-    doctored = _doctor(fidelity_trace,
+def test_g3_fails_on_a_doctored_roster(trace13):
+    doctored = _doctor(trace13,
                        lambda t: t["tools"][0]["function"].update(name="doctored"))
     expected = _independent_canonical_sha256(doctored["tools"])
     assert checks.run_trace_checks(doctored) == [
         f"G3:tool_roster_hash_not_approved:{expected}"]
 
 
-def test_g3_missing_roster_fails_closed(fidelity_trace):
-    doctored = _doctor(fidelity_trace, lambda t: t.pop("tools"))
+def test_g3_missing_roster_fails_closed(trace13):
+    doctored = _doctor(trace13, lambda t: t.pop("tools"))
     assert checks.run_trace_checks(doctored) == ["G3:missing_evidence:tools"]
 
 
-def test_g2_fails_on_a_doctored_system_prompt(fidelity_trace):
-    doctored = _doctor(fidelity_trace, lambda t: t["prompt_messages"][0].update(
+def test_g2_fails_on_a_doctored_system_prompt(trace13):
+    doctored = _doctor(trace13, lambda t: t["prompt_messages"][0].update(
         content=t["prompt_messages"][0]["content"] + " "))
     findings = checks.run_trace_checks(doctored)
     assert len(findings) == 1 and findings[0].startswith(
         "G2:system_prompt_hash_not_approved:")
 
 
-def test_g2_missing_system_prompt_fails_closed(fidelity_trace):
-    doctored = _doctor(fidelity_trace, lambda t: t.update(
+def test_g2_missing_system_prompt_fails_closed(trace13):
+    doctored = _doctor(trace13, lambda t: t.update(
         prompt_messages=[m for m in t["prompt_messages"] if m["role"] != "system"]))
     assert checks.run_trace_checks(doctored) == ["G2:missing_evidence:system_prompt"]
 
 
-def test_g2_typed_parts_carry_the_same_prompt(fidelity_trace):
+def test_g2_typed_parts_carry_the_same_prompt(trace13):
     """Finding (b) is binding on G2: the same wire prompt re-enveloped as
     content parts is the SAME prompt and must pass — a raw `content` read
     would hash '' (a prompt that never existed) and reject it."""
-    reenveloped = _doctor(fidelity_trace, lambda t: t["prompt_messages"][0].update(
+    reenveloped = _doctor(trace13, lambda t: t["prompt_messages"][0].update(
         content=[{"type": "text", "text": t["prompt_messages"][0]["content"]}]))
     assert checks.run_trace_checks(reenveloped) == []
+
+
+# --- CP-13: G1 and G7's settings clause -----------------------------------
+
+
+def _approved(key):
+    import json
+
+    return json.loads(checks.PINS_PATH.read_text())["pins"][key]
+
+
+def test_g1_skill_source_with_an_approved_card_passes(trace13):
+    """The n/a-free leg: a stated skill source whose stated card-bytes hash
+    is pinned passes; `free` (the stamped baseline) passes n/a — both
+    finding-free."""
+    for card_hash in _approved("skill_card_hash"):
+        skill = _doctor(trace13, lambda t, h=card_hash: t["metadata"].update(
+            prompt_source="skill:summarize", skill_card_hash=h))
+        assert checks.run_trace_checks(skill) == []
+
+
+def test_g1_unapproved_card_hash_fails(trace13):
+    doctored = _doctor(trace13, lambda t: t["metadata"].update(
+        prompt_source="skill:summarize", skill_card_hash="0" * 64))
+    assert checks.run_trace_checks(doctored) == [
+        "G1:skill_card_hash_not_approved:" + "0" * 64]
+
+
+def test_g1_skill_source_without_a_card_hash_fails_closed(trace13):
+    doctored = _doctor(trace13, lambda t: t["metadata"].update(
+        prompt_source="skill:summarize"))
+    assert checks.run_trace_checks(doctored) == ["G1:missing_evidence:skill_card_hash"]
+
+
+def test_g1_unrecognized_prompt_source_fails_closed(trace13):
+    """Neither `free` nor `skill:<name>` — including the bare prefix and a
+    non-string — is missing evidence, never a pass."""
+    for source in ("taskbank", "skill:", 7, ""):
+        doctored = _doctor(trace13, lambda t, s=source: t["metadata"].update(
+            prompt_source=s))
+        assert checks.run_trace_checks(doctored) == [
+            "G1:missing_evidence:prompt_source"], source
+
+
+def test_g1_reads_only_the_hoisted_statement(trace13):
+    """G1 reads the hoisted top level and nothing else. A `task_metadata`
+    fallback was written first and removed: the CP-13 verification measured
+    that every vendored shape carrying `task_metadata` also carries
+    `traces=[]` (node.py:806-823), so no trace-level gate ever runs on one
+    — the leg was dead for its stated purpose while widening the accept
+    surface (a source at one level and a hash at the other would pass)."""
+    nested = _doctor(trace13, lambda t: (
+        t["metadata"].pop("prompt_source"),
+        t["metadata"].update(task_metadata={"prompt_source": "free"}),
+    ))
+    assert checks.run_trace_checks(nested) == ["G1:missing_evidence:prompt_source"]
+    # and the vendored ERROR shape is caught by admission, before any gate
+    error_shape = {"session_id": "s", "status": "ERROR", "trajectory": {
+        "status": "ERROR", "metadata": {"task_metadata": {"prompt_source": "free"}},
+        "traces": []}}
+    assert "ADM4:no_traces" in checks.validate_session_result(error_shape)
+
+
+def test_g1_blank_skill_name_fails_closed(trace13):
+    for blank in ("skill: ", "skill:\n", "skill:\t"):
+        doctored = _doctor(trace13, lambda t, b=blank: t["metadata"].update(
+            prompt_source=b, skill_card_hash=_approved("skill_card_hash")[0]))
+        assert checks.run_trace_checks(doctored) == [
+            "G1:missing_evidence:prompt_source"], blank
+
+
+def test_g7_settings_echo_missing_fails_closed(trace13):
+    doctored = _doctor(trace13, lambda t: t["metadata"].pop("gsj_settings"))
+    assert checks.run_trace_checks(doctored) == ["G7:missing_evidence:settings"]
+
+
+def test_g7_doctored_settings_fail(trace13):
+    """The clause G7 could never verify before the echo: compaction ON in
+    the echoed document is a different canonical hash — rejected."""
+    compaction_on = {"compaction": {"enabled": True}}
+    doctored = _doctor(trace13, lambda t: t["metadata"].update(
+        gsj_settings=compaction_on))
+    assert checks.run_trace_checks(doctored) == [
+        f"G7:settings_hash_not_approved:{_independent_canonical_sha256(compaction_on)}"]
+
+
+def test_g7_unhashable_settings_are_a_finding_not_a_raise(trace13):
+    doctored = _doctor(trace13, lambda t: t["metadata"].update(
+        gsj_settings={"compaction": float("nan")}))
+    assert checks.run_trace_checks(doctored) == [
+        "G7:settings_hash_not_approved:unhashable"]
 
 
 @pytest.mark.parametrize(
@@ -424,29 +551,29 @@ def test_g2_typed_parts_carry_the_same_prompt(fidelity_trace):
         ({"raw_completions_total": 3}, "G7:raw_completions_ne_total:3!=2"),  # A-12 drops
     ],
 )
-def test_g7_each_clause_fires_for_its_own_reason(callback_body, mutate, expected):
-    doctored = copy.deepcopy(callback_body)
+def test_g7_each_clause_fires_for_its_own_reason(body13, mutate, expected):
+    doctored = copy.deepcopy(body13)
     doctored["trajectory"]["metadata"]["reconstruction_stats"].update(mutate)
     assert checks.validate_session_result(doctored) == [expected]
 
 
-def test_g7_missing_stats_fail_closed(callback_body):
-    absent = copy.deepcopy(callback_body)
+def test_g7_missing_stats_fail_closed(body13):
+    absent = copy.deepcopy(body13)
     del absent["trajectory"]["metadata"]["reconstruction_stats"]
     assert checks.validate_session_result(absent) == [
         "G7:missing_evidence:reconstruction_stats"]
-    partial = copy.deepcopy(callback_body)
+    partial = copy.deepcopy(body13)
     del partial["trajectory"]["metadata"]["reconstruction_stats"]["chains_total"]
     assert checks.validate_session_result(partial) == [
         "G7:missing_evidence:reconstruction_stats.chains_total"]
 
 
-def test_h41_flag_is_policy_gated_and_fires_for_its_own_reason(fidelity_trace):
+def test_h41_flag_is_policy_gated_and_fires_for_its_own_reason(trace13):
     armed = checks.CheckPolicy(reject_toolless_roster=True)
     # the real episode calls tools: armed stays clean
-    assert checks.run_trace_checks(fidelity_trace, armed) == []
+    assert checks.run_trace_checks(trace13, armed) == []
     # strip every tool interaction; keep T in metadata so G5 stays satisfied
-    toolless = _doctor(fidelity_trace, lambda t: (
+    toolless = _doctor(trace13, lambda t: (
         t["metadata"].update(timestep=12),
         t.update(response_messages=[
             m for m in t["response_messages"]
@@ -466,10 +593,15 @@ def test_pins_are_loaded_not_inlined_and_raise_loudly(monkeypatch):
     trace = {"tools": [{"a": 1}],
              "prompt_messages": [{"role": "system", "content": "s"}]}
     monkeypatch.setattr(checks, "_pins_cache", {"system_prompt_hash": ["x"]})
-    with pytest.raises(KeyError, match="tool_roster_hash"):
+    with pytest.raises(checks.PinsConfigurationError, match="tool_roster_hash"):
         checks.check_tool_roster(trace)
+    with pytest.raises(checks.PinsConfigurationError, match="skill_card_hash"):
+        checks.check_skill_card(
+            {"metadata": {"prompt_source": "skill:x", "skill_card_hash": "h"}})
+    with pytest.raises(checks.PinsConfigurationError, match="settings_hash"):
+        checks.check_settings_echo({"metadata": {"gsj_settings": {"a": 1}}})
     monkeypatch.setattr(checks, "_pins_cache", {"system_prompt_hash": []})
-    with pytest.raises(KeyError, match="system_prompt_hash"):
+    with pytest.raises(checks.PinsConfigurationError, match="system_prompt_hash"):
         checks.check_system_prompt(trace)
     import inspect
     import json
@@ -478,13 +610,47 @@ def test_pins_are_loaded_not_inlined_and_raise_loudly(monkeypatch):
             assert pinned not in inspect.getsource(checks)
 
 
-def test_unhashable_content_is_a_finding_not_a_raise(fidelity_trace):
+def test_a_string_valued_pins_key_raises_rather_than_substring_matching(monkeypatch):
+    """`hash in "somestring"` is substring containment, not set membership:
+    a bare-string pins value would accept any prefix of the real hash as
+    approved. Found by the CP-13 adversarial pass — the third
+    configuration case, and the one that failed OPEN."""
+    real = _approved("skill_card_hash")[0]
+    monkeypatch.setattr(checks, "_pins_cache", {"skill_card_hash": real})  # unwrapped
+    for stated in (real[:1], real[:6], real):
+        with pytest.raises(checks.PinsConfigurationError, match="not a list"):
+            checks.check_skill_card(
+                {"metadata": {"prompt_source": "skill:x", "skill_card_hash": stated}})
+
+
+@pytest.mark.parametrize("broken, match", [
+    ('{"pins": {"skill_card_hash": ["a"]}', "unusable"),      # corrupt JSON
+    ('{"no_pins_key": {}}', "unusable"),                       # wrong shape
+    ('["not", "a", "mapping"]', "unusable"),                   # list at the top
+])
+def test_every_unusable_pins_file_raises_one_configuration_error(tmp_path, monkeypatch, broken, match):
+    """Classified by ORIGIN: corrupt, mis-shaped, missing, unreadable — all
+    of them are the server's configuration fault, so all of them raise the
+    same type the receiver maps to 500 (never a 400, never a crash)."""
+    path = tmp_path / "pins.gsj.json"
+    path.write_text(broken)
+    monkeypatch.setattr(checks, "_pins_cache", None)
+    monkeypatch.setattr(checks, "PINS_PATH", path)
+    with pytest.raises(checks.PinsConfigurationError, match=match):
+        checks.approved_set("skill_card_hash")
+    monkeypatch.setattr(checks, "_pins_cache", None)
+    monkeypatch.setattr(checks, "PINS_PATH", tmp_path / "absent.json")
+    with pytest.raises(checks.PinsConfigurationError, match="unusable"):
+        checks.approved_set("skill_card_hash")
+
+
+def test_unhashable_content_is_a_finding_not_a_raise(trace13):
     """JSON admits NaN and lone surrogates; the canonical convention
     (`allow_nan=False`) and UTF-8 must yield findings, not exceptions."""
-    nan_roster = _doctor(fidelity_trace, lambda t: t["tools"][0].update(x=float("nan")))
+    nan_roster = _doctor(trace13, lambda t: t["tools"][0].update(x=float("nan")))
     assert checks.run_trace_checks(nan_roster) == [
         "G3:tool_roster_hash_not_approved:unhashable"]
-    surrogate = _doctor(fidelity_trace,
+    surrogate = _doctor(trace13,
                         lambda t: t["prompt_messages"][0].update(content="\ud800"))
     assert checks.run_trace_checks(surrogate) == [
         "G2:system_prompt_hash_not_approved:unhashable"]

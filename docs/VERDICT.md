@@ -255,7 +255,7 @@ as decisions, not hopes:
   breaks the patch posture and A-8 fails.
 - **While provisional:** the predecessor stays alive and frozen as the
   fallback (law 3); no production collection on the Mac pair (A-16);
-  the wishlist's items 1–4 land before or with M4.
+  the wishlist's items 1–4 land before or with M4 (landed at CP-13).
 
 Not full ADOPT, because adopting a rollout server that has never fed a
 training step would be inflation. Not DO NOT ADOPT, because no stated
@@ -293,18 +293,26 @@ never reachable on this estate, reason in-row.
 
 Ordered by what unblocks the most. Items 1–4 are one freeze-lift CP
 (~10–40 lines total — the size law's new headroom is for exactly this);
-items 5–6 ride CP-04′ and the taskbank milestone.
+items 5–6 ride CP-04′ and the taskbank milestone. **[CP-13] Items 1–4, 7
+and 8 are DONE** (`docs/reports/CP-13.md`): G1 landed (row 9 → PARITY),
+G7's settings clause landed (row 15's residual closed), the H-41 mirror
+is complete by test, the receiver's two failure shapes are cured over
+HTTP, and both stale documents tell the truth. Items 5 and 6 stay with
+their owners (CP-04′; ADR-0003), and CP-13's own adversarial pass opened
+one new item — **9**, the sandbox-side card hash that is row 9's
+remaining delta from the predecessor's instrument.
 
 | # | item | needs freeze-lift of | deferred since / why | unblocks |
 | --- | --- | --- | --- | --- |
-| 1 | `prompt_source` (+ resolved-card hash) in `TaskRequest.metadata` | `config.py` | CP-11b measured G1 unimplementable without it; rooted in the CP-01 taskbank deferral | **gate G1** (row 9), and with #6 closes row 4 |
-| 2 | the H-41 knob's YAML mirror (`reject_toolless_roster` in `ChecksConfig`) | `config.py` (same lift) | CP-11b: config logic was frozen; drift declared in the docstring | the operator arming the toolless-roster check from the one YAML |
-| 3 | the settings echo (harness renders its `settings_json` into trace-reachable metadata) | `pi_harness.py` | CP-11b measured zero settings evidence on the callback | **G7's settings-hash clause** (row 15's residual) |
-| 4 | the receiver's pins-failure seam (missing pins KEY currently answers a 400 masquerade; missing FILE drops the connection mid-batch) | `receiver.py` | CP-11b verification measured both shapes live; fail-closed already, ugly | operational robustness at the wire; blocks nothing downstream |
+| 1 | **DONE (CP-13)** — `prompt_source` (+ resolved-card hash) in `TaskRequest.metadata` | `config.py` | CP-11b measured G1 unimplementable without it; rooted in the CP-01 taskbank deferral | **gate G1** (row 9), and with #6 closes row 4 |
+| 2 | **DONE (CP-13)** — the H-41 knob's YAML mirror (`reject_toolless_roster` in `ChecksConfig`, mirror-completeness test) | `config.py` (same lift) | CP-11b: config logic was frozen; drift declared in the docstring | the operator arming the toolless-roster check from the one YAML |
+| 3 | **DONE (CP-13)** — the settings echo (harness renders its `settings_json` into trace-reachable metadata via the gateway registry merge, A-23) | `pi_harness.py` | CP-11b measured zero settings evidence on the callback | **G7's settings-hash clause** (row 15's residual) |
+| 4 | **DONE (CP-13)** — the receiver's pins-failure seam (was: missing KEY → 400 masquerade, missing FILE → dropped connection mid-batch; now: 500 naming the key/path, batch atomic) | `receiver.py` | CP-11b verification measured both shapes live; fail-closed already, ugly | operational robustness at the wire; blocks nothing downstream |
 | 5 | `g6_expected_tail_ids` pinned under the served tokenizer | none — the next pins walk (CP-04′; blocked at CP-12 by the checkpoint's own no-re-pin rule) | ADR-0011: the tokenizer exists at pin time only, estate-side | **gate G6** (row 14), incl. the first-turn `prompt_ids` clause |
 | 6 | the taskbank landing (`TaskRequest`-shaped builder, skill-row resolution) | `client.py`'s orbit + `corpus/` | ADR-0003 (CP-01): no consumer existed; still true until a trainer drives volume | row 4; G1's end-to-end story with #1 |
-| 7 | `mcp-service/README.md` one-liner (says the G5 regexes land "at CP-11"; they landed at CP-10) | `mcp-service/` | frozen three CPs running (CP-10/11/11b) | auditor accuracy only |
-| 8 | `README.md` status line (still says "CP-01 — the moves") | none standing — excluded only by this CP's lift list | noticed at the CP-12 re-read; eleven checkpoints stale | the repo's front door telling the truth |
+| 7 | **DONE (CP-13)** — `mcp-service/README.md` one-liner (said "at CP-11"; the regexes landed at CP-10) | `mcp-service/` | frozen three CPs running (CP-10/11/11b) | auditor accuracy only |
+| 8 | **DONE (CP-13)** — `README.md` status section (said "CP-01 — the moves"; now states the CP-12 verdict, the working server, and the test commands) | none standing — excluded only by CP-13's lift list | noticed at the CP-12 re-read; eleven checkpoints stale | the repo's front door telling the truth |
+| 9 | **NEW (CP-13)** — G1's card hash computed **sandbox-side**, from the episode's own checkout, the way the predecessor did (`gsj-envloader task.py:878-885`) | `pi_harness.py` | CP-13's own verification: the submit-side statement landed, but a drifted `skills/<name>/SKILL.md` in a case repo stays invisible to G1 | row 9's remaining delta from the predecessor's instrument |
 
 ## What comes next
 
@@ -357,7 +365,8 @@ items 5–6 ride CP-04′ and the taskbank milestone.
   cluster access and estate bring-up (with the credentialed-clone/egress
   posture), the corpus beyond the staging cases, secret management for
   the MCP token, and the trainer integration of record. *What it would
-  take:* both pairs green, M4 done, the wishlist's items 1–4 landed.
+  take:* both pairs green, M4 done, the wishlist's items 1–4 landed
+  (done at CP-13).
   *Unnecessary if:* never — it is the point; the gate exists so it is
   entered deliberately.
 

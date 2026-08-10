@@ -130,27 +130,59 @@ exception (the seam's contract survives hostile payloads).
   conjunction verbatim, each clause its own finding (`G7:chains_total_ne_1`,
   `G7:chains_truncated`, `G7:completions_merged_ne_total`,
   `G7:raw_completions_ne_total`), any missing/non-int stat fails closed.
-  **The settings-hash clause did NOT land and is a recorded gap (row 15)**:
-  no settings evidence rides the callback (measured: zero occurrences of
-  `settings`/`compaction` on both real bodies). The enforcement-at-source
-  is the harness's own `settings_json` constant `{compaction:{enabled:
-  false}}` — the artifact `settings_hash` pins — but the receiver cannot
-  verify what it never receives; the fix is a harness-side echo of the
-  rendered settings into trace-reachable metadata, one line at
-  `pi_harness.py`'s next freeze-lift.
-- **G1 — NOT LANDED, unimplementable as specced**: the gate needs the
-  trace to state *which card resolved* (`prompt_source` +
-  `skill_card_text`), and nothing on the trace does — the taskbank
-  deferral (ADR-0003) means prompts arrive as already-resolved text, and
-  the measured first user message of both real episodes (626 chars) is
-  not the card bytes (616) nor contains them, so not even a
-  hash-the-instruction heuristic exists that distinguishes a skill row
-  from a free row (free rows must pass n/a). The fix, recorded: the
-  submit path states `prompt_source` (and the card hash for skill rows)
-  in `TaskRequest.metadata` — one line in `config.render_task_request`
-  at its next freeze-lift, natural landing alongside the taskbank
-  (ADR-0003); the gate then verifies the stated card's bytes-hash ∈
-  `skill_card_hash`.
+  **[CP-13] The settings-hash clause LANDED** (`check_settings_echo`,
+  trace-level — the echo rides trace metadata, not the trajectory's):
+  canonical-JSON sha256 (convention 2) of `metadata.gsj_settings` ∈
+  `settings_hash`; a missing echo is `G7:missing_evidence:settings`
+  (fail-closed), a mismatched document `G7:settings_hash_not_approved:
+  <hash>`, unhashable content `:unhashable` — never a raise. The evidence
+  exists because `PiHarness.setup` now echoes the rendered settings
+  document into the gateway session registry (A-23) and the CP-11 channel
+  carries it; the four hops were executed against the real vendored
+  classes, not read (CP-13 report §notes). Same self-reported-evidence
+  limit as the stats block: the harness states what it wrote.
+  **A deliberate asymmetry with G1, since both read metadata**:
+  `prompt_source` is the SUBMITTER's claim about the task, so it may
+  legitimately originate at submit; `gsj_settings` is the HARNESS's claim
+  about execution, so `check_settings_echo` reads only the trace metadata
+  the capture layer stamped and never a caller-supplied `task_metadata`
+  leg — otherwise a trainer could self-certify compaction-off in the same
+  request that asks for the episode.
+- **G1 — LANDED at CP-13** (`check_skill_card`, trace-level), the CP-11b
+  fix executed as recorded. `config.render_task_request` states
+  `prompt_source` (`free` | `skill:<name>`) in `TaskRequest.metadata`,
+  plus `skill_card_hash` (convention 1 over the resolved card bytes) for
+  skill sources; the statement rides the CP-11 channel into trace
+  metadata. The gate: `free` → n/a, finding-free; `skill:<name>` →
+  stated hash ∈ `skill_card_hash` else `G1:skill_card_hash_not_approved:
+  <hash>`, no stated hash → `G1:missing_evidence:skill_card_hash`;
+  anything else (absent, non-string, bare or blank `skill:`, an
+  unrecognized word) → `G1:missing_evidence:prompt_source`, fail-closed.
+  It reads the **hoisted top level only** — a `task_metadata` fallback was
+  written first and removed when the CP-13 pass measured that every
+  vendored shape carrying `task_metadata` also carries `traces=[]`
+  (`node.py:806-823`), so no trace-level gate ever runs on one (admission
+  catches them first); the leg was dead for its stated purpose while
+  widening the accept surface, since a source stated at one level and a
+  hash at the other would have passed.
+  **The limit, stated**: this is STATED evidence — the submit path's own
+  declaration, self-reported across the wire exactly like G7's stats
+  block (law 6's declared class). The predecessor's instrument was
+  stronger in a specific way worth naming: it read the card *from the
+  episode's checkout* (`gsj-envloader task.py:878-885`) and hashed those
+  bytes, so a case repo whose card had drifted from the corpus failed.
+  Computing the hash sandbox-side recovers that and is a wishlist item
+  owned by `pi_harness.py`. Shipping the card *text* instead of its hash
+  does NOT recover it — measured and rejected at CP-13: both are
+  submit-side self-reports arriving through the identical channel, so
+  hashing handed-over bytes is the same assurance one hop earlier.
+  **The hashing convention, binding on any caller**: the pin is sha256 over
+  the card's raw FILE BYTES (`pins/derive_pins.py`), so a caller must pass
+  `path.read_bytes().decode("utf-8")` — never `path.read_text()`, whose
+  locale encoding and universal-newline translation would silently change
+  the hash for a CRLF or non-UTF-8 card. `render_task_request` computes the
+  hash itself from that text, so the convention cannot be got wrong
+  through the sanctioned API.
 - **G4/G6 — NOT LANDED, deferred by ADR-0011 (measure-at-serve)**: no
   codec evidence rides the callback (measured — and the only fingerprint
   that exists anywhere, the persisted record's `system_fingerprint`, is
@@ -165,8 +197,11 @@ exception (the seam's contract survives hostile payloads).
   stream emits `H41:roster_offered_zero_tool_calls` **only when
   `CheckPolicy.reject_toolless_roster` is set** — a legitimate episode
   can call no tools, so the default is off and the condition is one knob
-  from a rejection (the YAML mirror gains the field at `config.py`'s next
-  freeze-lift; until then it is library-level). Roster absent is G3's
+  from a rejection. **[CP-13] The knob is reachable from the one YAML**:
+  `ChecksConfig.reject_toolless_roster` closed the declared mirror drift,
+  and a mirror-completeness test now asserts every `CheckPolicy` field has
+  a `ChecksConfig` counterpart with the same default — the drift cannot
+  recur silently. Roster absent is G3's
   missing-evidence shape, deliberately not H41's.
 
 Operational facts of the pins seam, recorded by the CP-11b adversarial
@@ -176,18 +211,46 @@ pass so nobody rediscovers them:
   re-pin is silently masked until a process restart, the same trap as the
   harness import cache (CP-06). The comment is on the cache line; the
   restart is part of any re-pin runbook.
-- **At the frozen receiver, a pins configuration failure is fail-closed
-  but ugly**: a missing/empty pins KEY maps to HTTP 400 (the
-  `(ValueError, KeyError)` content handler — a server-side config error
-  wearing client-error semantics), and a missing pins FILE escapes that
-  handler entirely — the connection drops with no HTTP response, and any
-  results already written from the same batch stay written. No trace is
-  ever *accepted* in either shape. The seam-level cleanup (catch, 500,
-  count nothing) is named for `receiver.py`'s next freeze-lift; the
-  trainer leg (`partition_session_results`, no guard by design) fails the
-  whole collect closed on a missing pins file — note `pins/` ships with
-  the repo checkout, not the wheel (`pyproject` packages `gsj_rollout`
-  only), so the trainer leg runs from a checkout.
+- **A pins configuration failure at the receiver — the CP-11b shapes and
+  the CP-13 cure.** As measured at CP-11b: a missing/empty pins KEY mapped
+  to HTTP 400 (the `(ValueError, KeyError)` content handler — a
+  server-side config error wearing client-error semantics), and a missing
+  pins FILE escaped that handler entirely — the connection dropped with no
+  HTTP response, and results already written from the same batch stayed
+  written. Fail-closed in both shapes (no trace was ever *accepted*), but
+  ugly. **[CP-13] Cured, and by ORIGIN rather than by exception type** —
+  the CP's own adversarial pass measured that a type-based catch cures only
+  two of seven reachable faults: a **corrupt** pins file raises
+  `JSONDecodeError`, a `ValueError` subclass, and answered 400 (the
+  masquerade again); an **unreadable** file, a **directory** at the pins
+  path, and a **wrong-shaped** document raised `PermissionError` /
+  `IsADirectoryError` / `AttributeError` and dropped the connection; and a
+  pins value that is a bare **string instead of a list** turned
+  `hash in approved_set(...)` from set membership into substring
+  containment — a fail-OPEN in which any prefix of the real hash passed,
+  live in every hash gate. As landed: `checks.approved_set` wraps the whole
+  load-and-lookup and raises one `PinsConfigurationError` for all of them
+  (the non-list value included), the receiver catches exactly that type →
+  **HTTP 500** naming the key or path, `ValueError` keeps its only meaning
+  (a malformed body → 400), and a final catch-all answers 500 rather than
+  letting any exception drop a connection. All seven shapes are
+  regression-tested over real HTTP. The never-raise contract is unchanged
+  in kind — `checks` raises only on pins configuration, never on content —
+  and a CP-13 fuzz of the real CP-09 body found the one surviving breach
+  (an unhashable tool-call `function.name` reaching a frozenset lookup),
+  fixed here with a type guard and added to the malformed-content corpus.
+  **The envelope is atomic against writes, not only against validation**:
+  `ingest` validates and serializes every member first, then stages every
+  `.tmp`, then commits by rename, unlinking every stage if any fails — so
+  neither a pins fault, an unserializable member, nor a mid-batch I/O error
+  leaves a half-persisted batch or an orphan `.tmp` (each regression-tested;
+  the session-id screen also now caps at Polar's own 128-character
+  `SESSION_ID_PATTERN`, so a legal-but-endless id is refused at the shape
+  screen instead of failing at the write). The trainer leg
+  (`partition_session_results`, no guard by design) still fails the whole
+  collect closed on a missing pins file — note `pins/` ships with the repo
+  checkout, not the wheel (`pyproject` packages `gsj_rollout` only), so
+  the trainer leg runs from a checkout.
 - **G7's conjunction admits a fabricated all-zero (or equal-negative)
   stats block** — the clauses are equalities, no positivity floor.
   Deliberate non-fix: `reconstruction_stats` is self-reported evidence,
@@ -218,6 +281,12 @@ canary), and `G5:*`. The gate families `G1`–`G4`/`G6`/`G7` are CP-11's.
 **[CP-11b] Live as of the gates CP: `G2:*`, `G3:*`, `G7:*` (the stats
 conjunction) and `H41:*` (policy-gated). Never emitted, by decision:
 `G1:*` (no trace-side card identity — below), `G4:*`/`G6:*` (ADR-0011).**
+**[CP-13] `G1:*` and G7's two settings entries join the live set** — five
+pure additions (`G1:missing_evidence:prompt_source`,
+`G1:missing_evidence:skill_card_hash`, `G1:skill_card_hash_not_approved`,
+`G7:missing_evidence:settings`, `G7:settings_hash_not_approved`), every
+pre-existing entry byte-identical. Still never emitted: `G4:*`/`G6:*`
+(ADR-0011).
 Per-position rules report **one finding per rule** with
 `:first={index}:count={n}` rather than one per position, so a
 systematically broken array cannot flood the list.
@@ -423,6 +492,16 @@ chains_total == 1
                                                  # is the only receiver-side
                                                  # signal there were no drops
 ```
+
+**[CP-13] The other two G7 clauses, landed as one test.**
+`check_settings_echo` hashes the echoed document against `settings_hash`,
+and that single equality carries `compaction.enabled == false` with it:
+the approved set holds exactly one value, the hash of
+`{"compaction":{"enabled":false}}`, so a document that hashes into the
+set IS that document. A separate `compaction.enabled` field read would be
+strictly weaker (it would accept a settings document that also carried
+other, unpinned keys) — the hash is the stronger form of the same clause,
+which is why the spec pins a hash at all.
 
 `completions_merged == completions_total` is what catches **filter
 amputation**: P1's filter runs *before* grouping, so a chain whose tail
@@ -835,6 +914,17 @@ complete inheritance for CP-12: the G7 settings-hash clause (harness echo,
 freeze-lift, with the taskbank), G4's bring-up walk + G6's tail-ids pin
 (CP-04′), the H-41 knob's YAML mirror field (`config.py` freeze-lift),
 and the per-episode codec binding residual (row 22, estate-owned).
+
+**[CP-13] Disposition — the list closes except for what CP-04′ owns.**
+Item 8 (`mcp-service/README.md`) fixed at last: the G5 regexes are now
+correctly attributed to CP-10. G1's `prompt_source` statement, the G7
+settings echo, and the H-41 YAML mirror all landed (§The gates as landed
+above), as did the receiver's pins-failure seam (§Operational facts). The
+inheritance that remains, unchanged in ownership: **G4's bring-up walk
+and G6's `g6_expected_tail_ids` pin (CP-04′)**, **the per-episode codec
+binding residual (row 22, estate-owned)**, and **skill-row resolution
+itself (ADR-0003, row 4)** — G1 verifies a stated card today; binding
+that statement to the sandbox's instruction text is the taskbank's job.
 
 ## [CP-10] A cutoff hole that no trace-side check can see
 

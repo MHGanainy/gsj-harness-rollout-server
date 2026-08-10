@@ -148,6 +148,27 @@ class PiHarness(BaseHarness):
                     f"PiHarness setup failed (rc={result.return_code}) on {step.split()[0]!r}: "
                     f"{result.stderr!r}"
                 )
+        self._echo_settings(settings_json)
+
+    def _echo_settings(self, settings_json: dict) -> None:
+        """G7's settings echo (CP-13, row 15): merge the settings document
+        as written to disk into the session's gateway-registry metadata,
+        BEFORE any completion — the proxy then stamps it onto every
+        completion record and the builder hoists it into trace metadata
+        (`session.py:87-88` merge → `server.py:371-377` → the CP-11-proven
+        `prefix_merging.py:371-375` hoist; A-23). Loud on failure: an
+        unechoed episode is rejected fail-closed at the receiver anyway."""
+        from polar.gateway.server import get_state  # gateway-process-only import
+
+        registry = get_state().session_registry
+        if registry.get(self._session_id) is None:
+            raise RuntimeError(
+                f"PiHarness: session {self._session_id!r} not in this process's gateway "
+                f"registry — the settings echo cannot reach the trace (A-23)"
+            )
+        # status="" keeps the current status (`status or info.status`);
+        # register() on an existing id merges metadata under the lock.
+        registry.register(self._session_id, metadata={"gsj_settings": settings_json}, status="")
 
     def run_steps(self, instruction: str) -> list[ExecInput]:
         provider, model_id = self.model_name.split("/", 1)

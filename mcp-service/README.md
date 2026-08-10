@@ -312,7 +312,7 @@ Binding on **any** future backend behind these four tools — prod included:
    The G5 backstop regexes
    (`"page"\s*:\s*(\d+)` and `md/page_(\d{4})\.md` — the predecessor's
    `gsj.envloader.gates.extract_case_search_pages`, inlined in this repo's
-   `tests/helpers.py`; this repo's `checks.py` reimplements them at CP-11,
+   `tests/helpers.py`; this repo's `checks.py` reimplements them at CP-10,
    `docs/checks-spec.md`) parse the transcript's
    tool-result texts as G5's backstop — a backend that renames the key or
    reformats the path blinds the gate.

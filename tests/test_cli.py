@@ -90,15 +90,15 @@ def test_bounded_exit_on_never_terminal_task(tmp_path, fake_rollout_factory):
     assert code == 1  # terminal for us, not collected — never hangs
 
 
-def test_submit_collects_and_writes_out(tmp_path, fake_rollout_factory, callback_body):
-    server = fake_rollout_factory([task_status([callback_body])])
+def test_submit_collects_and_writes_out(tmp_path, fake_rollout_factory, body13):
+    server = fake_rollout_factory([task_status([body13])])
     config = _config_for(tmp_path, server.base_url)
     out = tmp_path / "collected"
     code = cli.main(["submit", "--config", str(config), "--case", "case_0001",
                      "--timestep", "12", "--prompt", "p", "--out", str(out),
                      "--poll-interval", "0.02"])
     assert code == 0
-    assert (out / f"{callback_body['session_id']}.json").exists()
+    assert (out / f"{body13['session_id']}.json").exists()
 
 
 def test_serve_render_only(tmp_path, capsys):

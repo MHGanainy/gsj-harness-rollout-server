@@ -4,11 +4,12 @@ carries ALL reasoning (CP-11 budget migration); this module implements.
 One entry point, `validate_session_result`: takes the callback-shaped
 `SessionResult` mapping (never the on-disk `ses_*.json` — CP-07 finding 5),
 returns byte-stable ``{id}:{slug}[:detail]`` findings, empty = accepted,
-never raises on content (ADR-0008 §6; a missing pins file/key is
-configuration, not content — it raises, the gates never fail open). Both
+never raises on content (ADR-0008 §6; unusable pins are configuration, not
+content — they raise `PinsConfigurationError`, the gates never fail open). Both
 legs of law 6 call it. Live: `ADM*`, `LP*`/`TR*`, G5's backstop, gates
-G2/G3/G7 against `pins/pins.gsj.json`, the policy-gated H-41 flag. Not
-here, reasons in the spec: G1, G4/G6 (ADR-0011), replay."""
+G1/G2/G3/G7 (stats + settings echo) against `pins/pins.gsj.json`, the
+policy-gated H-41 flag. Not here, reasons in the spec: G4/G6 (ADR-0011),
+replay."""
 
 from __future__ import annotations
 
@@ -41,6 +42,9 @@ LP9_MASK_DOMAIN = "LP9:loss_mask_value_not_binary"
 TR1_FINISH_REASON = "TR1:finish_reason_not_allowed"
 TR2_REASONING_LOSS_MASK = "TR2:reasoning_loss_mask_masked_tokens"
 
+G1_MISSING_SOURCE = "G1:missing_evidence:prompt_source"
+G1_MISSING_CARD_HASH = "G1:missing_evidence:skill_card_hash"
+G1_NOT_APPROVED = "G1:skill_card_hash_not_approved"
 G2_MISSING_SYSTEM_PROMPT = "G2:missing_evidence:system_prompt"
 G2_NOT_APPROVED = "G2:system_prompt_hash_not_approved"
 G3_MISSING_TOOLS = "G3:missing_evidence:tools"
@@ -51,15 +55,18 @@ G7_CHAINS_TOTAL = "G7:chains_total_ne_1"
 G7_CHAINS_TRUNCATED = "G7:chains_truncated"
 G7_MERGED = "G7:completions_merged_ne_total"
 G7_MISSING_STATS = "G7:missing_evidence:reconstruction_stats"
+G7_MISSING_SETTINGS = "G7:missing_evidence:settings"
 G7_RAW = "G7:raw_completions_ne_total"
+G7_SETTINGS_NOT_APPROVED = "G7:settings_hash_not_approved"
 H41_TOOLLESS_ROSTER = "H41:roster_offered_zero_tool_calls"
 
 FINDING_VOCABULARY = (
     ADM1_STATUS_NOT_COMPLETED, ADM2_BUILDER_FINDINGS_PRESENT, ADM3_TRAJECTORY_MISSING,
-    ADM4_NO_TRACES, ADM5_MALFORMED_TRACE, G2_MISSING_SYSTEM_PROMPT, G2_NOT_APPROVED,
+    ADM4_NO_TRACES, ADM5_MALFORMED_TRACE, G1_MISSING_SOURCE, G1_MISSING_CARD_HASH,
+    G1_NOT_APPROVED, G2_MISSING_SYSTEM_PROMPT, G2_NOT_APPROVED,
     G3_MISSING_TOOLS, G3_NOT_APPROVED, G5_MISSING_TIMESTEP, G5_SEARCH_PAGE_GT_TIMESTEP,
-    G7_CHAINS_TOTAL, G7_CHAINS_TRUNCATED, G7_MERGED, G7_MISSING_STATS, G7_RAW,
-    H41_TOOLLESS_ROSTER,
+    G7_CHAINS_TOTAL, G7_CHAINS_TRUNCATED, G7_MERGED, G7_MISSING_STATS,
+    G7_MISSING_SETTINGS, G7_RAW, G7_SETTINGS_NOT_APPROVED, H41_TOOLLESS_ROSTER,
     LP1_LOGPROBS_ABSENT, LP2_LOGPROBS_LENGTH, LP3_SENTINEL_AT_MASK1, LP4_NONFINITE,
     LP5_POSITIVE, LP6_ZERO_RATE_AT_MASK1, LP7_EMPTY_LOSS_MASK, LP8_MASK_LENGTH,
     LP9_MASK_DOMAIN, TR1_FINISH_REASON, TR2_REASONING_LOSS_MASK,
@@ -96,14 +103,25 @@ PINS_PATH = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
 _pins_cache: Mapping[str, list[str]] | None = None  # process-lifetime; a re-pin needs a restart
 
 
+class PinsConfigurationError(Exception):
+    """Pins are configuration, not content: every way loading them can fail
+    is the server's fault, never the caller's (spec §the pins seam)."""
+
+
 def approved_set(key: str) -> list[str]:
-    """The approved hashes for one pin key — raises loudly when absent."""
+    """The approved hashes for one pin key — raises loudly when unusable."""
     global _pins_cache
     if _pins_cache is None:
-        _pins_cache = json.loads(PINS_PATH.read_text())["pins"]
-    values = _pins_cache.get(key)
-    if not values:
-        raise KeyError(f"pins key {key!r} missing or empty in {PINS_PATH}")
+        try:
+            _pins_cache = json.loads(PINS_PATH.read_text())["pins"]
+        except Exception as exc:  # unreadable, corrupt, wrong shape — all ours
+            raise PinsConfigurationError(f"pins file {PINS_PATH} unusable: {exc!r}") from exc
+    values = _pins_cache.get(key) if isinstance(_pins_cache, Mapping) else None
+    # list, not str: `hash in "somestring"` is substring containment — a fail-open
+    if not isinstance(values, list) or not values:
+        raise PinsConfigurationError(
+            f"pins key {key!r} missing, empty, or not a list in {PINS_PATH}"
+        )
     return values
 
 
@@ -183,6 +201,8 @@ def run_trace_checks(
         *check_page_cutoff(trace),
         *check_tool_roster(trace),
         *check_system_prompt(trace),
+        *check_skill_card(trace),
+        *check_settings_echo(trace),
         *check_toolless_roster(trace, policy),
     ]
 
@@ -212,6 +232,38 @@ def check_system_prompt(trace: Mapping[str, Any]) -> list[str]:
             if digest not in approved:
                 findings.append(f"{G2_NOT_APPROVED}:{digest or 'unhashable'}")
     return findings if seen else [G2_MISSING_SYSTEM_PROMPT]
+
+
+def check_skill_card(trace: Mapping[str, Any]) -> list[str]:
+    """G1 (spec §The gates as landed, CP-13): the stated `prompt_source`
+    decides — `skill:<name>`: stated card-bytes hash ∈ `skill_card_hash`;
+    `free`: n/a, pass; neither/absent: fail closed. Stated-evidence limit
+    recorded in row 9."""
+    metadata = _as_mapping(trace.get("metadata"))
+    source = metadata.get("prompt_source")
+    if source == "free":
+        return []
+    if isinstance(source, str) and source.startswith("skill:") and source[len("skill:"):].strip():
+        card_hash = metadata.get("skill_card_hash")
+        if not isinstance(card_hash, str) or not card_hash:
+            return [G1_MISSING_CARD_HASH]
+        if card_hash in approved_set("skill_card_hash"):
+            return []
+        return [f"{G1_NOT_APPROVED}:{card_hash[:64]}"]
+    return [G1_MISSING_SOURCE]
+
+
+def check_settings_echo(trace: Mapping[str, Any]) -> list[str]:
+    """G7's settings clause (spec §G7's chain snapshot, CP-13): canonical
+    hash of the harness-echoed rendered settings ∈ `settings_hash`; a
+    missing echo fails closed (row 15's residual, closed)."""
+    settings = _as_mapping(trace.get("metadata")).get("gsj_settings")
+    if not isinstance(settings, Mapping) or not settings:
+        return [G7_MISSING_SETTINGS]
+    digest = _sha256_canonical_json(settings)
+    if digest in approved_set("settings_hash"):
+        return []
+    return [f"{G7_SETTINGS_NOT_APPROVED}:{digest or 'unhashable'}"]
 
 
 _G7_STAT_KEYS = ("chains_total", "chains_reconstructed_truncated",
@@ -367,7 +419,8 @@ def _episode_timestep(trace: Mapping[str, Any]) -> int | None:
 def _case_search_pages(trace: Mapping[str, Any]) -> list[int]:
     pages: set[int] = set()
     for name, text in _tool_results(trace):
-        if name in CUTOFF_SCOPED_TOOLS:
+        # `in` on a frozenset hashes: an unhashable wire name must not raise
+        if isinstance(name, str) and name in CUTOFF_SCOPED_TOOLS:
             pages.update(int(page) for page in _PAGE_MEMBER.findall(text))
             pages.update(int(page) for page in _PAGE_FILE.findall(text))
     return sorted(pages)

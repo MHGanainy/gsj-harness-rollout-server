@@ -68,11 +68,11 @@ class BuilderConfig(_Section):
 class ChecksConfig(_Section):
     """`CheckPolicy` mirror, defaults read from it (CP-11, spec §operator
     surface); a CUDA estate sets `zero_at_mask1_max_rate: 0.0` (row 27).
-    CP-11b: `reject_toolless_roster` (H-41) is library-only until this
-    mirror's next freeze-lift."""
+    CP-13 closed the declared mirror drift: complete by test."""
 
     sentinel_threshold: float = checks.CheckPolicy.sentinel_threshold
     zero_at_mask1_max_rate: float = checks.CheckPolicy.zero_at_mask1_max_rate
+    reject_toolless_roster: bool = checks.CheckPolicy.reject_toolless_roster  # H-41
 
 
 class RolloutConfig(_Section):
@@ -198,9 +198,37 @@ def render_task_request(
     timestep: int,
     episodes: int = 1,
     timeout_seconds: float = 900.0,
+    prompt_source: str = "free",
+    skill_card_text: str | None = None,
 ) -> dict[str, Any]:
     """One Polar `TaskRequest` body for the triple `(case, timestep, prompt)`;
-    `callback_url` is the zero-patch push channel (ADR-0008 §2)."""
+    `callback_url` is the zero-patch push channel (ADR-0008 §2).
+
+    `prompt_source` states the task's origin for G1 (row 9): `free` for
+    verbatim text (the frozen `cli.py` path — resolution never happens
+    there), `skill:<name>` for taskbank skill rows (ADR-0003). Passing the
+    resolved card text states its bytes-hash (convention 1) at
+    `metadata.skill_card_hash`; omitting it leaves the hash to whoever
+    reads the card from the checkout, and G1 fails closed until one of
+    them supplies it — the taskbank keeps the choice."""
+    skill_card_hash = None
+    if not isinstance(prompt_source, str):
+        raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
+    if prompt_source == "free":
+        if skill_card_text is not None:
+            raise ValueError("skill_card_text is only valid with a skill: prompt_source")
+    elif prompt_source.startswith("skill:") and prompt_source[len("skill:"):].strip():
+        if skill_card_text is not None:
+            if not isinstance(skill_card_text, str) or not skill_card_text:
+                raise ValueError("skill_card_text must be non-empty text")
+            # UTF-8 bytes, the pins convention: read the card with
+            # `read_bytes().decode('utf-8')`, never `read_text()` (locale
+            # + universal-newline translation would change the hash).
+            skill_card_hash = checks._sha256_text(skill_card_text)
+            if skill_card_hash is None:
+                raise ValueError("skill_card_text is not UTF-8-encodable")
+    else:
+        raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
     settings: dict[str, Any] = {
         "case_id": case_id,
         "timestep": int(timestep),
@@ -222,15 +250,21 @@ def render_task_request(
     builder_config: dict[str, Any] = {"end_of_turn_token_id": cfg.builder.end_of_turn_token_id}
     if cfg.builder.generation_prompt_glue_ids is not None:
         builder_config["generation_prompt_glue_ids"] = list(cfg.builder.generation_prompt_glue_ids)
+    metadata: dict[str, Any] = {
+        "case_id": case_id, "timestep": int(timestep), "prompt_source": prompt_source,
+    }
+    if skill_card_hash is not None:
+        metadata["skill_card_hash"] = skill_card_hash
     return {
         "task_id": task_id,
         "instruction": instruction,
         "num_samples": int(episodes),
         "timeout_seconds": float(timeout_seconds),
-        # G5's structural timestep (CP-11): hoisted into every trace's
-        # top-level metadata (`prefix_merging.py:371-375`). Polar's reserved
-        # keys (`session_id`/`task_id`/`evaluation`/`policy_version`) never here.
-        "metadata": {"case_id": case_id, "timestep": int(timestep)},
+        # G5's structural timestep (CP-11) + G1's prompt_source (CP-13):
+        # hoisted into every trace's top-level metadata
+        # (`prefix_merging.py:371-375`). Polar's reserved keys
+        # (`session_id`/`task_id`/`evaluation`/`policy_version`) never here.
+        "metadata": metadata,
         "runtime": {
             "backend": cfg.runtime.backend,
             "image": cfg.runtime.image,

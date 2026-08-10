@@ -11,13 +11,17 @@ to `<traces_dir>/<session_id>.json` or quarantined with its findings to
 `<quarantine_dir>/<session_id>.json` — forensics beat counters. Both
 outcomes answer Polar 200 (`{"accepted": n, "rejected": m}`): rejection
 is our validation decision, not a delivery failure; malformed bodies get
-400. Stdlib HTTP on purpose (R1: FastAPI named, rejected — ADR-0008 §2);
+400; a pins-configuration fault is a 500 naming the key or path, and the
+envelope is atomic — every member is dispositioned or none is (CP-13, the
+CP-11b shapes cured). No exception leaves a connection unanswered.
+Stdlib HTTP on purpose (R1: FastAPI named, rejected — ADR-0008 §2);
 no signal handlers here, ever (the embeddability property — `cli.serve`
 owns signals).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -30,8 +34,10 @@ from . import checks
 
 logger = logging.getLogger("gsj_rollout.receiver")
 
-# session_id becomes a filename — never let wire input walk the filesystem.
-_SAFE_SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# session_id becomes a filename — never let wire input walk the filesystem,
+# and cap it at Polar's own SESSION_ID_PATTERN length (`session.py:16`) so a
+# legal-but-endless id cannot fail the write instead of the shape screen.
+_SAFE_SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 def _as_session_results(body: Any) -> list[dict[str, Any]]:
@@ -92,8 +98,19 @@ class Receiver:
                 try:
                     raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
                     accepted, rejected = receiver.ingest(json.loads(raw))
-                except (ValueError, KeyError) as exc:
+                except checks.PinsConfigurationError as exc:
+                    # Classified by ORIGIN, not exception type: every way pins
+                    # can be unusable is our configuration fault, so it is a 500
+                    # naming the key or path — never a 400 masquerade, never a
+                    # dropped connection (CP-11b's two measured shapes, CP-13).
+                    self._reply(500, {"error": f"pins configuration: {exc}"})
+                    return
+                except ValueError as exc:  # the body itself: client-malformed
                     self._reply(400, {"error": str(exc)})
+                    return
+                except Exception as exc:  # ours, unforeseen — still answer
+                    logger.exception("receiver failed to ingest")
+                    self._reply(500, {"error": f"receiver: {type(exc).__name__}: {exc}"})
                     return
                 self._reply(200, {"accepted": accepted, "rejected": rejected})
 
@@ -105,31 +122,52 @@ class Receiver:
         return self._httpd.server_address[1]
 
     def ingest(self, body: Any) -> tuple[int, int]:
-        """Validate and land every SessionResult in `body`; (accepted, rejected)."""
-        accepted = rejected = 0
+        """Validate and land every SessionResult in `body`; (accepted, rejected).
+
+        Two phases, so the envelope is atomic (CP-13): phase 1 validates AND
+        serializes every member — a pins fault or an unserializable body
+        aborts before anything touches disk; phase 2 stages each `.tmp` and
+        only then commits them by rename, unlinking every stage if any fails.
+        Either every result is dispositioned or none is."""
+        planned = []
         for result in _as_session_results(body):
             session_id = str(result["session_id"])
             findings = checks.validate_session_result(result)
+            payload = {"findings": findings, "session_result": result} if findings else result
+            try:
+                text = json.dumps(payload)
+            except Exception as exc:  # unserializable content is the caller's
+                raise ValueError(f"result {session_id} is not serializable: {exc!r}") from exc
+            directory = self.quarantine_dir if findings else self.traces_dir
+            planned.append((os.path.join(directory, f"{session_id}.json"), text,
+                            session_id, findings))
+
+        staged: list[tuple[str, str]] = []
+        try:
+            for path, text, _, _ in planned:
+                tmp = f"{path}.tmp"
+                with open(tmp, "w") as handle:
+                    handle.write(text)
+                staged.append((tmp, path))
+        except Exception:
+            for tmp, _ in staged:  # nothing half-lands, and no orphan .tmp
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+            raise
+        for tmp, path in staged:
+            os.replace(tmp, path)
+
+        accepted = rejected = 0
+        for _, _, session_id, findings in planned:
             if findings:
-                self._write(self.quarantine_dir, session_id,
-                            {"findings": findings, "session_result": result})
                 logger.warning("rejected %s: %s", session_id, findings)
                 rejected += 1
                 self.rejected += 1
             else:
-                self._write(self.traces_dir, session_id, result)
                 logger.info("accepted %s", session_id)
                 accepted += 1
                 self.accepted += 1
         return accepted, rejected
-
-    @staticmethod
-    def _write(directory: str, session_id: str, payload: dict[str, Any]) -> None:
-        path = os.path.join(directory, f"{session_id}.json")
-        tmp = f"{path}.tmp"
-        with open(tmp, "w") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, path)
 
     def serve_forever(self) -> None:
         self._serving.set()
