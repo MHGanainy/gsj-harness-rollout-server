@@ -25,6 +25,14 @@ Runtime-agnostic by law 5: everything here is exec/download against
 `BaseRuntime`. The image must provide `node` and `git`. Never set
 `runtime.workdir` to a harness-created path (CP-06 trap); the run step
 carries its own `cwd`.
+
+Two statements about EXECUTION ride the gateway registry into trace
+metadata (A-23): `gsj_settings`, the rendered settings document G7 hashes
+(CP-13), and `gsj_workspace`, what the sandbox actually contained after
+the clone and before pi launched (CP-13a) — branch, commit, tree, shallow
+posture, surviving remotes, and the checkout page census G5 dropped as
+unreconstructable. Both are captured before any completion exists, so the
+chain's first completion metadata carries them.
 """
 
 from __future__ import annotations
@@ -54,6 +62,16 @@ _DEFAULT_PI_ENTRY = "/opt/pi/node_modules/@earendil-works/pi-coding-agent/dist/c
 _DEFAULT_EXTENSION = "/opt/pi/node_modules/pi-mcp-extension/src/index.ts"
 _DEFAULT_SECRET_ENV = "GSJ_MCP_TOKEN_SECRET"
 _REQUIRED_SETTINGS = ("case_id", "timestep", "clone_url_for", "mcp_url_base", "tools_allowlist", "artifacts_dir")
+
+
+def _strip_credentials(url: str) -> str:
+    """`scheme://user:pw@host/path` → `scheme://host/path`; anything else
+    unchanged. The echo must never carry a re-fetch credential (CP-11)."""
+    scheme, sep, rest = url.partition("://")
+    if not sep or "@" not in rest.split("/", 1)[0]:
+        return url
+    netloc, slash, path = rest.partition("/")
+    return f"{scheme}://{netloc.rsplit('@', 1)[1]}{slash}{path}"
 
 
 def _mint_episode_token(case_id: str, timestep: int, episode_id: str, ttl_s: int, secret: str) -> str:
@@ -148,16 +166,62 @@ class PiHarness(BaseHarness):
                     f"PiHarness setup failed (rc={result.return_code}) on {step.split()[0]!r}: "
                     f"{result.stderr!r}"
                 )
-        self._echo_settings(settings_json)
+        workspace = await self._probe_workspace(runtime, workdir, clone_url)
+        self._echo({"gsj_settings": settings_json, "gsj_workspace": workspace})
 
-    def _echo_settings(self, settings_json: dict) -> None:
-        """G7's settings echo (CP-13, row 15): merge the settings document
-        as written to disk into the session's gateway-registry metadata,
-        BEFORE any completion — the proxy then stamps it onto every
-        completion record and the builder hoists it into trace metadata
-        (`session.py:87-88` merge → `server.py:371-377` → the CP-11-proven
-        `prefix_merging.py:371-375` hoist; A-23). Loud on failure: an
-        unechoed episode is rejected fail-closed at the receiver anyway."""
+    async def _probe_workspace(self, runtime: BaseRuntime, workdir: str, clone_url: str) -> dict:
+        """CP-13a: what the sandbox CONTAINS, read after the clone and before
+        pi launches — the requested timestep is an intention, the checked-out
+        tree is the fact. Small and structured; the page census is the
+        checkout census G5 dropped as unreconstructable (row 13)."""
+        probe = " && ".join((
+            f"cd {shlex.quote(workdir)}",
+            'echo "branch=$(git rev-parse --abbrev-ref HEAD)"',
+            'echo "commit=$(git rev-parse HEAD)"',
+            'echo "tree=$(git rev-parse HEAD^{tree})"',
+            'echo "shallow=$(git rev-parse --is-shallow-repository)"',
+            'echo "commits=$(git rev-list --count HEAD)"',
+            'echo "remotes=$(git remote | wc -l)"',
+            "echo \"pages=$(ls md 2>/dev/null | sed -n 's/^page_\\([0-9]\\{4\\}\\)\\.md$/\\1/p' | sort -n | tr '\\n' ' ')\"",
+        ))
+        result = await runtime.exec(probe)
+        if result.return_code != 0:
+            raise RuntimeError(
+                f"PiHarness workspace probe failed (rc={result.return_code}): {result.stderr!r}"
+            )
+        fields = dict(
+            line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+        )
+        # `echo "k=$(git …)"` exits 0 even when the inner git fails, so an
+        # empty required field means a broken probe, not an empty checkout
+        missing = [key for key in ("branch", "commit", "tree", "commits", "remotes")
+                   if not fields.get(key, "").strip()]
+        if missing:
+            raise RuntimeError(f"PiHarness workspace probe returned no {missing}: {result.stdout!r}")
+        pages = [int(page) for page in fields.get("pages", "").split()]
+        return {
+            # credential-stripped: a URL in an artifact is a re-fetch path
+            # (the CP-11 reflog lesson), so userinfo never rides the trace
+            "clone_url": _strip_credentials(clone_url),
+            "case_id": str(self.settings["case_id"]),
+            "branch": fields.get("branch", ""),
+            "commit": fields.get("commit", ""),
+            "tree": fields.get("tree", ""),
+            "shallow": fields.get("shallow", "") == "true",
+            "commits": int(fields.get("commits", 0)),
+            "remotes": int(fields.get("remotes", 0)),
+            "pages": {"count": len(pages),
+                      "min": pages[0] if pages else None,
+                      "max": pages[-1] if pages else None},
+        }
+
+    def _echo(self, metadata: dict) -> None:
+        """The harness's statements about execution, merged into the session's
+        gateway-registry metadata BEFORE any completion — the proxy then
+        stamps them onto every completion record and the builder hoists them
+        into trace metadata (`session.py:87-88` merge → `server.py:371-377`
+        → the CP-11-proven `prefix_merging.py:371-375` hoist; A-23). Loud on
+        failure: an unechoed episode is rejected fail-closed anyway."""
         from polar.gateway.server import get_state  # gateway-process-only import
 
         registry = get_state().session_registry
@@ -168,7 +232,7 @@ class PiHarness(BaseHarness):
             )
         # status="" keeps the current status (`status or info.status`);
         # register() on an existing id merges metadata under the lock.
-        registry.register(self._session_id, metadata={"gsj_settings": settings_json}, status="")
+        registry.register(self._session_id, metadata=metadata, status="")
 
     def run_steps(self, instruction: str) -> list[ExecInput]:
         provider, model_id = self.model_name.split("/", 1)

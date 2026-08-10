@@ -115,15 +115,16 @@ def test_cp07_corpus_trace_passes_clean(body13):
     assert checks.run_trace_checks(trace) == []
 
 
-def test_fixture_era_bodies_fail_closed_on_the_two_cp13_statements(
+def test_fixture_era_bodies_fail_closed_on_the_cp13_statements(
     callback_body, fidelity_callback, fidelity_trace
 ):
-    """CP-13 landed two fail-closed gates whose evidence (the stated
-    `prompt_source`, the settings echo) no pre-CP-13 artifact carries: the
-    raw bodies, verbatim, now earn exactly those two findings — the
-    golden-mapping precedent (honest fail-closed on evidence-less
-    artifacts), not a grandfather clause."""
-    expected = ["G1:missing_evidence:prompt_source", "G7:missing_evidence:settings"]
+    """CP-13/13a landed three fail-closed gates whose evidence (the stated
+    `prompt_source`, the settings echo, the workspace echo) no pre-CP-13
+    artifact carries: the raw bodies, verbatim, now earn exactly those
+    findings — the golden-mapping precedent (honest fail-closed on
+    evidence-less artifacts), not a grandfather clause."""
+    expected = ["G5:missing_evidence:workspace",
+                "G1:missing_evidence:prompt_source", "G7:missing_evidence:settings"]
     assert checks.run_trace_checks(fidelity_trace) == expected
     assert checks.validate_session_result(callback_body) == expected
     assert checks.validate_session_result(fidelity_callback) == expected
@@ -140,7 +141,8 @@ def test_golden_tokens_pass_the_same_rules(golden_trace):
     assert (zeros, sum(golden_trace["loss_mask"]), len(golden_trace["response_ids"])) == (20, 292, 3747)
     assert checks.check_logprob_discipline(golden_trace) == []
     assert checks.run_trace_checks(golden_trace) == [
-        "G3:missing_evidence:tools", "G2:missing_evidence:system_prompt",
+        "G5:missing_evidence:workspace", "G3:missing_evidence:tools",
+        "G2:missing_evidence:system_prompt",
         "G1:missing_evidence:prompt_source", "G7:missing_evidence:settings"]
 
 
@@ -350,8 +352,13 @@ def test_failure_vocabulary_snapshot():
         "G2:system_prompt_hash_not_approved",
         "G3:missing_evidence:tools",
         "G3:tool_roster_hash_not_approved",
+        "G5:checkout_history_posture",
+        "G5:checkout_max_page_ne_timestep",
+        "G5:checkout_pages_not_contiguous",
         "G5:missing_evidence:timestep",
+        "G5:missing_evidence:workspace",
         "G5:search_page_gt_timestep",
+        "G5:workspace_branch_ne_timestep",
         "G7:chains_total_ne_1",
         "G7:chains_truncated",
         "G7:completions_merged_ne_total",
@@ -518,6 +525,71 @@ def test_g1_blank_skill_name_fails_closed(trace13):
             prompt_source=b, skill_card_hash=_approved("skill_card_hash")[0]))
         assert checks.run_trace_checks(doctored) == [
             "G1:missing_evidence:prompt_source"], blank
+
+
+# --- CP-13a: G5's checkout census, returned -------------------------------
+
+
+def _workspace(trace13, **overrides):
+    """One doctored workspace echo, everything else the real episode's."""
+    def mutate(trace):
+        trace["metadata"]["gsj_workspace"] = {**trace["metadata"]["gsj_workspace"],
+                                              **overrides}
+    return _doctor(trace13, mutate)
+
+
+def test_the_checkout_census_passes_clean_on_both_real_episodes(trace13, body13):
+    """Clean on the echo a correct clone produces: shallow, remoteless,
+    pages 1–12 contiguous, branch `timestep-12` agreeing with the
+    trainer's own `timestep: 12`."""
+    assert checks.check_workspace(trace13) == []
+    assert checks.run_trace_checks(body13["trajectory"]["traces"][0]) == []
+
+
+@pytest.mark.parametrize("overrides, expected", [
+    # cross-sourced: the harness's branch vs the trainer's timestep
+    ({"branch": "timestep-18"},
+     "G5:workspace_branch_ne_timestep:timestep-18!=timestep-12"),
+    # cross-sourced: the checkout's own max page vs the trainer's timestep —
+    # the predecessor's clause, unreconstructable until CP-13a
+    ({"pages": {"count": 18, "min": 1, "max": 18}},
+     "G5:checkout_max_page_ne_timestep:18!=12"),
+    # single-source: an honest truncated or mis-built checkout
+    ({"pages": {"count": 11, "min": 2, "max": 12}},
+     "G5:checkout_pages_not_contiguous:2-12/11"),
+    # the CP-11 cure, attested per-episode instead of assumed
+    ({"shallow": False}, "G5:checkout_history_posture:shallow=False,remotes=0"),
+    ({"remotes": 1}, "G5:checkout_history_posture:shallow=True,remotes=1"),
+])
+def test_each_census_clause_fires_for_its_own_reason(trace13, overrides, expected):
+    assert checks.check_workspace(_workspace(trace13, **overrides)) == [expected]
+
+
+def test_a_missing_or_malformed_workspace_echo_fails_closed(trace13):
+    absent = _doctor(trace13, lambda t: t["metadata"].pop("gsj_workspace"))
+    assert checks.check_workspace(absent) == ["G5:missing_evidence:workspace"]
+    for junk in ("nope", [], {}, 7):
+        doctored = _doctor(trace13, lambda t, j=junk: t["metadata"].update(gsj_workspace=j))
+        assert checks.check_workspace(doctored) == ["G5:missing_evidence:workspace"], junk
+    # a present echo whose page census is not integers is evidence-less too
+    no_pages = _workspace(trace13, pages={"count": None, "min": 1, "max": 12})
+    assert checks.check_workspace(no_pages) == ["G5:missing_evidence:workspace.pages"]
+
+
+def test_the_census_never_double_reports_a_missing_timestep(trace13):
+    """`check_page_cutoff` owns `G5:missing_evidence:timestep`; without T
+    the census reports only what it can judge single-source."""
+    def strip(trace):
+        trace["metadata"].pop("timestep", None)
+        trace["metadata"]["gsj_workspace"] = {
+            **trace["metadata"]["gsj_workspace"], "shallow": False}
+        trace["response_messages"] = [
+            m for m in trace["response_messages"]
+            if m.get("role") != "tool" and not m.get("tool_calls")]
+    doctored = _doctor(trace13, strip)
+    assert checks.check_workspace(doctored) == [
+        "G5:checkout_history_posture:shallow=False,remotes=0"]
+    assert "G5:missing_evidence:timestep" in checks.run_trace_checks(doctored)
 
 
 def test_g7_settings_echo_missing_fails_closed(trace13):

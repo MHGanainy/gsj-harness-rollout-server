@@ -285,8 +285,11 @@ conjunction) and `H41:*` (policy-gated). Never emitted, by decision:
 pure additions (`G1:missing_evidence:prompt_source`,
 `G1:missing_evidence:skill_card_hash`, `G1:skill_card_hash_not_approved`,
 `G7:missing_evidence:settings`, `G7:settings_hash_not_approved`), every
-pre-existing entry byte-identical. Still never emitted: `G4:*`/`G6:*`
-(ADR-0011).
+pre-existing entry byte-identical. **[CP-13a] Five more, all `G5:*`** —
+the returning checkout census (`G5:workspace_branch_ne_timestep`,
+`G5:checkout_max_page_ne_timestep`, `G5:checkout_pages_not_contiguous`,
+`G5:checkout_history_posture`, `G5:missing_evidence:workspace`), again
+pure additions. Still never emitted: `G4:*`/`G6:*` (ADR-0011).
 Per-position rules report **one finding per rule** with
 `:first={index}:count={n}` rather than one per position, so a
 systematically broken array cannot flood the list.
@@ -779,6 +782,8 @@ from what Polar captures. Mechanics as built:
   appears nowhere in the trace. They are not reconstructable receiver-side
   at all; the enforcement they backstopped is the `timestep-{T}` branch
   clone itself (CP-07, live). Recorded rather than faked.
+  **[CP-13a] They landed after all** — `check_workspace`, once the harness
+  echo put the census in the trace. See §The checkout census, returned.
 - **The known weakness — RESOLVED at CP-11, the structural timestep.**
   `config.render_task_request` now puts `{case_id, timestep}` into
   `TaskRequest.metadata`, and the leg was verified hop-by-hop against the
@@ -810,6 +815,57 @@ from what Polar captures. Mechanics as built:
   same-id exempt call disappears. Content-envelope blindness was the
   fourth and is fixed: `_content_text` now accepts typed parts, a bare
   part mapping, and plain-string list items.
+
+## [CP-13a] The checkout census, returned
+
+CP-11 dropped G5's other two clauses because the checkout census is a
+sandbox-filesystem property no trace carries. CP-13a puts it in the trace:
+`PiHarness._probe_workspace` runs one probe exec **after the clone and
+before pi launches** — so it records the environment as provisioned, not
+as the agent left it — and merges the result into the session's
+gateway-registry metadata as `gsj_workspace`, riding the same A-23 channel
+as the settings echo (hops executed against the real vendored classes, not
+read).
+
+The echoed document, small and structured by design:
+
+```
+clone_url  credential-stripped (userinfo removed — a URL in an artifact is
+           a re-fetch path, the CP-11 reflog lesson; the clone itself still
+           uses the credentialed URL)
+case_id    the resolved case
+branch     git rev-parse --abbrev-ref HEAD
+commit     git rev-parse HEAD              — the corpus lock's own key
+tree       git rev-parse HEAD^{tree}       — a modified checkout is detectable
+shallow    git rev-parse --is-shallow-repository
+commits    git rev-list --count HEAD
+remotes    how many survive the CP-11 remote drop
+pages      {count, min, max} over md/page_NNNN.md
+```
+
+`checks.check_workspace` enforces it, and **the scoping is the whole
+point** — CP-11 rejected a harness-recorded probe as "the same
+self-reporting class as the `case_status` circularity", and that objection
+is answered per clause rather than dismissed:
+
+| finding | clause | sourcing |
+|---|---|---|
+| `G5:workspace_branch_ne_timestep` | branch == `timestep-{T}` | **cross-sourced**: the harness's git vs the trainer's `TaskRequest.metadata.timestep` |
+| `G5:checkout_max_page_ne_timestep` | max checkout page == T (the predecessor's clause) | **cross-sourced**, same two independent origins |
+| `G5:checkout_pages_not_contiguous` | pages contiguous from 1 (the predecessor's clause) | single-source |
+| `G5:checkout_history_posture` | shallow ∧ zero remotes — the CP-11 cure, attested per episode instead of assumed | single-source |
+| `G5:missing_evidence:workspace` | no echo, or a page census that is not integers | fail-closed |
+
+**What this detects: an honest misconfiguration** — a wrong branch, a
+clone that lost `--depth 1`, a truncated or mis-built checkout, a case
+repo whose pages do not run 1..T. **What it does not detect: a harness
+that lies about its own sandbox.** Proving that needs an attestation
+channel this repo does not have, and no amount of care with the two
+cross-sourced clauses changes it — they raise the cost of a lie from
+"say nothing" to "say something consistent with the trainer's own
+timestep", which is exactly the improvement CP-11's objection asked for
+and no more. Stated here so a later reader does not mistake the check for
+something stronger.
 
 ## [CP-10] The template findings that bind the gates
 

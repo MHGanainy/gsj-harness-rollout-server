@@ -16,6 +16,8 @@ import shlex
 import sys
 import types
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -26,15 +28,28 @@ def _stub(name: str, **attrs) -> types.ModuleType:
     return module
 
 
+_PROBE_STDOUT = (
+    "branch=timestep-12\n"
+    "commit=6d4e0f6a1b2c3d4e5f60718293a4b5c6d7e8f900\n"
+    "tree=aabbccddeeff00112233445566778899aabbccdd\n"
+    "shallow=true\n"
+    "commits=1\n"
+    "remotes=0\n"
+    "pages=0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 \n"
+)
+
+
 class _FakeRuntime:
     session_id = "sk-polar-test"
 
-    def __init__(self):
+    def __init__(self, probe_stdout: str = _PROBE_STDOUT):
         self.commands: list[str] = []
+        self.probe_stdout = probe_stdout
 
     async def exec(self, command: str):
         self.commands.append(command)
-        return types.SimpleNamespace(return_code=0, stderr="")
+        stdout = self.probe_stdout if "rev-parse" in command else ""
+        return types.SimpleNamespace(return_code=0, stderr="", stdout=stdout)
 
 
 class _FakeRegistry:
@@ -129,7 +144,6 @@ def test_settings_echo_merges_the_rendered_document(monkeypatch):
         runtime = _FakeRuntime()
         asyncio.run(pi_harness.PiHarness.setup(harness, runtime))
         echoed = registry.register_calls[0][1]["gsj_settings"]
-        assert registry.register_calls == [("sk-polar-test", {"gsj_settings": echoed}, "")]
         assert registry.known["sk-polar-test"]["gsj_settings"] == echoed
         # The chain that must not drift, asserted rather than eyeballed:
         # the harness's echoed document IS the pinned rendered document IS
@@ -144,6 +158,91 @@ def test_settings_echo_merges_the_rendered_document(monkeypatch):
         write_step = runtime.commands[0]
         assert f"printf '%s' {shlex.quote(json.dumps(pinned))}" in write_step
         assert "settings.json" in write_step
+    finally:
+        sys.modules.pop("gsj_rollout.pi_harness", None)
+
+
+def test_workspace_echo_records_what_the_sandbox_contained(monkeypatch):
+    """CP-13a: the requested timestep is an intention; the checked-out tree
+    is the fact. Captured after the clone and before pi launches, so it is
+    the environment as provisioned, not as the agent left it."""
+    registry = _FakeRegistry({"sk-polar-test": {"case_id": "case_0001", "timestep": 12}})
+    pi_harness = _stubbed_pi_harness(monkeypatch, registry)
+    try:
+        harness = _harness_under_test(pi_harness)
+        runtime = _FakeRuntime()
+        asyncio.run(pi_harness.PiHarness.setup(harness, runtime))
+        workspace = registry.known["sk-polar-test"]["gsj_workspace"]
+        assert workspace == {
+            "clone_url": "http://host.docker.internal:3000/gsj-staging/case_0001.git",
+            "case_id": "case_0001", "branch": "timestep-12",
+            "commit": "6d4e0f6a1b2c3d4e5f60718293a4b5c6d7e8f900",
+            "tree": "aabbccddeeff00112233445566778899aabbccdd",
+            "shallow": True, "commits": 1, "remotes": 0,
+            "pages": {"count": 12, "min": 1, "max": 12},
+        }
+        # probed AFTER the clone, BEFORE pi: the probe is the last setup exec
+        # and pi is launched from run_steps, which has not run yet
+        assert "rev-parse" in runtime.commands[-1]
+        assert any("git clone" in c for c in runtime.commands[:-1])
+        assert not any("node " in c for c in runtime.commands)
+    finally:
+        sys.modules.pop("gsj_rollout.pi_harness", None)
+
+
+def test_a_broken_probe_is_loud_not_an_empty_census(monkeypatch):
+    """`echo "k=$(git …)"` exits 0 even when the inner git fails, so an
+    empty required field means the probe broke — never an empty checkout
+    quietly echoed as fact."""
+    registry = _FakeRegistry({"sk-polar-test": {}})
+    pi_harness = _stubbed_pi_harness(monkeypatch, registry)
+    try:
+        harness = _harness_under_test(pi_harness)
+        runtime = _FakeRuntime(probe_stdout="branch=\ncommit=\ntree=\nshallow=\ncommits=\nremotes=\npages=\n")
+        with pytest.raises(RuntimeError, match="probe returned no"):
+            asyncio.run(pi_harness.PiHarness.setup(harness, runtime))
+        assert registry.register_calls == []  # nothing echoed on a broken probe
+    finally:
+        sys.modules.pop("gsj_rollout.pi_harness", None)
+
+
+def test_the_workspace_echo_never_carries_a_credential(monkeypatch):
+    """The CP-11 reflog lesson: a URL in an artifact is a re-fetch path.
+    The clone URL is the obvious carrier, so userinfo is stripped —
+    asserted against a credentialed URL, not assumed."""
+    registry = _FakeRegistry({"sk-polar-test": {}})
+    pi_harness = _stubbed_pi_harness(monkeypatch, registry)
+    try:
+        harness = _harness_under_test(pi_harness)
+        harness.settings["clone_url_for"] = (
+            "http://gsj-bot:s3cr3t-token@forgejo.internal:3000/gsj-staging/{case_id}.git")
+        runtime = _FakeRuntime()
+        asyncio.run(pi_harness.PiHarness.setup(harness, runtime))
+        echoed = registry.known["sk-polar-test"]["gsj_workspace"]
+        assert echoed["clone_url"] == (
+            "http://forgejo.internal:3000/gsj-staging/case_0001.git")
+        blob = json.dumps(echoed)
+        for secret in ("s3cr3t-token", "gsj-bot", "@"):
+            assert secret not in blob, secret
+        # only the ECHO is stripped: the clone the sandbox runs still uses
+        # the credentialed URL, so nothing about fetching changes
+        assert any("s3cr3t-token" in c for c in runtime.commands)
+    finally:
+        sys.modules.pop("gsj_rollout.pi_harness", None)
+
+
+@pytest.mark.parametrize("url, expected", [
+    ("http://u:p@h/x.git", "http://h/x.git"),
+    ("http://u@h/x.git", "http://h/x.git"),
+    ("http://h/x.git", "http://h/x.git"),                      # nothing to strip
+    ("http://h/a@b.git", "http://h/a@b.git"),                  # @ in the PATH stays
+    ("ssh://git@h:22/x.git", "ssh://h:22/x.git"),
+    ("not a url", "not a url"),
+])
+def test_credential_stripping_shapes(monkeypatch, url, expected):
+    pi_harness = _stubbed_pi_harness(monkeypatch, _FakeRegistry({}))
+    try:
+        assert pi_harness._strip_credentials(url) == expected
     finally:
         sys.modules.pop("gsj_rollout.pi_harness", None)
 

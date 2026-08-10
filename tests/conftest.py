@@ -23,17 +23,33 @@ GOLDEN_TOKENS = REPO_ROOT / "docs" / "golden" / "mac" / "tokens.npz"
 RENDERED_SETTINGS = REPO_ROOT / "pins" / "settings.rendered.json"
 
 
+# What the CP-07/CP-09 episodes' sandbox actually contained: `case_0001`
+# cloned at `timestep-12` with the CP-11 flags. Pages 1–12 because every
+# `timestep-{T}` branch is one truncation commit holding pages 1..T
+# (`corpus/ingest_corpus.py:601-612`); shallow with no remote because that
+# is what the harness's clone step renders (asserted in test_pi_harness).
+WORKSPACE_ECHO = {
+    "clone_url": "http://host.docker.internal:3000/gsj-staging/case_0001.git",
+    "case_id": "case_0001", "branch": "timestep-12",
+    "commit": "0" * 40, "tree": "1" * 40,
+    "shallow": True, "commits": 1, "remotes": 0,
+    "pages": {"count": 12, "min": 1, "max": 12},
+}
+
+
 def stamp_trace(trace: dict) -> dict:
-    """The post-CP-13 shape of a fixture-era trace: exactly the two
-    metadata statements a CP-13 collection stamps — config's
-    `prompt_source` (`free` is the frozen-CLI path's truth) and the
-    harness's settings echo (the pinned rendered document). The raw
-    fixtures stay verbatim; what they earn without these statements is
-    asserted explicitly (the golden-mapping precedent)."""
+    """The post-CP-13/13a shape of a fixture-era trace: exactly the three
+    metadata statements a collection stamps — config's `prompt_source`
+    (`free` is the frozen-CLI path's truth), the harness's settings echo
+    (the pinned rendered document), and its workspace echo (what the
+    sandbox contained). The raw fixtures stay verbatim; what they earn
+    without these statements is asserted explicitly (the golden-mapping
+    precedent)."""
     stamped = copy.deepcopy(trace)
     metadata = dict(stamped.get("metadata") or {})
     metadata["prompt_source"] = "free"
     metadata["gsj_settings"] = json.loads(RENDERED_SETTINGS.read_text())
+    metadata["gsj_workspace"] = copy.deepcopy(WORKSPACE_ECHO)
     stamped["metadata"] = metadata
     return stamped
 

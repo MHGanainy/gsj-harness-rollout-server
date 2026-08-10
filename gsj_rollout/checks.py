@@ -49,8 +49,13 @@ G2_MISSING_SYSTEM_PROMPT = "G2:missing_evidence:system_prompt"
 G2_NOT_APPROVED = "G2:system_prompt_hash_not_approved"
 G3_MISSING_TOOLS = "G3:missing_evidence:tools"
 G3_NOT_APPROVED = "G3:tool_roster_hash_not_approved"
+G5_CHECKOUT_MAX_PAGE = "G5:checkout_max_page_ne_timestep"
+G5_CHECKOUT_NOT_CONTIGUOUS = "G5:checkout_pages_not_contiguous"
+G5_CHECKOUT_POSTURE = "G5:checkout_history_posture"
 G5_MISSING_TIMESTEP = "G5:missing_evidence:timestep"
+G5_MISSING_WORKSPACE = "G5:missing_evidence:workspace"
 G5_SEARCH_PAGE_GT_TIMESTEP = "G5:search_page_gt_timestep"  # the predecessor's constant
+G5_WORKSPACE_BRANCH = "G5:workspace_branch_ne_timestep"
 G7_CHAINS_TOTAL = "G7:chains_total_ne_1"
 G7_CHAINS_TRUNCATED = "G7:chains_truncated"
 G7_MERGED = "G7:completions_merged_ne_total"
@@ -64,7 +69,9 @@ FINDING_VOCABULARY = (
     ADM1_STATUS_NOT_COMPLETED, ADM2_BUILDER_FINDINGS_PRESENT, ADM3_TRAJECTORY_MISSING,
     ADM4_NO_TRACES, ADM5_MALFORMED_TRACE, G1_MISSING_SOURCE, G1_MISSING_CARD_HASH,
     G1_NOT_APPROVED, G2_MISSING_SYSTEM_PROMPT, G2_NOT_APPROVED,
-    G3_MISSING_TOOLS, G3_NOT_APPROVED, G5_MISSING_TIMESTEP, G5_SEARCH_PAGE_GT_TIMESTEP,
+    G3_MISSING_TOOLS, G3_NOT_APPROVED, G5_CHECKOUT_POSTURE, G5_CHECKOUT_MAX_PAGE,
+    G5_CHECKOUT_NOT_CONTIGUOUS, G5_MISSING_TIMESTEP, G5_MISSING_WORKSPACE,
+    G5_SEARCH_PAGE_GT_TIMESTEP, G5_WORKSPACE_BRANCH,
     G7_CHAINS_TOTAL, G7_CHAINS_TRUNCATED, G7_MERGED, G7_MISSING_STATS,
     G7_MISSING_SETTINGS, G7_RAW, G7_SETTINGS_NOT_APPROVED, H41_TOOLLESS_ROSTER,
     LP1_LOGPROBS_ABSENT, LP2_LOGPROBS_LENGTH, LP3_SENTINEL_AT_MASK1, LP4_NONFINITE,
@@ -199,6 +206,7 @@ def run_trace_checks(
         *check_logprob_discipline(trace, policy),
         *check_trace_tripwires(trace),
         *check_page_cutoff(trace),
+        *check_workspace(trace),
         *check_tool_roster(trace),
         *check_system_prompt(trace),
         *check_skill_card(trace),
@@ -398,6 +406,35 @@ def check_page_cutoff(trace: Mapping[str, Any]) -> list[str]:
         for page in _case_search_pages(trace)
         if page > timestep
     ]
+
+
+def check_workspace(trace: Mapping[str, Any]) -> list[str]:
+    """G5's checkout census, returned (spec §G5, CP-13a): the harness echoes
+    what the sandbox CONTAINED and the branch/max-page clauses cross-check it
+    against the trainer's independently-sourced timestep. Detects an honest
+    misconfiguration, not a hostile harness — reasoning in the spec."""
+    workspace = _as_mapping(trace.get("metadata")).get("gsj_workspace")
+    if not isinstance(workspace, Mapping) or not workspace:
+        return [G5_MISSING_WORKSPACE]
+    findings: list[str] = []
+    if not (workspace.get("shallow") is True and workspace.get("remotes") == 0):
+        findings.append(f"{G5_CHECKOUT_POSTURE}:shallow={workspace.get('shallow')}"
+                        f",remotes={workspace.get('remotes')}")
+    pages = _as_mapping(workspace.get("pages"))
+    low, high, count = pages.get("min"), pages.get("max"), pages.get("count")
+    if not all(isinstance(value, int) and not isinstance(value, bool)
+               for value in (low, high, count)):
+        return findings + [f"{G5_MISSING_WORKSPACE}.pages"]
+    if low != 1 or count != high:  # contiguous from 1 — the predecessor's clause
+        findings.append(f"{G5_CHECKOUT_NOT_CONTIGUOUS}:{low}-{high}/{count}")
+    timestep = _episode_timestep(trace)
+    if timestep is None:  # check_page_cutoff owns that finding; no double-report
+        return findings
+    if workspace.get("branch") != f"timestep-{timestep}":
+        findings.append(f"{G5_WORKSPACE_BRANCH}:{workspace.get('branch')}!=timestep-{timestep}")
+    if high != timestep:  # max checkout page == T — the predecessor's clause
+        findings.append(f"{G5_CHECKOUT_MAX_PAGE}:{high}!={timestep}")
+    return findings
 
 
 def _episode_timestep(trace: Mapping[str, Any]) -> int | None:

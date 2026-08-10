@@ -200,6 +200,28 @@ def test_a_staging_failure_leaves_no_partial_batch_and_no_orphan_tmp(receiver, b
         (receiver.tmp_path / "traces").chmod(0o700)
 
 
+def test_a_repeated_session_id_in_one_envelope_is_last_wins(receiver, body13):
+    """The two-phase write's own regression, found by CP-13's fresh-eyes
+    critic and fixed at CP-13a: two members sharing a session_id shared a
+    `.tmp`, so the first commit consumed it and the second raised
+    `FileNotFoundError` — after one file was already committed, with the
+    counters saying nothing was accepted. Polar's manager cannot emit the
+    shape (one `sk-polar-<uuid4>` per session), but the receiver treats the
+    body as untrusted, and the DoD claim is unqualified."""
+    errored = copy.deepcopy(body13)
+    errored["status"] = "ERROR"          # same session_id, different verdict
+    response = httpx.post(receiver.url, json={
+        "task_id": "t-1", "status": "completed", "result_paths": [],
+        "results": [body13, errored]})
+    assert response.status_code == 200
+    assert response.json() == {"accepted": 0, "rejected": 1}   # last wins
+    assert list((receiver.tmp_path / "traces").iterdir()) == []
+    assert [p.name for p in (receiver.tmp_path / "quarantine").iterdir()] == [
+        f"{body13['session_id']}.json"]
+    assert (receiver.accepted, receiver.rejected) == (0, 1)
+    assert not list((receiver.tmp_path / "quarantine").glob("*.tmp"))
+
+
 def test_an_endless_session_id_is_refused_at_the_shape_screen(receiver):
     """A session id is a filename: Polar caps its own at 128 chars
     (`session.py:16`), and so do we — otherwise a legal-per-regex id

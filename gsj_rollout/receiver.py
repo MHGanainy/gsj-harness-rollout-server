@@ -129,7 +129,10 @@ class Receiver:
         aborts before anything touches disk; phase 2 stages each `.tmp` and
         only then commits them by rename, unlinking every stage if any fails.
         Either every result is dispositioned or none is."""
-        planned = []
+        # ONE disposition per session_id, last-wins: a repeated id in one
+        # envelope must not land as both an accepted trace and a quarantined
+        # one, and two members must never race for the same `.tmp`
+        planned: dict[str, tuple[str, str, list[str]]] = {}
         for result in _as_session_results(body):
             session_id = str(result["session_id"])
             findings = checks.validate_session_result(result)
@@ -139,26 +142,26 @@ class Receiver:
             except Exception as exc:  # unserializable content is the caller's
                 raise ValueError(f"result {session_id} is not serializable: {exc!r}") from exc
             directory = self.quarantine_dir if findings else self.traces_dir
-            planned.append((os.path.join(directory, f"{session_id}.json"), text,
-                            session_id, findings))
+            planned[session_id] = (os.path.join(directory, f"{session_id}.json"),
+                                   text, findings)
 
         staged: list[tuple[str, str]] = []
         try:
-            for path, text, _, _ in planned:
-                tmp = f"{path}.tmp"
+            for index, (path, text, _) in enumerate(planned.values()):
+                tmp = f"{path}.{index}.tmp"  # unique: never two members' stage
                 with open(tmp, "w") as handle:
                     handle.write(text)
                 staged.append((tmp, path))
+            for tmp, path in staged:
+                os.replace(tmp, path)
         except Exception:
             for tmp, _ in staged:  # nothing half-lands, and no orphan .tmp
                 with contextlib.suppress(OSError):
                     os.unlink(tmp)
             raise
-        for tmp, path in staged:
-            os.replace(tmp, path)
 
         accepted = rejected = 0
-        for _, _, session_id, findings in planned:
+        for session_id, (_, _, findings) in planned.items():
             if findings:
                 logger.warning("rejected %s: %s", session_id, findings)
                 rejected += 1
