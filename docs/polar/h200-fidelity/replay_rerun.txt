@@ -1,0 +1,2 @@
+replay-vs-replay golden: n=258 mean|D|=0.000000 max|D|=0.000000 >0.05: 0
+replay-vs-replay collected: n=510 mean|D|=0.000000 max|D|=0.000000 >0.05: 0

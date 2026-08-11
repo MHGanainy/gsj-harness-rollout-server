@@ -39,6 +39,41 @@ F2 dissolves at the root (the merged stream IS the wire context).
   singleton and G3's roster hash reproduce from this trace — provenance
   notes in `pins/pins.gsj.json`).
 
+## h200-fidelity/ — the CP-09′ comparison episode (the governing pair's collected half)
+
+Captured 2026-08-11 on the H200 estate (the CP-04′ recipe brought back
+per `staging/README.md`; vLLM 0.26.0+cu129 under the symmetric template,
+all three engine legs re-verified — see the CP-09′ report's Step 1).
+Session `sk-polar-44620742-9323-4202-9b58-474b4ed45f26`, task
+`cp09prime-fidelity-a19` (**attempt 19** — 17 refused on the H-41
+successful-built-in leg, attempt 2 rejected live by the receiver's LP6
+at 26.6% zero-rate), the golden triple with **the golden's own
+instruction bytes** (the uid `ep-3ba9d4a1498f89fc` rides in the text —
+COMPARISON.md §H200 half). 2 completions, `chains_total == 1`,
+`glue_stitched: 0` (ids unset — native merge), `finish: stop`, 510
+mask-1 / 3480 mask-0. Measured against `docs/golden/h200/` per
+COMPARISON.md executed in full, replay **as written** through the
+engine: verdict **PASS WITH FINDINGS**, converting condition 1 met
+(`docs/reports/CP-09prime.md`).
+
+- `callback_session_result.json` — the receiver-accepted callback body,
+  byte-verbatim; `trace.json` — its extracted trace.
+- `pi_transcript.jsonl` — pi's `--mode json` event stream (harness
+  postprocess download).
+- `mcp_authority_log.jsonl` — the session's three `tool_call` events
+  under verified claims (from the 0.3.0 service's stdout).
+- `comparison_results.json` — every number in the CP-09′ comparison
+  table, as computed estate-side.
+- `replay_rerun.txt` — the replay-vs-replay determinism measurement
+  (exactly 0.000000 on both traces; the attribution's load-bearing leg).
+- `sampling_evidence.txt` — the gateway-log session binding + the two
+  engine request-log `SamplingParams` lines + the startup override
+  warning (the F1 window closed, deposited because the trace cannot
+  carry it — row 22).
+- `artifact/ep-3ba9d4a1498f89fc.md` — the episode's deliverable, named
+  by the GOLDEN's uid because the instruction bytes embed it (the uid
+  substitution implication, stated).
+
 ## fidelity/ — the CP-09 comparison episode (our submit path, end to end)
 
 Captured 2026-08-09 from CP-09: the same stack as `pi-corpus/` but

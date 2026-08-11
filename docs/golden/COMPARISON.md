@@ -176,3 +176,38 @@ CP-09′ needs before running it:
 - The golden produced an **artifact** (`artifact/ep-3ba9d4a1498f89fc.md`)
   — the informational reward/artifact step has a real subject on this
   pair, unlike the Mac's.
+
+## Results — CP-09′, H200 pair (this contract, executed on the governing platform)
+
+Executed 2026-08-11 against `docs/golden/h200/` on the collected episode
+`sk-polar-44620742-9323-4202-9b58-474b4ed45f26` (the same triple, the
+golden's own instruction bytes, 19th attempt — 17 refused on the H-41
+successful-built-in leg, one rejected live by the receiver's LP6 at
+26.6% zero-rate). Full table, per-mismatch attribution, findings:
+**`docs/reports/CP-09prime.md`**. Verdict: **PASS WITH FINDINGS** —
+masks exact (the zero-tolerance row satisfied on both traces),
+`prompt_ids` byte-identical (2965/2965 — the §H200 uid fact handled by
+submitting the golden's instruction bytes verbatim), decode-fidelity
+EXACT-BYTES at `mask==1` on both traces, glue framing byte-identical
+with the pinned G6 tail, discipline clean (exact-`0.0` 6.2%/7.3% within
+the 0.25 allowance). **The replay ran as written for the first time**
+— one `/v1/completions` echo request per trace through the serving
+engine — and measured: replay-vs-replay bit-deterministic (exactly
+0.000000), capture-vs-replay **beyond the stated bounds on BOTH traces
+symmetrically** (golden mean |Δ| 0.005246 vs 0.005, 8/258 positions >
+0.05; collected 0.007141, 23/510 > 0.05; sub-nat, shared failure
+positions across traces) → the logprob row's "beyond it on both"
+branch: **platform** — specifically capture-time decode-path/batching
+numerics vs replay-time prefill, the same class as the CP-18 anchor at
+a larger magnitude, proven by the zero-drift replay rerun.
+Capture-vs-capture on the 105-token identical-context prefix: mean |Δ|
+= 0.003672 (the Mac's 0.000114 was MLX-sequential; CUDA cross-request
+numerics are ≈ 30× noisier — the instrument keeps its role, loses its
+margin). The §H200 execution notes all held: no de-stitch (the merged
+stream teacher-forced directly, `glue_stitched: 0`, no F2-shaped
+excess), the 0.25 zero-allowance posture did real work (one live LP6
+rejection), F3 gone, F4's anchor applied as written and found
+insufficient on its own terms. Nothing attributable to Polar; no §9
+trigger; CP-12's converting condition 1 is **met**. Consequence for
+replay-style validation on this platform: use the measured floor, not
+the 0.005/0.05 anchor as written (`docs/checks-spec.md` §CP-09′).

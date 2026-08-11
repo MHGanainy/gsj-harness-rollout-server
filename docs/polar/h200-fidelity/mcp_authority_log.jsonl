@@ -1,0 +1,3 @@
+{"event": "tool_call", "episode_id": "sk-polar-44620742-9323-4202-9b58-474b4ed45f26", "case_id": "case_0001", "timestep": 12, "tool": "case_status", "k": null, "n_results": 1, "latency_ms": 0.03, "cache_hit": null}
+{"event": "tool_call", "episode_id": "sk-polar-44620742-9323-4202-9b58-474b4ed45f26", "case_id": "case_0001", "timestep": 12, "tool": "search_decisions", "k": 5, "n_results": 5, "latency_ms": 3.78, "cache_hit": true}
+{"event": "tool_call", "episode_id": "sk-polar-44620742-9323-4202-9b58-474b4ed45f26", "case_id": "case_0001", "timestep": 12, "tool": "search_case", "k": 5, "n_results": 5, "latency_ms": 8.29, "cache_hit": true}

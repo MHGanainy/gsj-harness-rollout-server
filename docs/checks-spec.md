@@ -789,6 +789,49 @@ replay harness must respect:
    instrument is capture-vs-capture on identical contexts (CP-09: mean
    |Δ| = 0.000114), which needs no tolerance re-anchoring.
 
+## CP-09′ fidelity findings (the H200 pair — what governs the numerics)
+
+The CP-09′ comparison (`docs/reports/CP-09prime.md`, verdict PASS WITH
+FINDINGS, converting condition 1 met) executed the contract with the
+replay **as written** through the serving engine for the first time.
+Three facts supersede or scope the CP-09 section above for production
+(H200/CUDA) estates:
+
+1. **The engine-path replay is bit-deterministic — and the contract's
+   tolerance bounds fail on their own terms anyway.** Replay-vs-replay
+   on identical token ids: mean and max |Δ| exactly 0.000000, both
+   traces. Capture-vs-replay: golden (predecessor's Polar-free capture)
+   mean |Δ| 0.005246 vs the 0.005 bound with 8/258 positions > 0.05
+   (max 0.0949); Polar's trace 0.007141 with 23/510 > 0.05 (max
+   0.2107). The decomposition pins the entire delta on the capture-time
+   compute path (decode-step kernels + batch composition) vs the
+   replay's single prefill — the same class the CP-18 anchor (0.0036)
+   was derived from, at a larger magnitude on this estate, present at
+   the same positions in the same sub-nat magnitudes on both stacks.
+   **Any replay-style rule on this platform must use the measured floor
+   (mean ≈ 0.005–0.008, per-position tail to ≈ 0.21), not the
+   0.005/0.05 anchor as written.** No trace-side check can own this:
+   the noise is invisible to every discipline rule.
+2. **The clean-presenting class: capture noise is platform-dependent
+   and trace-invisible.** Capture-vs-capture on identical-context
+   positions — the Mac pair's sharpest instrument (0.000114) — measures
+   0.003672 mean / 0.0614 max on the H200 (≈ 30× noisier; CUDA
+   continuous-batching cross-request numerics vs MLX sequential). Both
+   estates' traces pass every discipline rule identically; nothing on
+   the trace distinguishes them. Trainers consuming
+   `response_logprobs` as behavior-policy values inherit this sub-nat
+   floor silently — record it estate-side (the request log + this
+   spec), because the trace cannot carry it (row 22's class).
+3. **No de-stitch on symmetric-template estates — confirmed at replay,
+   not just at grouping.** With `generation_prompt_glue_ids` unset and
+   `glue_stitched: 0`, the merged stream IS the wire context:
+   teacher-forcing it directly shows no F2-shaped excess (collected
+   turn-2 drift 0.0121 vs F2's 0.0676 at CP-09; the worse-span
+   direction reverses across traces — no systematic turn≥2 delta). The
+   CP-09 item-2 de-stitch requirement is scoped to asymmetric-template
+   estates (the Mac pair's); `glue_stitched` on the callback is the
+   discriminator a replay harness must key on.
+
 ## G3's actual mechanism (stricter than a config field)
 
 G3 hashes the tools array **as sent on the wire** — `tools_wire`, captured

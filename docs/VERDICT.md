@@ -262,6 +262,34 @@ training step would be inflation. Not DO NOT ADOPT, because no stated
 abandon condition is met and the architecture passed every test it was
 given. This is the honest middle, with its exit doors labeled.
 
+### 2026-08-11 — converting condition 1: MET (CP-09′, the H200 pair)
+
+The H200 golden pair is done and the pair that governs is green:
+`docs/golden/COMPARISON.md` executed in full against
+`docs/golden/h200/`, with the replay run **as written** through the
+serving engine for the first time — verdict **PASS WITH FINDINGS**
+(`docs/reports/CP-09prime.md`). Masks exact (the zero-tolerance row, on
+both traces), `prompt_ids` byte-identical, decode-fidelity exact to the
+byte, glue constants identical, discipline clean, cutoff held; the
+reversal condition (a mask or retokenization divergence attributable to
+Polar) did not fire — **nothing in the comparison is attributable to
+Polar's code**. The one finding is the platform's: capture-time
+decode-path numerics sit above the contract's CP-18-anchored replay
+bounds on BOTH stacks symmetrically (golden 0.005246 / collected
+0.007141 mean |Δ| vs 0.005; replay itself bit-deterministic at exactly
+0.000000), and the identical-context capture floor is ≈ 30× the Mac's
+(0.003672 vs 0.000114) — invisible trace-side, recorded in
+`docs/checks-spec.md` §CP-09′, binding on any replay-style trainer
+check. A-1 is resolved on the governing platform; A-16's counterpart is
+closed; charter §5's criterion is met on both pairs.
+
+**The verdict now stands on**: condition 1 met (this entry) + condition
+2 open — **M4's training loop is the only thing between ADOPT
+PROVISIONALLY and full ADOPT.** The reversal doors narrow accordingly:
+the CP-09′ door (mask/retokenization divergence) is closed by
+measurement; what remains are the slime-bridge door and the re-vendor
+door, as written above.
+
 ---
 
 ## The register, closed (charter §7 — 31 rows, final for M3)
