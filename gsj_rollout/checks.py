@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,7 +111,15 @@ class CheckPolicy:
 DEFAULT_POLICY = CheckPolicy()
 
 # The approved sets (spec §The pins…): generated data, never literals here.
-PINS_PATH = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
+# CP-16 seam: `GSJ_PINS_PATH` override → repo checkout → the wheel's packaged
+# copy. Packaged pins are THIS estate's approved sets — another estate must
+# override, or its hashes fail loudly as `*_not_approved`, never a silent pass.
+CHECKOUT_PINS = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
+PACKAGED_PINS = Path(__file__).resolve().parent / "pins" / "pins.gsj.json"
+_pins_override = os.environ.get("GSJ_PINS_PATH")
+PINS_PATH = Path(_pins_override) if _pins_override else (
+    CHECKOUT_PINS if CHECKOUT_PINS.exists() else PACKAGED_PINS
+)
 _pins_cache: Mapping[str, list[str]] | None = None  # process-lifetime; a re-pin needs a restart
 
 

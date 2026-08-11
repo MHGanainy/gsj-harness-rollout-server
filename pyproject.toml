@@ -29,6 +29,13 @@ gsj-rollout = "gsj_rollout.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["gsj_rollout"]
 
+# CP-16 (ADR-0017): the trainer leg runs from an installed wheel, so the
+# approved sets ride inside the package — `pins/` stays the single source,
+# copied into the wheel at build time only (never duplicated in the tree).
+# `checks.PINS_PATH` resolves GSJ_PINS_PATH → repo checkout → this copy.
+[tool.hatch.build.targets.wheel.force-include]
+"pins/pins.gsj.json" = "gsj_rollout/pins/pins.gsj.json"
+
 # Bare `pytest` runs the repo's own suite only; the moved components' suites
 # are invoked explicitly (`cd corpus && python -m pytest`, same for
 # mcp-service) — the predecessor's convention, kept at CP-01.

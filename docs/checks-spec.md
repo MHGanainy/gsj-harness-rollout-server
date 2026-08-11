@@ -248,9 +248,38 @@ pass so nobody rediscovers them:
   `SESSION_ID_PATTERN`, so a legal-but-endless id is refused at the shape
   screen instead of failing at the write). The trainer leg
   (`partition_session_results`, no guard by design) still fails the whole
-  collect closed on a missing pins file — note `pins/` ships with the repo
-  checkout, not the wheel (`pyproject` packages `gsj_rollout` only), so
-  the trainer leg runs from a checkout.
+  collect closed on a missing pins file.
+- **Where `PINS_PATH` comes from — the CP-16 resolver (ADR-0017).** Until
+  CP-16, `pins/` shipped with the repo checkout and not the wheel
+  (`pyproject` packaged `gsj_rollout` only), so from an installed wheel
+  `PINS_PATH` resolved into site-packages and every trainer-side
+  validation raised `PinsConfigurationError` — law 6's trainer leg was
+  non-functional exactly where M4's loop runs it (recorded at CP-11b,
+  dispositioned then as "both legs run from the checkout by design"; that
+  design assumption dies with the bridge). As landed, `checks` resolves at
+  import time, in order: (1) **`GSJ_PINS_PATH`** — an explicit
+  environment override, taken verbatim; a wrong or absent target raises
+  `PinsConfigurationError` naming the path at first `approved_set` call —
+  configuration, loud, never fail-open; (2) **the repo checkout**
+  (`CHECKOUT_PINS`, the pre-CP-16 path) when it exists — so a checkout
+  keeps `derive_pins.py` → re-pin → validate workflows live with no
+  rebuild; (3) **the wheel's packaged copy** (`PACKAGED_PINS`,
+  `gsj_rollout/pins/pins.gsj.json`, force-included from `pins/pins.gsj.json`
+  at build time — single source, no tree duplication). The tension the
+  resolver carries: **the packaged pins are this estate's approved sets.**
+  A consumer on a different estate who skips the override is validating
+  against the wrong approved set — and the outcome is every hash gate
+  failing loudly (`G2:…not_approved`, `G3:…not_approved`,
+  `G7:settings_hash_not_approved` name the unapproved digest), never a
+  silent pass: approval is set membership, and a foreign estate's hashes
+  are not in the set. The failure mode of a wrong pins file is rejection,
+  not admission — the same fail-closed posture as every other pins fault.
+  The env var is the only override surface; a `checks:` config key was
+  considered and skipped because `config.py` is frozen this CP and the
+  library must resolve pins with no config loaded at all (the
+  no-config-import path is what CP-08's client tests exercise). Pins load
+  once per process (fact one above), so the override must be set before
+  the first import of `gsj_rollout.checks`.
 - **G7's conjunction admits a fabricated all-zero (or equal-negative)
   stats block** — the clauses are equalities, no positivity floor.
   Deliberate non-fix: `reconstruction_stats` is self-reported evidence,

@@ -342,6 +342,7 @@ remaining delta from the predecessor's instrument.
 | 8 | **DONE (CP-13)** — `README.md` status section (said "CP-01 — the moves"; now states the CP-12 verdict, the working server, and the test commands) | none standing — excluded only by CP-13's lift list | noticed at the CP-12 re-read; eleven checkpoints stale | the repo's front door telling the truth |
 | 9 | **NEW (CP-13)** — G1's card hash computed **sandbox-side**, from the episode's own checkout, the way the predecessor did (`gsj-envloader task.py:878-885`) | `pi_harness.py` | CP-13's own verification: the submit-side statement landed, but a drifted `skills/<name>/SKILL.md` in a case repo stays invisible to G1 | row 9's remaining delta from the predecessor's instrument |
 | 10 | **NEW (CP-14)** — `skills/<name>/` interior strictness: the validator ignores files beside `SKILL.md` and the scaffolder silently drops them from repos (v1-inherited behavior, surfaced by CP-14's stranger-read pass; contract v2 now documents it as an honest exception rather than leaving it a surprise) | `corpus/` | CP-14 scoped to the split; tightening skills validation is a separate contract decision | the "everything it can check, it checks" doctrine holding for the one directory it currently skips |
+| 11 | **NEW + DONE (CP-16)** — the trainer leg from an installed wheel: `pins/` did not ship (`pyproject` packaged `gsj_rollout` only), so `checks.PINS_PATH` resolved into site-packages and every trainer-side `validate_session_result` raised `PinsConfigurationError` — recorded at CP-11b, dispositioned there as "both legs run from the checkout by design"; M4's bridge killed that design assumption. Landed as ADR-0017: pins force-included into the wheel (`gsj_rollout/pins/`), `PINS_PATH` resolves `GSJ_PINS_PATH` → checkout → packaged copy, mismatch fails loudly as `*_not_approved`; proven from a scratch venv against the real CP-09′ body (findings `[]`). (The CP-16 prompt called this "wishlist item 10"; item 10 is the skills-interior row above, untouched — the trainer-leg fix had no row until now) | `pyproject.toml` + the `checks.py` seam (CP-16's lift) | never registered — CP-11b called it noise while both legs ran from checkouts | **the slime bridge** (examples repo), and any trainer that installs rather than clones |
 
 ## What comes next
 
@@ -364,7 +365,17 @@ remaining delta from the predecessor's instrument.
 - **M4 — the slime bridge and one OPD loop.** Submit → collect → slime
   `Sample`s → at least one real optimization step consuming masks and
   logprobs; declare policy versions so P3 stops being inert and A-13's
-  drain rule is exercised against a real weight sync. *Proves:* the loop
+  drain rule is exercised against a real weight sync.
+  **[CP-16] The bridge half exists**: trainer-owned, in
+  `gsj-harness-rollout-server-examples/slime_bridge/` (ADR-0018) — the
+  conversion to slime v0.3.0 `Sample`s with three enforced assertions
+  (mask-before-ratio, sentinel rejection, `checks` trainer-side), tested
+  against the real CP-09′/CP-07 bodies from a wheel install (ADR-0017
+  fixed the wheel's pins — wishlist 11). Still owed by the loop CP:
+  the optimization step itself, weight sync + policy-version declaration
+  (P3/A-13), reward attach (every real body carries `reward: null`),
+  cadence against the 19-attempt qualification rate, and A-26's
+  on-estate Sample-surface verification. *Proves:* the loop
   trains — converts trace-correctness into the outcome, resolves A-6,
   and is the second condition of the full adopt. *Unnecessary if:* the
   trainer of record becomes verl-only (its budget then moves to the

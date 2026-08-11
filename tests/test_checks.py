@@ -753,3 +753,100 @@ def test_unhashable_content_is_a_finding_not_a_raise(trace13):
                         lambda t: t["prompt_messages"][0].update(content="\ud800"))
     assert checks.run_trace_checks(surrogate) == [
         "G2:system_prompt_hash_not_approved:unhashable"]
+
+
+# --- CP-16: the pins resolver (ADR-0017, wishlist row 11) ----------------
+
+# Subprocesses, not importlib.reload: resolution happens at FIRST import of
+# `gsj_rollout.checks`, and the tests must prove exactly that path — a
+# reload would also reset `DEFAULT_POLICY` and `_pins_cache` under every
+# other test's feet.
+
+
+def _resolver_subprocess(code, env, cwd):
+    import subprocess
+    import sys
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        env=env, capture_output=True, text=True, cwd=cwd,
+    )
+
+
+def test_pins_env_override_wins_even_inside_a_checkout(tmp_path):
+    """`GSJ_PINS_PATH` beats the checkout — the only escape an estate with
+    its own approved sets has from the shipped values (ADR-0017)."""
+    import json
+    import os
+    pins = tmp_path / "estate.pins.json"
+    pins.write_text(json.dumps({"pins": {"tool_roster_hash": ["estate-own-set"]}}))
+    result = _resolver_subprocess(
+        "from gsj_rollout import checks; print(checks.PINS_PATH); "
+        "print(checks.approved_set('tool_roster_hash'))",
+        env={**os.environ, "GSJ_PINS_PATH": str(pins)}, cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert str(pins) in result.stdout
+    assert "estate-own-set" in result.stdout
+
+
+def test_pins_env_override_to_an_absent_file_raises_loudly(tmp_path):
+    """A wrong override is configuration, not content: the first
+    `approved_set` call raises `PinsConfigurationError` naming the path —
+    never a fall-through to the shipped values (that would be validating
+    against the wrong estate's approved sets, silently)."""
+    import os
+    absent = tmp_path / "no-such-pins.json"
+    result = _resolver_subprocess(
+        "from gsj_rollout import checks; checks.approved_set('tool_roster_hash')",
+        env={**os.environ, "GSJ_PINS_PATH": str(absent)}, cwd=tmp_path,
+    )
+    assert result.returncode != 0
+    assert "PinsConfigurationError" in result.stderr
+    assert "no-such-pins.json" in result.stderr
+
+
+def test_packaged_pins_serve_the_wheel_layout(tmp_path):
+    """Step 1's proof, in-suite and hermetic: reconstruct the exact layout
+    the wheel installs (`site/gsj_rollout/*.py` + the force-included
+    `site/gsj_rollout/pins/pins.gsj.json`, no `pins/` above it), import
+    from OUTSIDE every repo, and validate the real CP-09' body — the
+    trainer leg that CP-11b measured as non-functional."""
+    import json
+    import os
+    import shutil
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    package = tmp_path / "site" / "gsj_rollout"
+    package.mkdir(parents=True)
+    for source in (repo_root / "gsj_rollout").glob("*.py"):
+        shutil.copy(source, package / source.name)
+    (package / "pins").mkdir()
+    shutil.copy(repo_root / "pins" / "pins.gsj.json",
+                package / "pins" / "pins.gsj.json")
+
+    body_path = repo_root / "docs" / "polar" / "h200-fidelity" / "callback_session_result.json"
+    env = {key: value for key, value in os.environ.items() if key != "GSJ_PINS_PATH"}
+    env["PYTHONPATH"] = str(tmp_path / "site")
+    result = _resolver_subprocess(
+        "import json; from gsj_rollout import checks; "
+        f"body = json.load(open({str(body_path)!r})); "
+        "print('resolved:', checks.PINS_PATH); "
+        "print('findings:', checks.validate_session_result(body))",
+        env=env, cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert str(package / "pins" / "pins.gsj.json") in result.stdout
+    assert "findings: []" in result.stdout
+
+
+def test_the_wheel_ships_the_pins_by_config():
+    """The force-include mapping is load-bearing: if it drifts, the packaged
+    leg dies with it. `tomllib` arbitrates — fast and hermetic — while the
+    CP-16 DoD proves the built artifact itself once, in a scratch venv."""
+    import tomllib
+    from pathlib import Path
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    config = tomllib.loads(pyproject.read_text())
+    include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    assert include["pins/pins.gsj.json"] == "gsj_rollout/pins/pins.gsj.json"
