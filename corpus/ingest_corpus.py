@@ -5,7 +5,9 @@ One entry, five phases run as subcommands — ``validate`` → ``scaffold`` →
 ``ingest`` → ``taskbank`` → ``verify`` — plus ``all`` running them in order,
 stopping at the first failure:
 
-    validate   the source tree against docs/corpus-contract.md (the input)
+    validate   the source tree against docs/corpus-contract.md (the input;
+               contract v2 since CP-14 — the train/eval split is the
+               directory layout, ADR-0015)
     scaffold   deterministic case repos, pushed to Forgejo under `owner`
     ingest     trigger the MCP service reindex (POST /admin/reindex), wait ready
     taskbank   DEFERRED to CP-07 (ADR-0003) — raises; `all` reports and skips
@@ -69,9 +71,18 @@ CASE_GITIGNORE = ".pi/\nout/*\n!out/.gitkeep\n"
 LOCK_NAME = "corpus.lock.json"
 TASKBANK_NAME = "taskbank.parquet"
 
-CORPUS_YAML_KEYS = {"name", "owner", "forgejo", "mcp", "git", "sandbox_image",
-                    "eval_case_ids"}
+CORPUS_YAML_KEYS = {"name", "owner", "forgejo", "mcp", "git", "sandbox_image"}
 GIT_KEYS = {"name", "email", "date"}
+
+# ADR-0015: exactly these two splits; a third needs its own ADR.
+SPLITS = ("train", "eval")
+RETIRED_EVAL_KEY_MSG = (
+    "'eval_case_ids' is retired (ADR-0015) — the split is now the directory "
+    "layout: move each listed case under <corpus-root>/eval/cases/, every "
+    "other case under <corpus-root>/train/cases/, then delete this key")
+PRE_SPLIT_CASES_MSG = (
+    "cases/ at the corpus root is the retired pre-split shape (ADR-0015) — "
+    "move each case under train/cases/ or eval/cases/")
 
 
 def token_env_name(owner: str) -> str:
@@ -105,6 +116,7 @@ class TimestepTree:
 class CaseTree:
     case_id: str
     dir: Path
+    split: str  # "train" | "eval" — the case's directory placement (ADR-0015)
     timesteps: dict[int, TimestepTree] = field(default_factory=dict)
 
     @property
@@ -121,7 +133,6 @@ class Corpus:
     mcp_url: str | None
     git_identity: dict[str, str]
     sandbox_image: str
-    eval_case_ids: list[str]
     agents_md: Path
     skills: dict[str, Path]          # skill name -> SKILL.md
     cases: dict[str, CaseTree] = field(default_factory=dict)
@@ -133,6 +144,7 @@ class Finding:
     where: str      # timestep-N / repo / a corpus-level check name
     ok: bool
     detail: str
+    split: str = "-"  # train | eval | "-" for corpus-level rows (ADR-0015)
 
 
 def _read_utf8(path: Path) -> str | None:
@@ -175,7 +187,10 @@ def load_corpus(root: Path, findings: list[Finding],
         return None
 
     ok = True
-    unknown = sorted(set(raw) - CORPUS_YAML_KEYS)
+    if "eval_case_ids" in raw:  # rejected by name, never silently ignored
+        fail("corpus.yaml", RETIRED_EVAL_KEY_MSG)
+        ok = False
+    unknown = sorted(set(raw) - CORPUS_YAML_KEYS - {"eval_case_ids"})
     if unknown:
         fail("corpus.yaml", f"unknown keys {unknown}")
         ok = False
@@ -217,12 +232,6 @@ def load_corpus(root: Path, findings: list[Finding],
              "git must be a mapping with exactly 'name', 'email', 'date' "
              "(non-empty strings)")
         ok = False
-    eval_ids = raw.get("eval_case_ids")
-    if not isinstance(eval_ids, list) or not all(isinstance(e, str) for e in eval_ids):
-        fail("corpus.yaml", "eval_case_ids must be a list of case-id strings")
-        ok = False
-        eval_ids = []
-
     agents_md = root / "AGENTS.md"
     if not agents_md.is_file():
         fail("AGENTS.md", "missing at corpus root")
@@ -263,8 +272,7 @@ def load_corpus(root: Path, findings: list[Finding],
     return Corpus(root=root, name=name,
                   owner=owner_override or owner, base_url=base_url,
                   mcp_url=mcp_url, git_identity=dict(git_identity),
-                  sandbox_image=raw["sandbox_image"],
-                  eval_case_ids=list(eval_ids), agents_md=agents_md,
+                  sandbox_image=raw["sandbox_image"], agents_md=agents_md,
                   skills=skills)
 
 
@@ -345,15 +353,15 @@ def _validate_prompts_yaml(path: Path, skills: dict[str, Path],
     return entries
 
 
-def validate_case(case_dir: Path, skills: dict[str, Path],
+def validate_case(case_dir: Path, split: str, skills: dict[str, Path],
                   findings: list[Finding]) -> CaseTree | None:
     case_id = case_dir.name
-    case = CaseTree(case_id=case_id, dir=case_dir)
+    case = CaseTree(case_id=case_id, dir=case_dir, split=split)
     ok = True
 
     def fail(where: str, detail: str) -> None:
         nonlocal ok
-        findings.append(Finding(case_id, where, False, detail))
+        findings.append(Finding(case_id, where, False, detail, split))
         ok = False
 
     if not CASE_ID_RE.match(case_id):
@@ -399,7 +407,7 @@ def validate_case(case_dir: Path, skills: dict[str, Path],
 
         def tfail(detail: str, _where: str = where) -> None:
             nonlocal ts_ok
-            findings.append(Finding(case_id, _where, False, detail))
+            findings.append(Finding(case_id, _where, False, detail, split))
             ts_ok = False
 
         # Strict tree: only pages/ + prompts.yaml under a timestep directory.
@@ -443,7 +451,7 @@ def validate_case(case_dir: Path, skills: dict[str, Path],
         if ts_ok:
             findings.append(Finding(
                 case_id, where, True,
-                f"{len(ts.pages)} pages, {len(ts.prompts)} prompts"))
+                f"{len(ts.pages)} pages, {len(ts.prompts)} prompts", split))
 
     # Prefix consistency (contract rule 3): consecutive timesteps compared
     # pairwise; transitivity covers every pair.
@@ -473,41 +481,99 @@ def phase_validate(root: Path, only: list[str] | None = None,
     findings: list[Finding] = []
     corpus = load_corpus(root, findings, owner_override)
 
-    if corpus is not None:
-        cases_dir = root / "cases"
-        if not cases_dir.is_dir():
-            findings.append(Finding("(corpus)", "cases/", False, "missing"))
-        else:
-            case_dirs = [e for e in sorted(cases_dir.iterdir())]
-            for entry in case_dirs:
-                if not entry.is_dir():
-                    findings.append(Finding(
-                        "(corpus)", "cases/", False,
-                        f"unexpected file {entry.name!r} — only case "
-                        f"directories are allowed"))
-            case_dirs = [e for e in case_dirs if e.is_dir()]
-            if not case_dirs:
-                findings.append(Finding("(corpus)", "cases/", False,
-                                        "no case directories"))
-            if only:
-                known = {e.name for e in case_dirs}
-                unknown = sorted(set(only) - known)
-                if unknown:
-                    raise PipelineError(f"--only names unknown cases {unknown} "
-                                        f"(have {sorted(known)})")
-            for entry in case_dirs:
-                if only and entry.name not in only:
-                    continue
-                case = validate_case(entry, corpus.skills, findings)
-                if case is not None:
-                    corpus.cases[case.case_id] = case
-
-            all_ids = {e.name for e in case_dirs}
-            bad_eval = sorted(set(corpus.eval_case_ids) - all_ids)
-            if bad_eval:
+    # The corpus root is strict for visible entries (ADR-0015): a
+    # `test/cases/` tree must fail loudly, never silently vanish.
+    # Dot-entries are ignored at the root only (a source tree may be a
+    # git repo); everywhere below, the tree stays strict. Deliberately
+    # independent of corpus.yaml parsing, so an unmigrated v1 tree
+    # surfaces BOTH migration messages in one run.
+    root_names = {"corpus.yaml", "AGENTS.md", "skills",
+                  LOCK_NAME, TASKBANK_NAME, *SPLITS}
+    for entry in sorted(root.iterdir()):
+        if entry.name in root_names or entry.name.startswith("."):
+            # A reserved NAME with the wrong TYPE must not fall through:
+            # a stray file named `train` would otherwise silently vanish
+            # the whole split (split selection is is_dir()-filtered).
+            if entry.name in SPLITS and not entry.is_dir():
                 findings.append(Finding(
-                    "(corpus)", "eval_case_ids", False,
-                    f"not in cases/: {bad_eval}"))
+                    "(corpus)", f"{entry.name}", False,
+                    f"{entry.name!r} at the corpus root must be a "
+                    f"directory (the {entry.name} split), not a file"))
+            elif entry.name in (LOCK_NAME, TASKBANK_NAME) and entry.is_dir():
+                findings.append(Finding(
+                    "(corpus)", entry.name, False,
+                    f"{entry.name!r} must be a generated file, not a "
+                    f"directory"))
+            continue
+        if entry.name == "cases" and entry.is_dir():
+            findings.append(Finding("(corpus)", "cases/", False,
+                                    PRE_SPLIT_CASES_MSG))
+            continue
+        findings.append(Finding(
+            "(corpus)", "(root)", False,
+            f"unexpected entry {entry.name!r} — the corpus root allows "
+            f"only corpus.yaml, AGENTS.md, skills/, train/, eval/ and "
+            f"the generated {LOCK_NAME}/{TASKBANK_NAME}; a third split "
+            f"needs its own ADR (ADR-0015)"))
+
+    if corpus is not None:
+        split_dirs = [s for s in SPLITS if (root / s).is_dir()]
+        if not split_dirs:
+            findings.append(Finding(
+                "(corpus)", "train/eval", False,
+                "no split directories — at least one of train/cases/ or "
+                "eval/cases/ must exist (ADR-0015)"))
+        case_dirs: list[tuple[str, Path]] = []
+        for split in split_dirs:
+            for entry in sorted((root / split).iterdir()):
+                if entry.name == "cases" and entry.is_dir():
+                    continue
+                findings.append(Finding(
+                    "(corpus)", f"{split}/", False,
+                    f"unexpected entry {entry.name!r} — only cases/ is "
+                    f"allowed under a split directory", split))
+            cases_dir = root / split / "cases"
+            if not cases_dir.is_dir():
+                findings.append(Finding("(corpus)", f"{split}/cases/", False,
+                                        "missing", split))
+                continue
+            for entry in sorted(cases_dir.iterdir()):
+                if entry.is_dir():
+                    case_dirs.append((split, entry))
+                else:
+                    findings.append(Finding(
+                        "(corpus)", f"{split}/cases/", False,
+                        f"unexpected file {entry.name!r} — only case "
+                        f"directories are allowed", split))
+        if split_dirs and not case_dirs:
+            findings.append(Finding(
+                "(corpus)", "cases", False,
+                "no case directories under train/cases/ or eval/cases/"))
+        if only:
+            known = {e.name for _, e in case_dirs}
+            unknown = sorted(set(only) - known)
+            # Only a usage error on a structurally sound tree: with tree
+            # findings pending, fall through so the table (and the
+            # ADR-0015 migration messages) print instead of exit 2.
+            if unknown and not any(not f.ok for f in findings):
+                raise PipelineError(f"--only names unknown cases {unknown} "
+                                    f"(have {sorted(known)})")
+        membership: dict[str, str] = {}
+        for split, entry in case_dirs:
+            if entry.name in membership:  # ADR-0015: exactly one split
+                findings.append(Finding(
+                    entry.name, "(case)", False,
+                    f"case {entry.name!r} present under both train/cases/ "
+                    f"and eval/cases/ — a case belongs to exactly one split "
+                    f"(ADR-0015); remove one", split))
+                corpus.cases.pop(entry.name, None)
+                continue
+            membership[entry.name] = split
+            if only and entry.name not in only:
+                continue
+            case = validate_case(entry, split, corpus.skills, findings)
+            if case is not None:
+                corpus.cases[case.case_id] = case
 
     failed = [f for f in findings if not f.ok]
     if not quiet or failed:
@@ -518,19 +584,18 @@ def phase_validate(root: Path, only: list[str] | None = None,
 
 
 def _print_table(title: str, findings: list[Finding]) -> None:
-    rows = [(f.scope, f.where, "PASS" if f.ok else "FAIL", f.detail)
+    rows = [(f.scope, f.split, f.where, "PASS" if f.ok else "FAIL", f.detail)
             for f in findings]
     if not rows:
-        rows = [("(corpus)", "-", "PASS", "nothing to check")]
-    widths = [max(len(r[i]) for r in rows + [("case", "where", "result", "detail")])
-              for i in range(3)]
+        rows = [("(corpus)", "-", "-", "PASS", "nothing to check")]
+    header = ("case", "split", "where", "result")
+    widths = [max(len(r[i]) for r in rows + [header]) for i in range(4)]
     print(f"== {title} ==")
-    header = ("case", "where", "result", "detail")
-    print("  ".join(h.ljust(w) for h, w in zip(header[:3], widths)) + "  detail")
+    print("  ".join(h.ljust(w) for h, w in zip(header, widths)) + "  detail")
     for row in rows:
-        print("  ".join(v.ljust(w) for v, w in zip(row[:3], widths))
-              + f"  {row[3]}")
-    n_fail = sum(1 for r in rows if r[2] == "FAIL")
+        print("  ".join(v.ljust(w) for v, w in zip(row[:4], widths))
+              + f"  {row[4]}")
+    n_fail = sum(1 for r in rows if r[3] == "FAIL")
     print(f"== {title}: {'FAIL' if n_fail else 'PASS'} "
           f"({len(rows) - n_fail} pass / {n_fail} fail) ==")
 
@@ -754,8 +819,7 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
     lock.setdefault("corpus", {})
     lock["corpus"] = {"name": corpus.name, "owner": corpus.owner,
                       "base_url": corpus.base_url,
-                      "sandbox_image": corpus.sandbox_image,
-                      "eval_case_ids": sorted(corpus.eval_case_ids)}
+                      "sandbox_image": corpus.sandbox_image}
     lock.setdefault("cases", {})
 
     print(f"== scaffold ({'DRY-RUN — nothing pushed' if dry_run else base_url}) ==")
@@ -774,9 +838,13 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
                     raise PipelineError(
                         f"{case_id}: push did not converge — built {heads}, "
                         f"remote has {live}")
+            # ADR-0006/ADR-0015: the repo build is split-agnostic — the
+            # repo name is `<case_id>` under `owner`, never `<split>/…`;
+            # only the lock records which split holds the case.
             lock["cases"][case_id] = {
                 "clone_url": clone_url(corpus.base_url, corpus.owner, case_id),
                 "refs": heads,
+                "split": case.split,
                 "timesteps": {
                     str(t): {
                         "pages": len(case.timesteps[t].pages),
@@ -784,7 +852,8 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
                     } for t in sorted(case.timesteps)},
             }
             branches = ", ".join(sorted(heads))
-            print(f"{case_id}: {case.max_t} pages on main; branches: {branches}"
+            print(f"{case_id} [{case.split}]: {case.max_t} pages on main; "
+                  f"branches: {branches}"
                   f"{'' if dry_run else '  [pushed, converged]'}")
     if not dry_run:
         write_lock(corpus.root, lock)
@@ -885,6 +954,13 @@ TASKBANK_DEFERRED = ("the taskbank phase is deferred to CP-07 (ADR-0003) — "
 
 def phase_taskbank(corpus: Corpus, *, dry_run: bool = False,
                    only: list[str] | None = None) -> None:
+    """Still raises (ADR-0003). The split's path into a row is SPECIFIED
+    (CP-14, ADR-0015) so the deferred builder has no decisions left: each
+    row carries a ``split`` field, value ``train`` | ``eval``, case-level —
+    every row of a case takes the case's directory split as recorded in
+    ``corpus.lock.json`` ``cases.<case_id>.split``; the lock's ``taskbank``
+    block keeps the train/eval row counts; the builder passes the value to
+    ``config.render_task_request(split=…)``."""
     raise PipelineError(TASKBANK_DEFERRED)
 
 
@@ -922,17 +998,33 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
                        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except subprocess.CalledProcessError as error:
         findings.append(Finding(case_id, "clone", False,
-                                f"git clone {url} failed: {error.stderr.strip()}"))
+                                f"git clone {url} failed: {error.stderr.strip()}",
+                                case.split))
         return
 
     live = ls_remote_heads(base_url, corpus.owner, case_id)
     if live != lock_case.get("refs"):
         findings.append(Finding(
             case_id, "refs", False,
-            f"live refs != lock: live={live} lock={lock_case.get('refs')}"))
+            f"live refs != lock: live={live} lock={lock_case.get('refs')}",
+            case.split))
     else:
         findings.append(Finding(case_id, "refs", True,
-                                f"{len(live)} refs match the lock"))
+                                f"{len(live)} refs match the lock",
+                                case.split))
+
+    # ADR-0015: the split checks back from the lock — a case that moved
+    # splits without a re-scaffold is a reality mismatch.
+    lock_split = lock_case.get("split")
+    if lock_split != case.split:
+        findings.append(Finding(
+            case_id, "split", False,
+            f"split as sourced {case.split!r} != lock {lock_split!r} — a "
+            f"case that moves splits must be re-scaffolded (the lock is "
+            f"the freeze record)", case.split))
+    else:
+        findings.append(Finding(case_id, "split", True,
+                                "matches the lock", case.split))
 
     fixed = {"AGENTS.md": hashlib.sha256(
                  corpus.agents_md.read_bytes()).hexdigest(),
@@ -952,7 +1044,8 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
         try:
             files = _branch_files(clone, branch)
         except PipelineError as error:
-            findings.append(Finding(case_id, branch, False, str(error)))
+            findings.append(Finding(case_id, branch, False, str(error),
+                                    case.split))
             continue
         pages: dict[int, str] = {}
         for path, digest in files.items():
@@ -966,7 +1059,7 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
             findings.append(Finding(
                 case_id, branch, False,
                 f"page census as cloned {sorted(pages)} != source "
-                f"{expected_census}"))
+                f"{expected_census}", case.split))
             ok = False
         for page in sorted(source_ts.pages):
             src = _sha256_file(source_ts.pages[page])
@@ -975,24 +1068,26 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
                 findings.append(Finding(
                     case_id, branch, False,
                     f"page {page} bytes differ from the source: cloned "
-                    f"{got[:16]}… != source {src[:16]}…"))
+                    f"{got[:16]}… != source {src[:16]}…", case.split))
                 ok = False
         for path, digest in fixed.items():
             if files.get(path) != digest:
                 findings.append(Finding(
                     case_id, branch, False,
                     f"{path} {'missing' if path not in files else 'differs'} "
-                    f"in the cloned branch"))
+                    f"in the cloned branch", case.split))
                 ok = False
         extras = sorted(set(files) - set(fixed)
                         - {f"md/page_{p:04d}.md" for p in source_ts.pages})
         if extras:
             findings.append(Finding(
-                case_id, branch, False, f"unexpected tracked files {extras}"))
+                case_id, branch, False, f"unexpected tracked files {extras}",
+                case.split))
             ok = False
         if ok:
             findings.append(Finding(case_id, branch, True,
-                                    f"{len(pages)} pages, contract files OK"))
+                                    f"{len(pages)} pages, contract files OK",
+                                    case.split))
 
     # Prefix consistency across branches AS CLONED (not just as sourced).
     steps = sorted(case.timesteps)
@@ -1004,7 +1099,8 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
                 findings.append(Finding(
                     case_id, f"timestep-{t2}", False,
                     f"prefix divergence AS CLONED on page {page}: "
-                    f"timestep-{t1} {low[page][:16]}… != {high[page][:16]}…"))
+                    f"timestep-{t1} {low[page][:16]}… != {high[page][:16]}…",
+                    case.split))
 
 
 def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
@@ -1020,7 +1116,8 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
             if case_id not in lock_cases:
                 findings.append(Finding(case_id, "lock", False,
                                         "case missing from the lock — "
-                                        "run scaffold"))
+                                        "run scaffold",
+                                        corpus.cases[case_id].split))
                 continue
             verify_case_clone(corpus, corpus.cases[case_id], base_url,
                               lock_cases[case_id], Path(tmp), findings)

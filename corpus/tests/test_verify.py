@@ -111,6 +111,26 @@ def test_taskbank_phase_is_deferred(corpus_root, estate, capsys):
     assert "deferred to CP-07" in err and "ADR-0003" in err
 
 
+def test_split_move_without_rescaffold_fails_verify(corpus_root, estate,
+                                                    capsys):
+    """ADR-0015: the split checks back from the lock. Moving a case between
+    splits leaves the repo content identical (split-agnostic, ADR-0006) —
+    only the lock clause can catch the move, and it must."""
+    import shutil
+    run_all_local(corpus_root, estate)
+    assert verify(corpus_root, estate) == 0
+    capsys.readouterr()
+
+    shutil.move(str(corpus_root / "eval" / "cases" / "case_b"),
+                str(corpus_root / "train" / "cases" / "case_b"))
+    assert verify(corpus_root, estate) == 1
+    out = capsys.readouterr().out
+    assert "split as sourced 'train' != lock 'eval'" in out
+    assert "re-scaffolded" in out
+    # the refs still match — the mismatch is the split, nothing else
+    assert "live refs != lock" not in out
+
+
 def test_verify_without_lock_is_usage_error(corpus_root, estate, capsys):
     rc = verify(corpus_root, estate)
     assert rc == 2

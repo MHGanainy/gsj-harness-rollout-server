@@ -242,6 +242,27 @@ def test_revendor_canary_is_not_type_narrowed(trace13):
         assert checks.run_trace_checks(doctored) == []
 
 
+def test_split_label_tripwire_rejects_only_a_third_value(trace13):
+    """TR3 (CP-14, ADR-0015): the split label is the submitter's OWN
+    statement — absent is legal (unstated: the frozen cli path, every
+    pre-CP-14 trace), but a stated value outside {train, eval} is
+    rejected, so no de facto third split arrives through the metadata
+    channel unnoticed."""
+    assert "split" not in trace13["metadata"]  # absent = unstated: clean
+    assert checks.run_trace_checks(trace13) == []
+    for good in ("train", "eval"):
+        doctored = _doctor(trace13, lambda t, g=good: t["metadata"].update(split=g))
+        assert checks.run_trace_checks(doctored) == []
+    # None included: an explicit null is present-but-outside-vocabulary —
+    # the renderer can never produce it (None omits the key), so it is
+    # exactly the serializer-mangled shape TR3 exists to flag.
+    for bad in ("test", "TRAIN", "", 1, True, ["train"], None):
+        doctored = _doctor(trace13, lambda t, b=bad: t["metadata"].update(split=b))
+        assert checks.run_trace_checks(doctored) == [
+            f"TR3:split_not_train_or_eval:{bad}"
+        ]
+
+
 def test_sentinel_at_mask0_is_not_a_finding(trace13):
     """The sentinel rule is a mask==1 rule: interstitial positions are
     Polar's placeholders and carry no engine claim."""
@@ -378,9 +399,11 @@ def test_failure_vocabulary_snapshot():
         "LP9:loss_mask_value_not_binary",
         "TR1:finish_reason_not_allowed",
         "TR2:reasoning_loss_mask_masked_tokens",
+        "TR3:split_not_train_or_eval",
     )
     assert tuple(sorted(checks.FINDING_VOCABULARY)) == checks.FINDING_VOCABULARY
     assert checks.ALLOWED_FINISH_REASONS == {"stop", "tool_calls", "stop_sequence", "length"}
+    assert checks.ALLOWED_SPLITS == ("train", "eval")  # ADR-0015: no third
 
 
 def test_every_emitted_finding_starts_with_a_vocabulary_entry(fidelity_trace):

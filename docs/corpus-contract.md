@@ -1,4 +1,4 @@
-# The corpus source-directory contract (v1, CP-33 / ADR-0046)
+# The corpus source-directory contract (v2, CP-14 / ADR-0015; v1: CP-33 / ADR-0046)
 
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one
@@ -17,21 +17,43 @@ without surprises.
   corpus.yaml                     # corpus-level configuration (reference below)
   AGENTS.md                       # the agent instructions, corpus-level
   skills/<name>/SKILL.md          # skill cards, corpus-level (copied into every repo)
-  cases/
-    <case_id>/                    # e.g. case_0007 — becomes the repo name
-      case.yaml                   # OPTIONAL per-case metadata (title, notes)
-      timestep-<T>/               # T = integer page cutoff, unpadded (timestep-12)
-        pages/page_<NNNN>.md      # ABSOLUTE page numbering, 4-digit, exactly 1..T
-        prompts.yaml              # THIS timestep's prompts (reference below)
+  train/                          # the training split
+    cases/
+      <case_id>/                  # e.g. case_0007 — becomes the repo name
+        case.yaml                 # OPTIONAL per-case metadata (title, notes)
+        timestep-<T>/             # T = integer page cutoff, unpadded (timestep-12)
+          pages/page_<NNNN>.md    # ABSOLUTE page numbering, 4-digit, exactly 1..T
+          prompts.yaml            # THIS timestep's prompts (reference below)
+  eval/                           # the held-out split — same shape inside
+    cases/
+      <case_id>/…
 ```
+
+**Where a case sits IS its split.** A case under `train/cases/` trains; a
+case under `eval/cases/` is held out for evaluation — all of its
+timesteps and prompts. The split is per case, never per timestep, and
+there is no manifest key for it: the directory is the single source of
+truth (v1's `eval_case_ids` is retired; see the migration note at the
+end). The corpus-level files stay at the root, above the split — they are
+shared by both. Either split directory may be absent, or present with an
+empty `cases/` — both mean "this split has no cases", and an
+everything-trains corpus is valid either way (the migration recipe below
+produces the empty-`eval/cases/` form; you may `rmdir` it if you prefer).
+At least one case must exist somewhere, and a split, when present, must
+be a *directory* — a stray file named `train` or `eval` is a validation
+error, not an empty split.
+
+There are exactly two splits, named `train` and `eval`. A third directory
+(say `test/`) is a validation error, not a feature — adding a split is a
+contract change that needs its own ADR.
 
 Generated files the pipeline writes into `<corpus-root>` (never write these
 yourself): `corpus.lock.json`, `taskbank.parquet`.
 
-## The four hard invariants
+## The five hard invariants
 
 These are the rules a folder tree cannot enforce by shape alone. The
-validator enforces all four; violating any one is a hard failure and
+validator enforces all five; violating any one is a hard failure and
 nothing gets uploaded.
 
 ### 1. Timesteps are directories, not a filter
@@ -99,6 +121,20 @@ prompts:
 Every `(case, timestep, prompt)` triple becomes exactly one row of the
 generated task table.
 
+### 5. One case, one split
+
+A `case_id` may appear under `train/cases/` **or** `eval/cases/`, never
+both. Two directories with the same name in different splits are two
+claims about the same case, and the validator refuses to pick one:
+
+> `case '<case_id>' present under both train/cases/ and eval/cases/ — a
+> case belongs to exactly one split (ADR-0015); remove one`
+
+Moving a case between splits is legal at any time *before* upload; after
+an upload it additionally requires re-running `scaffold` so the freeze
+record (`corpus.lock.json`) states the new split — `verify` fails on a
+tree whose splits disagree with the lock.
+
 ## `corpus.yaml` reference
 
 ```yaml
@@ -114,19 +150,16 @@ git:                             # fixed commit identity => deterministic SHAs
   email: fixtures@gsj.invalid    #   tree reproduces identical commits)
   date: "2026-01-01T00:00:00 +0000"
 sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3   # rides every task row
-eval_case_ids: [case_0004]       # subset of cases/; these cases are held out
-                                 #   for evaluation (ALL their timesteps and
-                                 #   prompts) — the split is per case, never
-                                 #   per timestep
 ```
 
 - `owner` selects the Forgejo account the repos live under; clone URLs
   become `<base_url>/<owner>/<case_id>.git`.
-- `eval_case_ids` may be empty (everything trains); every listed id must
-  exist under `cases/`.
 - `git.date` is any fixed git-parseable date with offset. Do not update it
   when you edit the corpus — it exists so that identical trees produce
   identical commits, not to record wall-clock time.
+- **There is no split key.** v1's `eval_case_ids` is retired and the
+  validator *rejects* a manifest that still carries it (migration note
+  below) — the split lives in the tree, nowhere else.
 
 ## The owner switch — staging vs prod
 
@@ -154,7 +187,11 @@ admin secret — ask the estate operator).
 You do not have to act on this section; it is here so the transformation
 is never a surprise.
 
-Per case, one git repository named `<case_id>` under `owner`:
+Per case, one git repository named `<case_id>` under `owner` — **the repo
+is split-agnostic**: its name is `<case_id>`, never `train/<case_id>`,
+and nothing inside it differs by split (an episode's checkout must not
+reveal whether its case is held out). Only `corpus.lock.json` records the
+split. Each repo contains:
 
 - branch `main` = the **largest** timestep's pages (the fullest state of
   the document you provided);
@@ -170,15 +207,19 @@ Per case, one git repository named `<case_id>` under `owner`:
 Commits use the fixed identity and date from `corpus.yaml`, so re-running
 the pipeline over an unchanged tree converges to identical commit SHAs —
 uploads are idempotent, and any SHA change is a real content change.
+Because the repo is split-agnostic, moving a case between splits changes
+**no** commit SHA — only the lock.
 
 The pipeline also writes, into `<corpus-root>`:
 
-- `corpus.lock.json` — the record of what is live: per case and per
-  branch the commit SHA, the page census, and the prompt ids; plus the
-  task table's row count and sha256. Commit it with the corpus; it is the
-  freeze record downstream consumers pin against.
+- `corpus.lock.json` — the record of what is live: per case the **split**
+  (`train` | `eval`), and per branch the commit SHA, the page census, and
+  the prompt ids; plus the task table's row count and sha256. Commit it
+  with the corpus; it is the freeze record downstream consumers pin
+  against.
 - `taskbank.parquet` — the task table: one row per (case, timestep,
-  prompt), split `train`/`eval` per `eval_case_ids`, carrying
+  prompt), each row carrying `split` (`train` | `eval`, taken from the
+  case's directory — case-level, so every row of a case shares it) and
   `sandbox_image`.
 
 ## Running the pipeline
@@ -193,13 +234,17 @@ python corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
 | phase | what it does | what it guarantees |
 |---|---|---|
 | `validate` | checks this contract against your tree | nothing is uploaded unless the whole tree passes |
-| `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` |
+| `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` (incl. each case's split) |
 | `ingest` | tells the retrieval service to (re)index; waits for ready | search serves exactly the pushed corpus |
-| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split applied |
-| `verify` | clones everything **back from the git host**, re-reads the parquet, queries the service | what is *live* matches your tree and the lock, byte-for-byte |
+| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory |
+| `verify` | clones everything **back from the git host**, re-reads the parquet, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split |
 
 `validate` checks the input; `verify` checks reality — the second half is
 what tells you an upload actually landed as intended, so never skip it.
+Both print a findings table with one line per case and timestep — `case`,
+`split`, `where`, `result`, and the specific rule broken with the file
+named. The exit code is non-zero if anything failed, and no later phase
+runs.
 
 Useful flags: `--only <case_id> ...` (limit validate/scaffold/verify's
 repo work to some cases — the task table is corpus-wide, so the
@@ -215,14 +260,22 @@ Omitting `mcp.url_base` from `corpus.yaml` skips the `ingest` phase (and
 supported "no retrieval service" configuration; `--skip-ingest` is the
 same skip on a corpus that *does* name one.
 
-Validation output is a table — one line per case and timestep, `PASS` or
-`FAIL` with the specific rule broken and file named. The exit code is
-non-zero if anything failed, and no later phase runs.
+## What the split means downstream (and what it does not)
+
+Honesty over comfort: the split is a **label, carried end to end and
+enforced nowhere in this pipeline**. It travels tree →
+`corpus.lock.json` → the task table row → the task request's metadata →
+the collected trace, so every consumer can see it — and the *trainer*
+owns not training on eval-split traces. The rollout side rejects only a
+malformed label (a split value other than `train`/`eval` on a trace
+fails validation); it does not, and cannot, stop anyone from training on
+a correctly-labeled eval trace. If you need a wall rather than a label,
+build it trainer-side.
 
 ## Worked minimal example
 
-A complete, valid corpus with one case, two timesteps, one skill and one
-free prompt:
+A complete, valid corpus with two cases — one training, one held out —
+one skill and one free prompt:
 
 ```
 minimal-corpus/
@@ -231,17 +284,26 @@ minimal-corpus/
   skills/
     summarize/
       SKILL.md
-  cases/
-    case_demo/
-      timestep-1/
-        pages/
-          page_0001.md
-        prompts.yaml
-      timestep-2/
-        pages/
-          page_0001.md            # byte-identical to timestep-1's page_0001.md
-          page_0002.md
-        prompts.yaml
+  train/
+    cases/
+      case_demo/
+        timestep-1/
+          pages/
+            page_0001.md
+          prompts.yaml
+        timestep-2/
+          pages/
+            page_0001.md          # byte-identical to timestep-1's page_0001.md
+            page_0002.md
+          prompts.yaml
+  eval/
+    cases/
+      case_holdout/
+        timestep-2/
+          pages/
+            page_0001.md
+            page_0002.md
+          prompts.yaml
 ```
 
 `corpus.yaml`:
@@ -256,17 +318,16 @@ git:
   email: fixtures@gsj.invalid
   date: "2026-01-01T00:00:00 +0000"
 sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
-eval_case_ids: []
 ```
 
-`cases/case_demo/timestep-1/prompts.yaml`:
+`train/cases/case_demo/timestep-1/prompts.yaml`:
 
 ```yaml
 prompts:
   - {id: "skill:summarize", source: skill, name: summarize}
 ```
 
-`cases/case_demo/timestep-2/prompts.yaml`:
+`train/cases/case_demo/timestep-2/prompts.yaml`:
 
 ```yaml
 prompts:
@@ -275,35 +336,90 @@ prompts:
      text: "Which parties are named so far? Cite pages."}
 ```
 
-This produces one repo `case_demo` (branches `main` == `timestep-2`
-content, `timestep-1`, `timestep-2`) and a three-row task table:
+`eval/cases/case_holdout/timestep-2/prompts.yaml`:
+
+```yaml
+prompts:
+  - {id: "skill:summarize", source: skill, name: summarize}
+```
+
+This produces two repos and a four-row task table:
 `(case_demo, 1, skill:summarize)`, `(case_demo, 2, skill:summarize)`,
-`(case_demo, 2, free:parties)` — all `train`.
+`(case_demo, 2, free:parties)` — all `train` — and
+`(case_holdout, 2, skill:summarize)` — `eval`.
 
 ## Naming rules (reference)
 
 | thing | rule |
 |---|---|
+| split directory | exactly `train` or `eval`, at the corpus root; no third |
 | `<case_id>` | `^[a-z0-9][a-z0-9_-]*$` (it becomes a repo name) |
 | timestep directory | `timestep-<T>`, T a positive integer, no leading zeros |
 | page file | `page_<NNNN>.md`, 4-digit zero-padded, `.md` |
 | skill name / free slug | letters, digits, `._-`; must start alphanumeric |
 | every text file | UTF-8, no exceptions |
 
-Strictness of the tree: under `cases/<case_id>/` only `case.yaml` and
-`timestep-<T>/` directories are allowed; under a timestep directory only
-`pages/` and `prompts.yaml`; under `pages/` only page files. Anything else
-is a validation error — a misspelled `timestep_12/` must fail loudly, not
+Strictness of the tree: at the corpus root only `corpus.yaml`,
+`AGENTS.md`, `skills/`, `train/`, `eval/` and the two generated files are
+allowed (dot-prefixed entries like `.git` are ignored **at the root
+only** — a corpus source tree may itself be a git repository); under
+`train/` or `eval/` only `cases/`; under `cases/` only case directories;
+under `cases/<case_id>/` only `case.yaml` and `timestep-<T>/` directories;
+under a timestep directory only `pages/` and `prompts.yaml`; under
+`pages/` only page files. Anything else is a validation error — a
+misspelled `timestep_12/` or a stray `test/` split must fail loudly, not
 be silently skipped.
+
+`AGENTS.md` and `skills/` are **required** at the root even for a corpus
+that uses only free prompts (`skills/` may then be empty). Under
+`skills/` only `<name>/` directories are allowed, and each must contain a
+non-empty `SKILL.md`. One honest exception to the strictness doctrine:
+files *beside* `SKILL.md` inside a `skills/<name>/` directory are neither
+validated nor copied — **only `SKILL.md` travels into the case repos** —
+so do not keep supporting material there expecting it to ship.
+
+## Migrating a v1 corpus (pre-CP-14 shape)
+
+A v1 tree keeps `cases/` at the corpus root and names its held-out cases
+in `corpus.yaml`'s `eval_case_ids`. The validator **rejects** both — a v1
+corpus fails `validate` until migrated; nothing is silently reinterpreted.
+What you will see:
+
+- for the root `cases/` directory:
+  > `cases/ at the corpus root is the retired pre-split shape (ADR-0015)
+  > — move each case under train/cases/ or eval/cases/`
+- for the manifest key:
+  > `'eval_case_ids' is retired (ADR-0015) — the split is now the
+  > directory layout: move each listed case under
+  > <corpus-root>/eval/cases/, every other case under
+  > <corpus-root>/train/cases/, then delete this key`
+
+The migration is exactly those two messages, performed:
+
+1. `mkdir -p train eval/cases && mv cases train/cases`
+2. for each case named in `eval_case_ids`:
+   `mv train/cases/<case_id> eval/cases/<case_id>`
+3. delete the `eval_case_ids` key from `corpus.yaml`
+4. `validate`, then re-run `scaffold` (the lock gains each case's split;
+   **no commit SHA changes** — the move touches no page bytes, and the
+   repos are split-agnostic), then `verify`.
+
+The split's meaning is unchanged from v1: the same cases are held out,
+per case, all their timesteps and prompts. Only where the fact is written
+moved.
 
 ## Checklist before you hand a corpus over
 
 - [ ] `validate` passes with zero FAILs.
+- [ ] Every case sits under exactly one of `train/cases/` or
+      `eval/cases/`, and the held-out cases are exactly the ones you mean
+      to hold out (rule 5 — the tree is the only place this is written).
 - [ ] Every timestep directory is the complete case at that cutoff (rule 1).
 - [ ] Page numbers are absolute and 4-digit (rule 2).
 - [ ] After any page edit: the edit is applied to every timestep that
       contains the page (rule 3), and `validate` was re-run.
 - [ ] Every skill referenced by any `prompts.yaml` has its card under
       `skills/` (rule 4).
-- [ ] `eval_case_ids` lists exactly the held-out cases.
+- [ ] No `eval_case_ids` key in `corpus.yaml` (retired — the validator
+      rejects it).
 - [ ] No credentials anywhere in the tree.

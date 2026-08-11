@@ -200,6 +200,7 @@ def render_task_request(
     timeout_seconds: float = 900.0,
     prompt_source: str = "free",
     skill_card_text: str | None = None,
+    split: str | None = None,
 ) -> dict[str, Any]:
     """One Polar `TaskRequest` body for the triple `(case, timestep, prompt)`;
     `callback_url` is the zero-patch push channel (ADR-0008 §2).
@@ -210,7 +211,17 @@ def render_task_request(
     resolved card text states its bytes-hash (convention 1) at
     `metadata.skill_card_hash`; omitting it leaves the hash to whoever
     reads the card from the checkout, and G1 fails closed until one of
-    them supplies it — the taskbank keeps the choice."""
+    them supplies it — the taskbank keeps the choice.
+
+    `split` (ADR-0015) states the case's train/eval placement — a render
+    parameter like `prompt_source`, never a lock lookup: the config
+    surface grows no corpus dependency, and the taskbank supplies the
+    value from `corpus.lock.json` when ADR-0003 lands. None (the frozen
+    `cli.py` path, which cannot know it) omits the key: absent means
+    UNSTATED, never `train` — a false label is worse than a missing one.
+    Carried and visible, not enforced: the trainer owns not training on
+    eval (row 32); `checks.py` rejects only a value outside the ADR-0015
+    vocabulary (TR3)."""
     skill_card_hash = None
     if not isinstance(prompt_source, str):
         raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
@@ -229,6 +240,8 @@ def render_task_request(
                 raise ValueError("skill_card_text is not UTF-8-encodable")
     else:
         raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
+    if split is not None and split not in ("train", "eval"):
+        raise ValueError(f"split must be 'train' or 'eval' (ADR-0015), got {split!r}")
     settings: dict[str, Any] = {
         "case_id": case_id,
         "timestep": int(timestep),
@@ -255,6 +268,8 @@ def render_task_request(
     }
     if skill_card_hash is not None:
         metadata["skill_card_hash"] = skill_card_hash
+    if split is not None:
+        metadata["split"] = split
     return {
         "task_id": task_id,
         "instruction": instruction,

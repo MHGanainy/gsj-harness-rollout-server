@@ -15,4 +15,5 @@ git:
   email: fixtures@gsj.invalid
   date: "2026-01-01T00:00:00 +0000"
 sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
-eval_case_ids: [case_0004]
+# The train/eval split is the directory layout (train/cases/, eval/cases/)
+# since CP-14 — ADR-0015; the v1 manifest split key is retired.

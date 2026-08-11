@@ -85,6 +85,10 @@ def test_lock_records_refs_census_and_prompt_ids(corpus_root, estate):
     assert scaffold(corpus_root, estate) == 0
     lock = read_lock(corpus_root)
     assert lock["corpus"]["owner"] == "gsj-staging"
+    # ADR-0015: the split rides the lock per case; the manifest key is gone
+    assert "eval_case_ids" not in lock["corpus"]
+    assert lock["cases"]["case_a"]["split"] == "train"
+    assert lock["cases"]["case_b"]["split"] == "eval"
     case_a = lock["cases"]["case_a"]
     assert set(case_a["refs"]) == {"main", "timestep-1", "timestep-2"}
     assert case_a["timesteps"]["1"] == {"pages": 1,

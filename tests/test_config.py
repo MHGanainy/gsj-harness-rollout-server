@@ -165,6 +165,40 @@ def test_a_skill_row_may_leave_the_card_hash_to_the_checkout():
         "G1:missing_evidence:skill_card_hash"]
 
 
+# --- CP-14 (ADR-0015): the split into TaskRequest.metadata ----------------
+
+
+def test_split_rides_task_metadata_when_stated():
+    """The CP-11-proven channel: `metadata.split` is hoisted into every
+    trace's top-level metadata, beside case_id/timestep/prompt_source.
+    A parameter like `prompt_source` — the config surface grows no corpus
+    dependency; the taskbank supplies the value from the lock (ADR-0003)."""
+    cfg = load_config(FIXTURE)
+    rendered = render_task_request(cfg, task_id="t", instruction="i",
+                                   case_id="case_0004", timestep=13,
+                                   split="eval")
+    assert rendered["metadata"] == {
+        "case_id": "case_0004", "timestep": 13,
+        "prompt_source": "free", "split": "eval"}
+
+
+def test_absent_split_means_unstated_never_train():
+    """The frozen cli path cannot know the split; omitting the key states
+    that honestly — a silent `train` default would be a false label."""
+    cfg = load_config(FIXTURE)
+    rendered = render_task_request(cfg, task_id="t", instruction="i",
+                                   case_id="c", timestep=1)
+    assert "split" not in rendered["metadata"]
+
+
+def test_split_vocabulary_is_validated_at_render():
+    cfg = load_config(FIXTURE)
+    for bad in ("test", "TRAIN", "", 0, True, ["train"], b"eval"):
+        with pytest.raises(ValueError, match="split must be 'train' or 'eval'"):
+            render_task_request(cfg, task_id="t", instruction="i",
+                                case_id="c", timestep=1, split=bad)
+
+
 def test_checks_config_mirrors_check_policy_completely():
     """Step 2's teeth: every `CheckPolicy` field has a `ChecksConfig`
     counterpart with the same default (and nothing extra), so the CP-11b

@@ -41,6 +41,7 @@ LP8_MASK_LENGTH = "LP8:loss_mask_length_ne_response_ids"
 LP9_MASK_DOMAIN = "LP9:loss_mask_value_not_binary"
 TR1_FINISH_REASON = "TR1:finish_reason_not_allowed"
 TR2_REASONING_LOSS_MASK = "TR2:reasoning_loss_mask_masked_tokens"
+TR3_SPLIT_DOMAIN = "TR3:split_not_train_or_eval"
 
 G1_MISSING_SOURCE = "G1:missing_evidence:prompt_source"
 G1_MISSING_CARD_HASH = "G1:missing_evidence:skill_card_hash"
@@ -76,10 +77,13 @@ FINDING_VOCABULARY = (
     G7_MISSING_SETTINGS, G7_RAW, G7_SETTINGS_NOT_APPROVED, H41_TOOLLESS_ROSTER,
     LP1_LOGPROBS_ABSENT, LP2_LOGPROBS_LENGTH, LP3_SENTINEL_AT_MASK1, LP4_NONFINITE,
     LP5_POSITIVE, LP6_ZERO_RATE_AT_MASK1, LP7_EMPTY_LOSS_MASK, LP8_MASK_LENGTH,
-    LP9_MASK_DOMAIN, TR1_FINISH_REASON, TR2_REASONING_LOSS_MASK,
+    LP9_MASK_DOMAIN, TR1_FINISH_REASON, TR2_REASONING_LOSS_MASK, TR3_SPLIT_DOMAIN,
 )
 
 ALLOWED_FINISH_REASONS = frozenset({"stop", "tool_calls", "stop_sequence", "length"})
+# ADR-0015: a tuple, not a frozenset — membership must not hash (wire content
+# can be unhashable, and checks never raise on content).
+ALLOWED_SPLITS = ("train", "eval")
 
 # The binding compatibility contract (`mcp-service/README.md`; spec §G5).
 _PAGE_MEMBER = re.compile(r'"page"\s*:\s*(\d+)')
@@ -381,11 +385,19 @@ def check_logprob_discipline(
 
 
 def check_trace_tripwires(trace: Mapping[str, Any]) -> list[str]:
-    """The `finish_reason` allowlist + the re-vendor canary (spec §TR1/TR2)."""
+    """The `finish_reason` allowlist, the re-vendor canary, and the split
+    vocabulary (spec §TR1/TR2/TR3). TR3 verifies the submitter's own
+    statement — absent is legal (unstated, ADR-0015), a third value is not."""
     findings: list[str] = []
     finish_reason = trace.get("finish_reason")
     if not (isinstance(finish_reason, str) and finish_reason in ALLOWED_FINISH_REASONS):
         findings.append(f"{TR1_FINISH_REASON}:{finish_reason}")
+    metadata = _as_mapping(trace.get("metadata"))
+    # Presence-based, not None-based: an explicit null is a value the
+    # renderer can never produce (None omits the key) — exactly the
+    # serializer-mangled shape TR3 exists to flag (spec §The split label).
+    if "split" in metadata and metadata["split"] not in ALLOWED_SPLITS:
+        findings.append(f"{TR3_SPLIT_DOMAIN}:{metadata['split']}")
     masked = _as_mapping(
         _as_mapping(trace.get("metadata")).get("reasoning_loss_mask")
     ).get("masked_tokens")

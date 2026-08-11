@@ -5,8 +5,12 @@ CP-01: the whole module is skipped — these tests exercise bank building
 through the predecessor's library API (``build_taskbank`` et al.), and the
 taskbank phase is deferred to CP-07 (ADR-0003; the library is not a
 dependency of this repo, ADR-0002). The deferral behavior itself is tested
-in test_verify.py. Kept verbatim below as the specification of what a
-CP-07 builder must reproduce."""
+in test_verify.py. Kept below as the specification of what a deferred
+builder must reproduce — paths updated to the CP-14 split-by-directory
+shape (ADR-0015): each row's ``split`` now sources from the case's
+directory placement (case_b sits under ``eval/cases/``, which is where the
+``["case_b"]`` eval-ids argument to the predecessor's ``build_taskbank``
+comes from below)."""
 
 from __future__ import annotations
 
@@ -82,7 +86,7 @@ def test_uniform_corpus_matches_single_api_call(tmp_path, estate):
 
     root = make_corpus(tmp_path / "uniform")
     # strip the per-timestep extra prompt: make case_a uniform too
-    (root / "cases/case_a/timestep-2/prompts.yaml").write_text(
+    (root / "train/cases/case_a/timestep-2/prompts.yaml").write_text(
         'prompts:\n  - {id: "skill:summarize", source: skill, name: summarize}\n',
         encoding="utf-8")
     build(root, estate)
@@ -109,7 +113,7 @@ def test_only_is_refused(corpus_root, estate, capsys):
 
 def test_promptless_timestep_produces_no_rows(corpus_root, estate):
     from gsj.envloader import read_taskbank
-    (corpus_root / "cases/case_b/timestep-2/prompts.yaml").write_text(
+    (corpus_root / "eval/cases/case_b/timestep-2/prompts.yaml").write_text(
         "", encoding="utf-8")
     build(corpus_root, estate)
     rows = read_taskbank(corpus_root / "taskbank.parquet")

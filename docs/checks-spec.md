@@ -289,7 +289,9 @@ pre-existing entry byte-identical. **[CP-13a] Five more, all `G5:*`** —
 the returning checkout census (`G5:workspace_branch_ne_timestep`,
 `G5:checkout_max_page_ne_timestep`, `G5:checkout_pages_not_contiguous`,
 `G5:checkout_history_posture`, `G5:missing_evidence:workspace`), again
-pure additions. Still never emitted: `G4:*`/`G6:*` (ADR-0011).
+pure additions. **[CP-14] One more, `TR3:split_not_train_or_eval`**
+(ADR-0015, §The split label below) — a pure addition; every pre-existing
+entry byte-identical. Still never emitted: `G4:*`/`G6:*` (ADR-0011).
 Per-position rules report **one finding per rule** with
 `:first={index}:count={n}` rather than one per position, so a
 systematically broken array cannot flood the list.
@@ -368,6 +370,7 @@ implements, with the finding id each rule emits. All of it runs inside
 | `LP9:loss_mask_value_not_binary` | any mask entry that is not int `0`/`1` (bools excluded) | **the rule every other mask-keyed rule depends on** — see below |
 | `TR1:finish_reason_not_allowed` | `finish_reason` ∉ `{stop, tool_calls, stop_sequence, length}` | tail aborts |
 | `TR2:reasoning_loss_mask_masked_tokens` | metadata `reasoning_loss_mask.masked_tokens` is anything but a recognized zero | the re-vendor canary — deliberately NOT type-narrowed |
+| `TR3:split_not_train_or_eval` | metadata `split` is present and ∉ `("train", "eval")`; **absent is legal** (unstated) | `ALLOWED_SPLITS`, ADR-0015 — see §The split label |
 
 **`LP9` is not decoration; it closes a fail-open the CP-10 adversarial
 pass found in the first implementation.** Every other mask-keyed rule
@@ -455,6 +458,57 @@ anything; re-render and calibrate rather than assume the identity; and
 prefer **capture-vs-capture on identical contexts** (CP-09: mean |Δ| =
 0.000114), which is the sharpest instrument this platform admits and
 needs no tolerance re-anchoring.
+
+## [CP-14] The split label (`TR3`, ADR-0015)
+
+`TaskRequest.metadata.split` states the case's train/eval placement and
+rides the CP-11 channel into trace metadata. Three check options were
+weighed; the middle one landed, scoped down, and this section is the
+reasoning the CP required.
+
+**What TR3 is, named honestly: a check on the submitter's own
+statement.** The trace's `metadata.split` IS the task request's — the
+proxy stamp and builder hoist are the same channel that carries
+`case_id`/`timestep` — so "the trace's split matches the task request" is
+the channel's property, already proven at CP-11, and a rule asserting it
+would only verify that the submitter agrees with itself. TR3 therefore
+checks the one thing the channel cannot guarantee: **the vocabulary**.
+A stated split outside `("train", "eval")` fails
+`TR3:split_not_train_or_eval:<value>`; a `test` split, a typo'd `TRAIN`,
+or a serializer-mangled value is rejected at the receiver instead of
+becoming a de facto third split in the trainer's partitioning. That is
+the only clause of ADR-0015's "two splits, no third" this repo can
+enforce trace-side, and it is enforced on both legs of law 6.
+
+**Absent is legal — unstated, never defaulted.** The frozen `cli.py`
+submit path cannot know the split (resolution never happens there, the
+same reason its `prompt_source` is definitionally `free`), and every
+pre-CP-14 trace predates the label. `render_task_request(split=None)`
+omits the key; TR3 passes an absent label. This is deliberately NOT the
+gates' fail-closed posture: the split is a routing label the trainer
+reads, not evidence a gate consumes — there is no approved set, and
+rejecting every honest "unstated" would quarantine the entire cli path
+to manufacture a guarantee nothing downstream relies on. The moment the
+taskbank lands (ADR-0003), every bank-submitted row states its split;
+an absent label then means "not from the bank", which is exactly true.
+
+**The options not taken.** *Nothing*: rejected — the vocabulary clause
+above is real, costs six lines, and without it a malformed value lands
+in training data with no owner. *Cross-sourced* (the CP-13a shape, where
+the workspace echo cross-checks the branch against the trainer's
+timestep): **there is nothing to cross-source from** — the case repo is
+split-agnostic by ADR-0006 (measured: no branch, file, or ref differs by
+split; only `corpus.lock.json` records it, and the sandbox never sees
+the lock), so the harness's workspace probe cannot state the split
+independently. That is a finding, not a limitation to route around: the
+repo *should* stay split-agnostic, because a split-marked checkout would
+let the agent condition on its own held-out status.
+
+**What enforces the split's *meaning*: nothing here, by decision.** The
+predecessor's loader had a role lock; this repo dropped the loader at
+CP-00. The split is carried and visible — tree → lock → (deferred) bank
+row → `TaskRequest.metadata` → trace — and the trainer owns not training
+on eval (gap row 32). TR3 polices the label's spelling, not its honor.
 
 ## G7's chain snapshot
 
