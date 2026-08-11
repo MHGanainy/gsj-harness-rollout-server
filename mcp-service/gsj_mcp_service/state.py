@@ -17,10 +17,11 @@ from typing import Literal
 from .config import ServiceConfig
 from .decisions import decisions_corpus
 from .embedding import Encoder
-from .index import (CaseIndex, DecisionsIndex, build_case_index,
-                    corpus_fingerprint, load_case_index, load_decisions_index,
-                    read_fingerprint, save_case_index, save_decisions_index,
-                    write_fingerprint)
+from .index import (CHROMA_VERSION, CaseIndex, DecisionsIndex,
+                    build_case_index, build_decisions_index, chroma_client,
+                    corpus_fingerprint, evict_chroma_client_cache,
+                    load_case_index, load_decisions_index, read_fingerprint,
+                    save_case_index, save_decisions_index, write_fingerprint)
 from .ingest import IngestError, ingest_case
 
 logger = logging.getLogger("gsj_mcp_service")
@@ -45,6 +46,12 @@ class AppState:
         self.started_at = time.time()
         self.ready_at: float | None = None
         self._reindex_lock = threading.Lock()
+        self._chroma = None  # one persistent client per process, lazy
+
+    def _client(self):
+        if self._chroma is None:
+            self._chroma = chroma_client(self.config.index.path)
+        return self._chroma
 
     # -- initialization -----------------------------------------------------
 
@@ -108,15 +115,13 @@ class AppState:
 
         corpus = decisions_corpus(config.decisions.seed,
                                   config.decisions.corpus_size)
+        client = self._client()
         for repo, source in sources.items():
-            index = build_case_index(self.encoder, source)
+            index = build_case_index(client, self.encoder, source)
             save_case_index(config.index.path, index)
             self.cases[repo] = index
             self.progress[repo]["embedded"] = True
-        decisions_vectors = self.encoder.encode_corpus(
-            [f"{d['decision_id']} {d['court']} {d['year']} {d['text']}"
-             for d in corpus])
-        self.decisions = DecisionsIndex(decisions_vectors, corpus)
+        self.decisions = build_decisions_index(client, self.encoder, corpus)
         save_decisions_index(config.index.path, self.decisions)
         write_fingerprint(config.index.path, fingerprint)
         self.fingerprint = fingerprint
@@ -126,9 +131,11 @@ class AppState:
         logger.info("index built: fingerprint %s — READY", fingerprint)
 
     def _load_all(self, fingerprint: str) -> None:
+        client = self._client()
         for repo in self.config.source.repos:
-            self.cases[repo] = load_case_index(self.config.index.path, repo)
-        self.decisions = load_decisions_index(self.config.index.path)
+            self.cases[repo] = load_case_index(client, self.config.index.path,
+                                               repo)
+        self.decisions = load_decisions_index(client, self.config.index.path)
         self.fingerprint = fingerprint
         self.reused_index = True
         self.status = "ready"
@@ -159,6 +166,11 @@ class AppState:
             self.decisions = None
             self.fingerprint = None
             self.reused_index = False
+            # Restart-equivalence (ADR-0016): drop the cached chroma system
+            # so the init thread observes the REAL on-disk store — without
+            # this, a store replaced out-of-band stays a served phantom.
+            evict_chroma_client_cache(self.config.index.path)
+            self._chroma = None
             thread = threading.Thread(target=self.initialize,
                                       name="gsj-mcp-reindex", daemon=True)
             thread.start()
@@ -190,10 +202,13 @@ class AppState:
             "progress": self.progress,
             "embedding": {"model": self.config.embedding.model,
                           "revision": self.config.embedding.revision},
+            "backend": {"name": "chromadb", "version": CHROMA_VERSION},
         }
         if self.error:
             doc["error"] = self.error
         if self.status == "ready":
+            doc["backend"]["collections"] = (
+                len(self.cases) + (1 if self.decisions is not None else 0))
             doc["cases"] = {
                 cid: {"pages": idx.n_pages, "chunks": len(idx.chunks),
                       "timesteps": idx.timesteps}

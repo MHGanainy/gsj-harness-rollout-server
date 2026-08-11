@@ -7,6 +7,9 @@ mcp==2.0.0
 sentence-transformers==5.7.0
 torch==2.13.0
 numpy==2.5.1
+# The vector backend (CP-15, ADR-0016) — pinned exact: the version is a
+# component of the corpus fingerprint, so a bump forces a loud re-index.
+chromadb==1.5.9
 pydantic==2.13.4
 PyJWT==2.13.0
 PyYAML==6.0.3

@@ -8,6 +8,7 @@ Every field is documented in the service README's config reference.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +44,24 @@ class SourceConfig(BaseModel):
             raise ValueError("ref_pattern must contain the literal '{T}'")
         return value
 
+    @field_validator("repos")
+    @classmethod
+    def _repos_can_name_chroma_collections(cls, value: list[str]) -> list[str]:
+        # The backend names one collection per case (ADR-0016), and chroma
+        # enforces names of 3-512 chars from [a-zA-Z0-9._-] starting and
+        # ending alphanumeric — NARROWER than the corpus contract's case_id
+        # rule (1+ chars, trailing _/- legal). Rejected here with the
+        # constraint named, instead of at first index build with chroma's
+        # generic error.
+        for repo in value:
+            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{1,510}[a-zA-Z0-9]",
+                                repo):
+                raise ValueError(
+                    f"repo {repo!r} cannot name a chroma collection "
+                    f"(ADR-0016): 3-512 characters from [a-zA-Z0-9._-], "
+                    f"starting and ending alphanumeric")
+        return value
+
     def clone_url(self, repo: str) -> str:
         """Anonymous clone URL; the auth token (if any) is injected by the
         ingester and never logged."""
@@ -59,6 +78,20 @@ class EmbeddingConfig(BaseModel):
     device: str = "cpu"
     batch_size: int = Field(default=32, ge=1)
     normalize: bool = True
+
+    @field_validator("normalize")
+    @classmethod
+    def _normalize_is_true(cls, value: bool) -> bool:
+        # false had defined raw-dot-product ranking semantics under the numpy
+        # scan; the chroma cosine space normalizes internally and cannot
+        # reproduce them, so the mode is retired loudly (ADR-0016), the
+        # search.method pattern.
+        if value is not True:
+            raise ValueError(
+                "embedding.normalize: false is retired (ADR-0016) — the "
+                "chroma cosine backend normalizes internally, so raw "
+                "dot-product ranking is no longer a supported mode")
+        return value
 
 
 class ChunkingConfig(BaseModel):
@@ -96,10 +129,23 @@ class SearchConfig(BaseModel):
 
     default_k: int = Field(default=5, ge=1)
     max_k: int = Field(default=20, ge=1)
-    # exact: brute-force cosine over the full (filtered) candidate set —
-    # byte-reproducible at this corpus size. An ANN backend would forfeit
-    # that determinism and needs an assumption row first (ADR-0040(f)).
-    method: Literal["exact"] = "exact"
+    # chroma: ChromaDB/HNSW over the cutoff-filtered candidate set
+    # (ADR-0016; determinism is a measured assumption, A-25, not a
+    # guarantee). "exact" — the retired numpy brute-force scan — is
+    # rejected BY NAME so a stale config fails loudly instead of promising
+    # byte-reproducibility the backend no longer keeps.
+    method: str = "chroma"
+
+    @field_validator("method")
+    @classmethod
+    def _method_is_chroma(cls, value: str) -> str:
+        if value == "exact":
+            raise ValueError(
+                "search.method 'exact' is retired (ADR-0016) — the backend "
+                "is ChromaDB; set method: chroma")
+        if value != "chroma":
+            raise ValueError("search.method must be 'chroma' (ADR-0016)")
+        return value
 
 
 class DecisionsConfig(BaseModel):

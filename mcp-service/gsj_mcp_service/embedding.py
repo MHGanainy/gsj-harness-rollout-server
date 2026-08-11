@@ -4,8 +4,9 @@ Determinism posture: torch grad off, single-threaded CPU math, exact float32
 arithmetic, no dropout (eval mode is sentence-transformers' default at
 inference). Two fresh processes embedding the same text on the same host
 produce byte-identical vectors; the determinism test asserts exactly that.
-An ANN index or multi-threaded BLAS would forfeit this — assumption row
-required before either is introduced.
+This covers the EMBEDDING half only: since CP-15 the ranking half is
+Chroma/HNSW, where cross-process reproducibility is a measured assumption
+(A-25, ADR-0016), not a guarantee.
 """
 
 from __future__ import annotations

@@ -787,6 +787,15 @@ the G3 surface — bumping it risks schema-serialization drift and a re-pin
 walk). Two register consequences: gap row 11 (wire-roster capture must
 exist under Polar's proxy) and gap row 31 (the roster must stay a pinned
 config field rendered to the wire, or G3 has no pinned input).
+**[CP-15] The pin is now also asserted at the source**: the service's own
+suite (`mcp-service/tests/test_roster_pin.py`) hashes the captured wire
+array against `tool_roster_hash` (convention 2, reproducing `a7a7956b…`)
+and checks the LIVE `tools/list` declarations against the captured
+`mcp_gsj_*` entries under pi 0.83.0's measured rendering — so a
+`tools.py` or SDK-pin drift fails the service's suite before any episode
+pays for it with a G3 rejection (ADR-0016 invariant 1; the backend swap
+behind the declarations changed nothing on the wire, which this test now
+proves rather than promises).
 
 ## G5's transcript backstop
 
@@ -805,7 +814,14 @@ into `mcp-service/tests/helpers.py`; `checks.py` reimplements it at
 CP-11). A backend that renames the key or reformats the path blinds the
 gate — `mcp-service/README.md` §Compatibility requirements is binding. If
 the page census is unreconstructable from what Polar captures, that is an
-abandonment trigger (§9).
+abandonment trigger (§9). **[CP-15] The first backend swap behind the
+contract executed (ChromaDB, ADR-0016)**: the result shape is assembled
+in service code from chunk metadata — never by the vector store — so the
+two regexes parse the new backend's results unchanged (the shape test and
+the SN-serial cutoff probes are green as-is), and the cutoff's
+filter-before-rank rule is enforced as a Chroma metadata PRE-filter,
+verified empirically against the post-filter failure shape this paragraph
+warns about.
 
 **[CP-10] Landed, one CP earlier than planned** (`checks.check_page_cutoff`),
 and the abandonment trigger is not touched — the census IS reconstructable

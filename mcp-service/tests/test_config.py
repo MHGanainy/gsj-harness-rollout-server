@@ -161,6 +161,54 @@ def test_token_secret_env_unset_raises(tmp_path, monkeypatch):
     assert config.token_secret() == "s3cret-value"
 
 
+def test_search_method_exact_is_retired_loudly(tmp_path):
+    """search.method: exact — the pre-CP-15 numpy scan — is rejected BY NAME
+    with the migration spelled out (ADR-0016): the value promised
+    byte-reproducible retrieval the chroma backend no longer keeps."""
+    doc = base_doc()
+    doc["search"]["method"] = "exact"
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(dump(tmp_path, doc))
+    assert "retired" in str(excinfo.value)
+    assert "ADR-0016" in str(excinfo.value)
+
+    doc["search"]["method"] = "faiss"
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(dump(tmp_path, doc, name="config-faiss.yaml"))
+    assert "chroma" in str(excinfo.value)
+
+    del doc["search"]["method"]
+    config = load_config(dump(tmp_path, doc, name="config-default.yaml"))
+    assert config.search.method == "chroma"
+
+
+def test_embedding_normalize_false_is_retired_loudly(tmp_path):
+    """embedding.normalize: false had defined raw-dot-product semantics under
+    the numpy scan; chroma's cosine space normalizes internally and cannot
+    reproduce them — retired loudly (ADR-0016), never silently re-ranked."""
+    doc = base_doc()
+    doc["embedding"]["normalize"] = False
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(dump(tmp_path, doc))
+    assert "normalize" in str(excinfo.value)
+    assert "ADR-0016" in str(excinfo.value)
+
+
+def test_repo_that_cannot_name_a_chroma_collection_fails(tmp_path):
+    """The backend names one collection per case, and chroma's name rules
+    (3-512 chars of [a-zA-Z0-9._-], alphanumeric ends) are NARROWER than the
+    corpus contract's case_id rule — a contract-valid id like 'c1' or
+    'case_' must fail at config load with the constraint named, not at first
+    index build with chroma's generic error (ADR-0016)."""
+    for repo in ("c1", "case_", "x-"):
+        doc = base_doc()
+        doc["source"]["repos"] = [repo]
+        with pytest.raises(ConfigError) as excinfo:
+            load_config(dump(tmp_path, doc, name=f"config-{repo}.yaml"))
+        assert "chroma collection" in str(excinfo.value)
+        assert "ADR-0016" in str(excinfo.value)
+
+
 def test_ref_pattern_must_contain_T(tmp_path):
     """ref_pattern without the literal '{T}' cannot discover timestep refs."""
     doc = base_doc()

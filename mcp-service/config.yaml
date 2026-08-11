@@ -33,13 +33,15 @@ chunking:
   respect_page_boundaries: true   # contract — false is not a supported mode
 
 index:
-  path: ./data/index
+  path: ./data/index     # sidecars + the Chroma store under ./data/index/chroma
   rebuild: if-stale      # rebuild only on corpus-fingerprint mismatch
+                         # (the fingerprint includes the Chroma version, CP-15)
 
 search:
   default_k: 5
   max_k: 20
-  method: exact          # brute-force cosine — deterministic at this scale
+  method: chroma         # ChromaDB/HNSW, cutoff pre-filtered (ADR-0016);
+                         # 'exact' is retired and rejected by name
 
 decisions:
   seed: 20260204         # the deterministic corpus carried over (ADR-0007)

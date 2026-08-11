@@ -1,11 +1,14 @@
 # gsj-mcp-service image (CP-29, ADR-0040(a)).
 #
 # Self-contained for egress-restricted hosts: the pinned MiniLM snapshot is
-# baked at build time and the container runs fully offline (HF_HUB_OFFLINE).
-# Build on the workstation, ship with the CP-26 recipe (0.2.0 = CP-33:
-# /admin/reindex + source.owner gsj-staging):
-#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.2.0 .
-#   docker save gsj-mcp-service:0.2.0 | ssh h200-admin docker load
+# baked at build time and the container runs fully offline (HF_HUB_OFFLINE;
+# Chroma telemetry is disabled in code — Settings(anonymized_telemetry=False)).
+# Build on the workstation, ship with the CP-26 recipe (0.3.0 = CP-15: the
+# ChromaDB backend, ADR-0016 — expect ≈ +310 MB installed vs 0.2.0, the
+# measured chromadb dependency delta; 0.2.0 = CP-33: /admin/reindex +
+# source.owner gsj-staging):
+#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 .
+#   docker save gsj-mcp-service:0.3.0 | ssh h200-admin docker load
 FROM python:3.12-slim
 
 # git: the ingester clones the case repos. Build-network hardening as in the

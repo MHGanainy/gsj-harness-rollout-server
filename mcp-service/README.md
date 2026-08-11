@@ -9,7 +9,9 @@ maintained here since this repo's CP-01, ADR-0002) with one
 long-running process. It
 ingests the frozen case dataset from staging Forgejo (the estate scaffolded
 from `corpus/staging` by `corpus/ingest_corpus.py`; freeze record
-`corpus/staging/corpus.lock.json`), embeds it with a pinned MiniLM, and answers
+`corpus/staging/corpus.lock.json`), embeds it with a pinned MiniLM, stores
+the vectors in **ChromaDB** (CP-15, ADR-0016 — one collection per case,
+cutoff as a metadata pre-filter), and answers
 token-scoped queries — the page cutoff enforced server-side from verified
 per-episode JWT claims, never from anything the client says. It imports
 nothing from `gsj.envloader`; the coupling to the library is the HTTP
@@ -44,11 +46,17 @@ daemon cannot pull, same recipe as the sandbox image, the predecessor's
 
 ```bash
 # workstation
-DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.2.0 mcp-service/
-docker save gsj-mcp-service:0.2.0 | ssh h200-admin docker load
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 mcp-service/
+docker save gsj-mcp-service:0.3.0 | ssh h200-admin docker load
 # H200
 cd mcp-service && GSJ_MCP_TOKEN_SECRET=<secret> docker compose up -d
 ```
+
+(0.3.0 = CP-15: the ChromaDB backend. The chromadb dependency set adds
+≈310 MB installed — measured venv delta; dominated by transitive
+onnxruntime/kubernetes/grpcio, none of which is on this service's runtime
+path — so expect a similar image-size delta; the `save | load` recipe is
+unchanged in kind, just slower by the delta.)
 
 `compose.yml` refuses to start without `GSJ_MCP_TOKEN_SECRET` in the
 invoking environment (`:?` guard — compose passes the name through, the
@@ -202,7 +210,7 @@ config.py`.
 
 | field | type | default | meaning |
 |---|---|---|---|
-| `path` | `Path` | **required** | index storage root (`<path>/<case_id>/{vectors.npy,chunks.json}`, `<path>/decisions/`, `<path>/fingerprint.json`) |
+| `path` | `Path` | **required** | index storage root: `<path>/chroma/` (the ChromaDB persistent store — one collection per case plus `decisions`) + the sidecars `<path>/<case_id>/chunks.json`, `<path>/decisions/corpus.json`, `<path>/fingerprint.json` |
 | `rebuild` | `Literal["if-stale", "always", "never"]` | `"if-stale"` | rebuild policy (semantics below) |
 
 ### `search:`
@@ -211,7 +219,7 @@ config.py`.
 |---|---|---|---|
 | `default_k` | `int` (≥ 1) | `5` | default result count (the tool signatures' `k = 5` — G3-pinned) |
 | `max_k` | `int` (≥ 1) | `20` | hard clamp: requested `k` is clamped into `[1, max_k]` |
-| `method` | `Literal["exact"]` | `"exact"` | brute-force cosine over the full filtered candidate set — byte-reproducible at this corpus size; an ANN backend forfeits that and needs an assumption row first (ADR-0040(f)) |
+| `method` | `str`, `"chroma"` only | `"chroma"` | ChromaDB/HNSW over the cutoff-pre-filtered candidate set (ADR-0016). The retired `"exact"` (numpy brute-force, ≤ CP-14) is rejected **by name** at startup — it promised byte-reproducibility the backend no longer guarantees (the ADR-0040(f) assumption row is A-25: reproducibility is measured, not promised) |
 
 ### `decisions:`
 
@@ -252,10 +260,30 @@ never across page boundaries. **One index per case over the full document —
 NOT per timestep**; the cutoff is a query-time filter (ADR-0040(d), the
 ADR-0007 leaky-server posture carried over).
 
+**The backend (CP-15, ADR-0016)**: one ChromaDB collection per case
+(named `<case_id>`, cosine space) plus one `decisions` collection, in a
+persistent store at `<index.path>/chroma/`; chunk metadata is
+`{case_id, page, file, chunk_idx}` and the cutoff rides a
+`where: {"page": {"$lte": T}}` **pre-filter** (test-verified to constrain
+candidates before ranking, never after). Embeddings are always supplied
+explicitly by the pinned MiniLM encoder — Chroma's own embedding machinery
+is disabled by a raising embedding function on every collection handle,
+because its default EF is a *different* MiniLM (ONNX) at the same 384
+dims and a substitution would be silent (test-asserted: stored vectors are
+bit-exact the pinned encoder's). Ranking policy stays the service's own:
+`score = 1 − cosine_distance`, chunk scores aggregated to page max, sort
+`(-score, page)`, non-positive dropped, top-k, full page text attached;
+`n_results` is the whole filtered candidate set, so page aggregation sees
+every candidate's best chunk. The sidecars (`chunks.json`,
+`decisions/corpus.json`) keep the page texts, refs and timesteps the tools
+need regardless of the vector store.
+
 Restart idempotence hangs on the **corpus fingerprint** — sha256 over
 everything that determines index bytes: repo `main` SHAs + embedding model
 & revision & normalize + chunking params + decisions params + index format
-(`index.py: corpus_fingerprint`). Policy:
++ **the Chroma version** (`index.py: corpus_fingerprint` — a Chroma
+upgrade that changes the on-disk format rebuilds loudly under `if-stale`
+and errors under `never`, never fails silently). Policy:
 
 | `index.rebuild` | behavior |
 |---|---|
@@ -265,19 +293,26 @@ everything that determines index bytes: repo `main` SHAs + embedding model
 
 With the dataset frozen (`corpus/staging/corpus.lock.json` — the pipeline's
 freeze record), a fingerprint
-mismatch should only ever happen on a deliberate re-pin (a model-revision or
-chunking-param change) — the re-index trigger is the fingerprint, nothing
-else.
+mismatch should only ever happen on a deliberate re-pin (a model-revision,
+chunking-param, or **chromadb-pin** change) — the re-index trigger is the
+fingerprint, nothing else.
 
 ## Determinism
 
-MiniLM in eval mode, torch grad off, **single-threaded** CPU math, exact
-float32 arithmetic, exact brute-force cosine in numpy, query encoding
-serialized by a lock: two fresh processes embedding the same text on the
-same host produce byte-identical vectors, hence identical rankings
-(`embedding.py`; the determinism test asserts exactly this). An ANN index
-or multi-threaded BLAS would forfeit this and needs an `ASSUMPTIONS.md` row
-first (ADR-0040(f)).
+Two halves since CP-15 (ADR-0016). **Embedding — guaranteed**: MiniLM in
+eval mode, torch grad off, **single-threaded** CPU math, exact float32
+arithmetic, query encoding serialized by a lock — two fresh processes
+embedding the same text on the same host produce byte-identical vectors
+(`embedding.py`; the determinism test asserts exactly this). **Ranking —
+measured, not guaranteed**: retrieval is Chroma/HNSW, which forfeits the
+old exact-scan byte-reproducibility promise by construction. The CP-15
+measurement (`tests/measure_determinism.py`: two fresh processes over the
+same store, builder-vs-loader, and two independent builds — ids, order,
+and scores at tool level and raw chunk level) came back **IDENTICAL on
+every probe** at this scale (213 chunks, full-candidate-set fetch);
+recorded as assumption row A-25 with the caveat that a larger corpus, a
+bounded fetch, or a Chroma bump reopens it. Do not build anything new on
+byte-reproducible retrieval.
 
 ## Operability
 
@@ -291,10 +326,11 @@ fields:
 | `uptime_s` | always | seconds since start |
 | `progress` | always | per-repo `{done, pages, chunks, embedded}` |
 | `embedding` | always | `{model, revision}` |
+| `backend` | always | `{name: "chromadb", version}` — which backend is live (CP-15); plus `collections` (cases + decisions) when ready |
 | `error` | on error | the failure message |
 | `cases` | ready | per-case `{pages, chunks, timesteps}` |
 | `decisions` | ready | corpus size |
-| `fingerprint` | ready | the active corpus fingerprint |
+| `fingerprint` | ready | the active corpus fingerprint (includes the Chroma-version component) |
 | `index_reused` | ready | whether the stored index was reused |
 
 **Request logs**: one structured JSON line per tool call on stderr (`event:
@@ -324,6 +360,19 @@ Binding on **any** future backend behind these four tools — prod included:
    request field.
 3. `search_decisions`/`decision_stats` are cutoff-exempt (ADR-0007(e));
    `case_status` reports the token's scope.
+4. **The pinned embedder, never the backend's own.** Whatever the backend
+   bundles for embedding is disabled or unreachable; vectors come from the
+   pinned MiniLM revision only, and the suite asserts stored-vector ==
+   pinned-encoder-output identity (the CP-15 lesson: Chroma's default EF
+   is a different MiniLM at the SAME 384 dims — a substitution is silent
+   by construction, so it must be structurally impossible).
+
+Since CP-15 the load-bearing requirements are test-enforced in this
+suite — the wire roster against the pinned `tool_roster_hash` plus the
+source-level signature pin (`test_roster_pin.py`), the G5 result shape
+(requirement 1 — `test_tools.py`), the cutoff pre-filter and the embedder
+identity (requirements 2 and 4 — `test_backend.py`) — so a future backend
+inherits executable compatibility requirements, not just this prose.
 
 ## Prod swap
 

@@ -15,7 +15,7 @@
 name: gsj-mcp-service
 services:
   mcp:
-    image: gsj-mcp-service:0.2.0
+    image: gsj-mcp-service:0.3.0   # 0.3.0 = CP-15, the ChromaDB backend
     container_name: gsj-mcp-service
     network_mode: host
     user: "1000:1000"

@@ -114,7 +114,11 @@ def test_error_state_bad_source(tmp_path_factory):
 def test_identical_results_across_fresh_processes(server, server2):
     """Two separate server processes over the SAME pre-built index dir return
     byte-identical JSON — float scores included — for identical search_case
-    and search_decisions queries (torch single-thread exact-cosine posture)."""
+    and search_decisions queries. Since CP-15 this byte-identity is A-25's
+    MEASURED property of Chroma/HNSW at this corpus scale (embedding half
+    guaranteed by the torch single-thread posture, ranking half measured,
+    ADR-0016) — this test is the regression canary, to be relaxed KNOWINGLY
+    if A-25 flips, never patched around."""
     token = mint_token("case_0001", 12)
     calls = [("search_case",
               {"query": "the sealed ledgers were moved to the antechamber",

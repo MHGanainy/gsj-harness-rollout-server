@@ -60,14 +60,21 @@ def test_timesteps_parsed_from_refs(built_state):
 
 
 def test_second_appstate_reuses_index_and_serves_identical_results(
-        built_state, shared_dirs):
-    """Idempotent re-init: a SECOND AppState over the same index dir matches
-    the stored fingerprint, reports index_reused True via the /health payload,
-    and serves byte-identical search results from the loaded vectors."""
+        built_state, shared_dirs, tmp_path_factory):
+    """Idempotent re-init: a second AppState over the SAME stored index
+    matches the fingerprint, reports index_reused True via the /health
+    payload, and serves byte-identical search results from the loaded
+    vectors. The store is a COPY at a fresh path: chroma caches one system
+    per path in-process, so loading the original path would compare the
+    built store against itself — the copy forces a genuine
+    persisted-vector load (CP-15 review finding; the fingerprint has no
+    path component, so reuse semantics are unchanged)."""
+    copy_root = tmp_path_factory.mktemp("reinit")
+    shutil.copytree(shared_dirs["index"], copy_root / "index")
     config_path = write_config(
-        shared_dirs["root"], repos=ALL_REPOS,
-        clone_cache_dir=shared_dirs["clones"], index_path=shared_dirs["index"],
-        name="config-reinit.yaml")
+        copy_root, repos=ALL_REPOS,
+        clone_cache_dir=shared_dirs["clones"],
+        index_path=copy_root / "index", name="config-reinit.yaml")
     state2 = make_state(config_path, encoder=built_state.encoder)
     assert state2.status == "ready", state2.error
     assert state2.reused_index is True

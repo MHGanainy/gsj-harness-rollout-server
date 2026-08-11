@@ -146,15 +146,21 @@ def test_pipeline_stdlib_mint_verifies(admin_server):
     wait_ready(admin_server.base_url)
 
 
-def test_concurrent_trigger_is_idempotent(shared_dirs, built_state,
-                                          monkeypatch):
+def test_concurrent_trigger_is_idempotent(tmp_path, monkeypatch):
     """While one reindex runs, a second trigger returns already-indexing and
-    spawns NO second thread — asserted in-process with a slow initialize."""
+    spawns NO second thread — asserted in-process with a slow initialize.
+    Uses a scratch index path: the real request_reindex evicts the chroma
+    system cached for ITS path (restart-equivalence, ADR-0016), and this
+    in-process test must never evict the session-shared store's."""
     import threading
 
+    from gsj_mcp_service.config import load_config
     from gsj_mcp_service.state import AppState
 
-    state = AppState(built_state.config)
+    config_path = write_config(
+        tmp_path, repos=["case_0001"], clone_cache_dir=tmp_path / "clones",
+        index_path=tmp_path / "index")
+    state = AppState(load_config(config_path))
     state.status = "ready"  # pretend the first init completed
     started = threading.Event()
     release = threading.Event()
