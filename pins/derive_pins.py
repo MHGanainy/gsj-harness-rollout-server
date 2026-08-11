@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""The CP-11 pins walk, reproducible: re-derives every `pins.gsj.json`
+"""The pins walk, reproducible (CP-11; re-run at CP-04' on the H200 — G4's
+measure-at-serve instrument, ADR-0011): re-derives every `pins.gsj.json`
 approved value from the evidence named in its provenance block and exits
-nonzero on any divergence. Run from the repo root; CP-04' reruns it on the
-H200 estate (expect `chat_template_hash` to diverge there BY DESIGN — the
-Direction-A template flip re-pins it; see pins.gsj.json provenance).
+nonzero on any divergence.
+
+CP-04' addition: the engine now serves an EXPLICIT template file
+(`--chat-template`, the Direction-A flip), so the template the engine
+actually renders with is the file, not a snapshot's embedded
+`chat_template` field. Point GSJ_SERVED_TEMPLATE at that file (default:
+staging/serving/qwen3_training.jinja); every snapshot-embedded template is
+then recorded-not-approved. `g6_expected_tail_ids` is verified against the
+served tokenizer when transformers is importable (estate-side, where the
+tokenizer exists at pin time — ADR-0011); on a tokenizer-less host that
+step reports skip, never silently passes.
 
 Conventions are `docs/checks-spec.md` §The four hashing conventions,
 reproduced exactly (canonical_json == the predecessor's store.py:88-91);
@@ -27,7 +36,9 @@ CODEC = Path(os.environ.get(
     HF / "models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"))
 SERVED = Path(os.environ.get(
     "GSJ_SERVED_SNAPSHOT",
-    HF / "models--mlx-community--Qwen3-0.6B-bf16/snapshots/42096995f6402fde107068cf530136fe64b604f8"))
+    HF / "models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"))
+SERVED_TEMPLATE = Path(os.environ.get(
+    "GSJ_SERVED_TEMPLATE", REPO / "staging/serving/qwen3_training.jinja"))
 
 
 def canonical_json(obj) -> str:  # the predecessor's convention, byte-exact
@@ -90,13 +101,28 @@ def main() -> int:
                f"{label} tokenizer.json")
         template = json.loads((snap / "tokenizer_config.json").read_text())["chat_template"]
         digest = sha256_bytes(template.encode("utf-8"))
-        if label == "served":
-            expect("chat_template_hash", digest, "served tokenizer_config.json chat_template")
-        else:  # measured and recorded, deliberately NOT approved — finding (a)
-            print(f"note chat_template_hash [codec, not approved]: {digest}")
-    expect("g6_expected_tail",
-           (REPO / "pins/g6_tail.captured.txt").read_text(),
-           "pins/g6_tail.captured.txt")
+        # CP-04': under --chat-template a snapshot-embedded template never
+        # builds a wire prompt — measured and recorded, deliberately NOT
+        # approved (finding (a)'s binding rule: pin what the engine renders
+        # with; a dead entry weakens the gate).
+        print(f"note chat_template_hash [{label} snapshot, not approved]: {digest}")
+    expect("chat_template_hash", sha256_bytes(SERVED_TEMPLATE.read_bytes()),
+           f"served --chat-template file {SERVED_TEMPLATE.name}")
+    tail_text = (REPO / "pins/g6_tail.captured.txt").read_text()
+    expect("g6_expected_tail", tail_text, "pins/g6_tail.captured.txt")
+    try:
+        from transformers import AutoTokenizer  # estate-side only (ADR-0011)
+    except ImportError:
+        print("skip g6_expected_tail_ids (no tokenizer on this host — "
+              "pin-time verification is estate-side by design, ADR-0011)")
+    else:
+        if SERVED.exists():
+            tok = AutoTokenizer.from_pretrained(str(SERVED))
+            expect("g6_expected_tail_ids",
+                   tok(tail_text, add_special_tokens=False)["input_ids"],
+                   "served tokenizer over pins/g6_tail.captured.txt")
+        else:
+            print("skip g6_expected_tail_ids (served snapshot absent)")
 
     if failures:
         print("\nDIVERGED:\n  " + "\n  ".join(failures))

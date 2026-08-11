@@ -146,3 +146,34 @@ strict-extension test simply fails, chains split, and the receiver
 rejects (loudly, which is the one good property). The fix there is
 Direction A's general template, not a longer glue list. Recorded as
 charter assumption **A-22** so nobody flips `thinking` expecting coverage.
+
+## Amendment — 2026-08-11 (CP-04′): Direction A executed; the stitch is dormant
+
+Appended, not rewritten: the decision and the 2026-08-09 amendment stand
+as the record of why the stitch existed and why it won *then*. What
+changed: **CP-04′ adopted Direction A on the H200 estate** — the engine
+serves TRL's `qwen3_training.jinja` byte-verbatim (sha256 `1d944ff8…`,
+`--chat-template` in the serve argv, the file committed at
+`staging/serving/qwen3_training.jinja`), chosen over the minimal
+three-line-diff variant because it is a superset that also covers
+thinking-ON (the positional conditional is dropped entirely; the
+`reasoning_content` fallback is handled), which is A-22's cure held in
+reserve. Proven before serving: against the same captured 4-message pi
+history, turn-1 renders byte-identical under both templates and turn-2's
+prompt_ids are a strict prefix-extension of turn-1's under the symmetric
+template (the pinned template diverges at index 2018 of 2022, on exactly
+the four glue ids).
+
+**The retirement, proven live**: two fresh H200 episodes collected with
+`generation_prompt_glue_ids` UNSET both merged natively —
+`chains_total == 1`, the full G7 conjunction, `glue_stitched: 0`
+(`docs/polar/h200-stitch/`). F2's cost — turn≥2 logprobs conditioned on a
+wire context 4 tokens per prior turn away from the merged stream —
+dissolves at the root on this estate: the merged stream now IS the wire
+context.
+
+**What stays**: the stitch code, in place and dormant — the fallback for
+any future asymmetric served template (A-21 as amended in the charter),
+and the config surface (`builder.generation_prompt_glue_ids`) unchanged.
+The decision's own "it stops being load-bearing" clause is now the
+measured state of the H200 estate, not a prediction.

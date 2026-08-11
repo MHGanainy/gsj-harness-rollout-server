@@ -702,6 +702,10 @@ def test_pins_are_loaded_not_inlined_and_raise_loudly(monkeypatch):
     import json
     for value in json.loads(checks.PINS_PATH.read_text())["pins"].values():
         for pinned in value if isinstance(value, list) else [value]:
+            # CP-04' adds a list-typed pin (g6_expected_tail_ids); the
+            # no-literal assertion covers it via its JSON rendering.
+            if not isinstance(pinned, str):
+                pinned = json.dumps(pinned)
             assert pinned not in inspect.getsource(checks)
 
 

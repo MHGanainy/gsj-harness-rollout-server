@@ -401,6 +401,20 @@ is a knob rather than an engine sniff because the trace carries no
 engine identity (row 22: sampling and engine provenance are ESTATE
 provenance, not trace provenance).
 
+**[CP-04′] The CUDA-strictness recommendation is withdrawn on evidence:
+exact-`0.0` at `mask == 1` is a CUDA bf16 property too, not an MLX
+artifact.** Measured on the H200 (vLLM 0.26.0+cu129, native bf16), every
+episode both stacks produced: the H200 golden 16/258 (6.2%), our stack's
+episodes 34/237 (14.3%) and 2119/8506 (24.9% — a repetitive-loop episode
+that came within 0.1pp of the allowance). The strict-`0.0` policy
+rejected a clean episode live (fail-closed and loud — the receiver seam
+worked exactly as designed) before the estate config moved to the 0.25
+default (`staging/rollout.h200.yaml`). Standing guidance: the default
+0.25 is the right posture on BOTH platforms measured so far; the
+zero-rate is a platform property to be measured per estate, and the
+repetitive-loop data point shows the allowance is doing real
+degenerate-array work on CUDA rather than idling.
+
 Two consequences of RAW semantics, recorded so no later rule re-derives
 them: no renormalization transform appears anywhere in the discipline
 math, and a trainer consuming `response_logprobs` as behavior-policy

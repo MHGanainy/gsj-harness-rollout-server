@@ -143,3 +143,36 @@ vllm-metal teacher-force gap and the recurring row-27 `0.0` artifact
 (platform). The H200 pair (CP-04′/CP-09′) repeats this contract verbatim
 against `docs/golden/h200/`, where the replay can run through the engine
 as written.
+
+## The H200 half (CP-04′) — the contract holds unchanged; execution notes
+
+`docs/golden/h200/` exists (CP-04′; provenance in its `MANIFEST.md`). The
+contract above is repeated **verbatim** against it by CP-09′ — same
+criteria, same order, same attribution rules. Facts CP-04′ measured that
+CP-09′ needs before running it:
+
+- **The instruction embeds the episode uid** (`… out/ep-<uid>.md`), so the
+  CP-09′ collection must use the H200 golden's resolved instruction bytes
+  verbatim (as CP-09 did with the Mac golden's) or the `prompt_ids`
+  exact-equality row fails on the uid substring alone — measured: turn-1
+  renders varied 2964–2966 ids across this CP's eight golden attempts,
+  entirely from the uid's BPE split.
+- **The stitched-glue asymmetry is gone on this estate** (the symmetric
+  served template; `chains_total == 1` with the glue ids unset, twice —
+  CP-04′ Step 4): the turn≥2 wire-context caveat in the logprob row does
+  not apply to the H200 collected trace — the merged stream IS the wire
+  context, so the replay teacher-forces the collected `input_ids` with no
+  de-stitch step (CP-09's F2 machinery is unnecessary here by
+  construction).
+- **The row-27 exact-`0.0` artifact is a CUDA property too** (golden
+  16/258 = 6.2%; our stack measured up to 24.9% on a repetitive-loop
+  episode) — the discipline row's "no exact `0.0`" clause reads per
+  CP-10's landed allowance (0.25), not the original hard fail; treat the
+  zero-rate as a measured platform property, not a defect signal.
+- **The replay runs through the engine as written** (vLLM proper
+  teacher-forces; the F3 Mac gap does not exist here) — and the stated
+  0.005/0.05 tolerances are same-engine-anchored, so on this pair they
+  apply as written for the first time.
+- The golden produced an **artifact** (`artifact/ep-3ba9d4a1498f89fc.md`)
+  — the informational reward/artifact step has a real subject on this
+  pair, unlike the Mac's.

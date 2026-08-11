@@ -1,13 +1,13 @@
 {
   "format": "gsj-pins/1",
-  "derived_at": "CP-11 (2026-08-09), the pins walk — row 23",
-  "host": "Mac estate (the CP-04 golden host, macOS arm64, docker-mode episodes)",
+  "derived_at": "CP-04' (2026-08-11), the H200 pins walk (first derived CP-11, Mac — row 23)",
+  "host": "H200 estate (gpu-compute-legal-tech, CUDA vLLM 0.26.0, docker-mode episodes); Mac-era values that did not move keep their CP-11 provenance",
   "pins": {
     "tokenizer_hash": [
       "949e1ec83f61520a25c75426edc4a43acc36f29a"
     ],
     "chat_template_hash": [
-      "87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5"
+      "1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9"
     ],
     "settings_hash": [
       "dae8948524be8253e04c4174632477e0333adc0323e791a6e54ace3b31004d20"
@@ -24,6 +24,9 @@
     ],
     "g6_expected_tail": [
       "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    ],
+    "g6_expected_tail_ids": [
+      [151644, 77091, 198, 151667, 271, 151668, 271]
     ]
   },
   "provenance": {
@@ -37,14 +40,14 @@
       "mac_specific": false
     },
     "chat_template_hash": {
-      "algo": "sha256_json_field",
-      "field": "chat_template",
+      "algo": "sha256_bytes",
       "artifacts": [
-        "~/.cache/huggingface/hub/models--mlx-community--Qwen3-0.6B-bf16/snapshots/42096995f6402fde107068cf530136fe64b604f8/tokenizer_config.json"
+        "staging/serving/qwen3_training.jinja (the file the H200 engine serves via --chat-template — in the serve argv, sha-verified on the serving host)",
+        "upstream: huggingface/trl trl/chat_templates/qwen3_training.jinja @ 63b7c3f547d3e06d0eae72712e36b7b64e9d5a45 (byte-verbatim)"
       ],
-      "notes": "G4 half 2, pinned per CP-10 finding (a)'s binding rule: G4's chat-template input is the template the ENGINE ACTUALLY RENDERS WITH — the served snapshot's (4116 chars). The codec snapshot's template (a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8, 4168 chars, same host, both measured this walk) is recorded here and NOT approved: it never built a wire prompt, and a dead entry weakens the gate. Differences confined to content/reasoning_content type guards; add_generation_prompt tail byte-identical (CP-10).",
-      "mac_specific": true,
-      "mac_specific_why": "Bound to the Mac estate's served snapshot (vllm-metal serving mlx-community bf16). CP-04' re-derives against the H200's served template — deliberately changed by the Direction-A template flip (--chat-template <file>), which re-pins this value by design."
+      "notes": "G4 half 2, re-derived at CP-04' under the Direction-A symmetric template (ADR-0007; the CP-11 known-expiry note resolves here). Pinned per CP-10 finding (a)'s binding rule: G4's chat-template input is the template the ENGINE ACTUALLY RENDERS WITH — now an explicit file, so the pin is its byte sha256. Superseded-not-approved (dead entries weaken the gate): the Mac served snapshot's 87a2728cb8dc9fe424d624542f6060ec05a1d285ebbec578bb078900e33396b5 (4116 chars, retired with the Mac estate's serving) and the codec snapshot's embedded a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8 (4168 chars, present in the H200 snapshot but never building a wire prompt under --chat-template). Symmetry proof (turn-1 byte-identity across templates; turn-2 strict prefix-extension): docs/reports/CP-04prime.md Step 2.",
+      "mac_specific": false,
+      "estate_note": "H200-estate-bound only through the serve argv; the file itself is committed and content-addressed."
     },
     "settings_hash": {
       "algo": "sha256_canonical_json",
@@ -61,7 +64,7 @@
         "docs/polar/pi-corpus/trace.json tools[] (episode sk-polar-c4eef751-0539-4066-aadc-f599a936f1c5, CP-07)",
         "docs/polar/fidelity/trace.json tools[] (episode sk-polar-180dd057-3b69-49d2-b834-6b67cf1ccba4, CP-09)"
       ],
-      "notes": "G3. The 11-tool wire array as persisted on BOTH real corpus episodes (CP-06 proved persisted == wire for tools); both hash identically, and both reproduce the predecessor's CP-29 pin — pi 0.83.0 + the mcp==2.0.0 SDK generate byte-identical schemas under Polar's proxy. Convention anchored against pins/tools.captured.json (reproduced).",
+      "notes": "G3. The 11-tool wire array as persisted on BOTH real corpus episodes (CP-06 proved persisted == wire for tools); both hash identically, and both reproduce the predecessor's CP-29 pin — pi 0.83.0 + the mcp==2.0.0 SDK generate byte-identical schemas under Polar's proxy. Convention anchored against pins/tools.captured.json (reproduced). [CP-04'] Re-verified from a FRESH H200 episode (sk-polar-dae2b26a-c62d-4b43-96d5-4a2a98eff4e0, the stitch-retirement episode, docs/polar/h200-stitch/): same hash — the value did not move, as CP-15's suite asserted it would not.",
       "mac_specific": false
     },
     "system_prompt_hash": {
@@ -71,7 +74,7 @@
         "docs/polar/fidelity/trace.json prompt_messages[0].content (episode sk-polar-180dd057-3b69-49d2-b834-6b67cf1ccba4, CP-09)",
         "pins/container/system_prompt.container.derived.txt"
       ],
-      "notes": "G2, the docker-mode /workspace SINGLETON — and the singleton property HOLDS on this stack: the wire system prompt of both real episodes (4,466 chars, 4,476 UTF-8 bytes) is byte-identical to the derived singleton text, hash equal to the predecessor's pin. Scope: docker-mode only, exactly like the predecessor's set; a subprocess/Apptainer estate (A-11) needs a fresh derive_g2.py walk.",
+      "notes": "G2, the docker-mode /workspace SINGLETON — and the singleton property HOLDS on this stack: the wire system prompt of both real episodes (4,466 chars, 4,476 UTF-8 bytes) is byte-identical to the derived singleton text, hash equal to the predecessor's pin. Scope: docker-mode only, exactly like the predecessor's set; a subprocess/Apptainer estate (A-11) needs a fresh derive_g2.py walk. [CP-04'] The singleton holds on the H200 too: the fresh stitch-retirement episode's wire system prompt hashes identically (same session as the G3 re-verify) — estate-invariant under docker mode, exactly as CP-04 finding 5 measured.",
       "mac_specific": false
     },
     "skill_card_hash": {
@@ -88,13 +91,21 @@
       "artifacts": [
         "pins/g6_tail.captured.txt (41 bytes)"
       ],
-      "notes": "G6 (not a hash gate). Carried verbatim, byte-equal to the predecessor's pin; template-derived. NOT re-derived from our traces this CP — decoding assistant-turn openings from response_ids needs the tokenizer at check time, which is CP-11b's G6 design question. CP-04's template flip re-derives it (the always-emit-think template changes the opening tail by design).",
+      "notes": "G6 (not a hash gate). Re-verified at CP-04' under the ADOPTED symmetric template: the generation-prompt tail is the SAME 41 bytes (the TRL template's add_generation_prompt branch under enable_thinking false is byte-identical to the pinned template's — measured, turn-1 renders byte-identical across the two). What the flip changes is G6's SUBJECT, not the tail: the tail now appears in history re-renders too, so every assistant-turn opening in the merged stream carries it.",
+      "mac_specific": false
+    },
+    "g6_expected_tail_ids": {
+      "algo": "token_ids",
+      "artifacts": [
+        "pins/g6_tail.captured.txt tokenized by the served tokenizer (Qwen/Qwen3-0.6B @ c1899de289a04d12100db370d81485cdf75e47ca tokenizer.json, git-blob 949e1ec8..., the H200 serving snapshot), add_special_tokens=false"
+      ],
+      "notes": "Wishlist item 5, derived at CP-04' (ADR-0011: the tokenizer exists at PIN time only, estate-side; derive_pins.py re-verifies whenever transformers is importable). The ids decode <|im_start|>=151644, 'assistant'=77091, '\\n'=198, <think>=151667, '\\n\\n'=271, </think>=151668, '\\n\\n'=271. The G6 rule this pin feeds (CP-11c or later — checks.py frozen this CP, row 14): ids-endswith over (a) the suffix of prompt_ids (the turn-1 opening) and (b) the mask-0 interstitial span preceding EACH mask-1 span of response_ids (under the symmetric template every turn's opening rides the stream, history re-renders included); zero turns checked fails closed. Reads token ids only, never response_messages (the CP-11b design; finding (b) honored by construction).",
       "mac_specific": false
     }
   },
   "walk_status": {
-    "derive": "done (this file; every value from repo-owned or estate-resident evidence, provenance above)",
+    "derive": "done (CP-11 Mac; re-run CP-04' on the H200 against the served snapshot and the served --chat-template file — chat_template_hash re-derived by design, g6_expected_tail_ids derived, everything else measured unmoved; docs/reports/CP-04prime.md Step 3)",
     "re_pin": "done (this file IS the approved-set home; the predecessor's staging file stays untouched, law 3)",
-    "first_episode_validate": "done (CP-11b: gates G2/G3/G7 consume this file via checks.approved_set; both real episodes — CP-07 and CP-09 — pass the full seam clean and every landed gate fails on one doctored input; docs/reports/CP-11b.md)"
+    "first_episode_validate": "done (CP-11b: gates G2/G3/G7 consume this file via checks.approved_set; both real episodes — CP-07 and CP-09 — pass the full seam clean and every landed gate fails on one doctored input; docs/reports/CP-11b.md. CP-04': the first genuinely FRESH episode — the H200 stitch-retirement episode — passes the same seam, docs/reports/CP-04prime.md Step 4)"
   }
 }

@@ -1,13 +1,43 @@
 # docs/polar — real Polar artifacts
 
-**`fidelity/` is the CP-09 comparison episode** (collected through
-`gsj-rollout submit`, measured against `docs/golden/mac/` — verdict in
-`docs/reports/CP-09.md`). **`pi-corpus/` is the authoritative record of
-*our* traffic** (CP-07: pi 0.83.0 against the real corpus, real MCP
-service, cutoff live). `pi/` (CP-06 stub) and the top-level CP-03 mlx
-files stay as the record of the build-up: `pi/` for the wire dialect
-proved against a stub, CP-03 for the first smoke run and the S1
-degeneration proof.
+**`h200-stitch/` is the CP-04′ stitch-retirement evidence** (the H200
+estate under the symmetric served template, `generation_prompt_glue_ids`
+UNSET — Polar's grouping merging natively). **`fidelity/` is the CP-09
+comparison episode** (collected through `gsj-rollout submit`, measured
+against `docs/golden/mac/` — verdict in `docs/reports/CP-09.md`).
+**`pi-corpus/` is the authoritative record of *our* traffic** (CP-07:
+pi 0.83.0 against the real corpus, real MCP service, cutoff live). `pi/`
+(CP-06 stub) and the top-level CP-03 mlx files stay as the record of the
+build-up: `pi/` for the wire dialect proved against a stub, CP-03 for the
+first smoke run and the S1 degeneration proof.
+
+## h200-stitch/ — the CP-04′ stitch retirement (glue ids unset, chains merge natively)
+
+Captured 2026-08-11 on the H200 estate (vLLM 0.26.0+cu129 serving
+`Qwen/Qwen3-0.6B` @ `c1899de…` under `--chat-template
+staging/serving/qwen3_training.jinja` — the Direction-A symmetric
+template), both episodes collected through `gsj-rollout submit` off
+`staging/rollout.h200.yaml` with **`generation_prompt_glue_ids` unset**.
+Both merged natively: `chains_total == 1`, the full G7 conjunction
+(1/1/0, raw == total == merged == 2), `glue_stitched: 0` — ADR-0007's
+stitch stopped being load-bearing exactly as its amendment predicted, and
+F2 dissolves at the root (the merged stream IS the wire context).
+
+- `attempt4.quarantined.json` — the receiver's quarantine record for
+  session `sk-polar-688d8dc3-aa74-4b8d-803b-4b969b129487`: COMPLETED,
+  clean everywhere except `LP6:zero_logprob_rate_at_mask1:34/237>0.0`
+  under the then-configured strict CUDA policy — the live measurement
+  that falsified row 27's "a CUDA estate sets `0.0`" premise (14.3%
+  exact-`0.0` at mask==1 on native CUDA bf16). The receiver's fail-closed
+  seam shown doing its job on a real wire, findings + full body together.
+- `attempt5.accepted.json` — the accepted collected body for session
+  `sk-polar-dae2b26a-c62d-4b43-96d5-4a2a98eff4e0` (policy at the CP-10
+  default 0.25): `prompt_ids` 2965, `response_ids` 15803 (8506 mask-1 +
+  7297 mask-0), zero-rate 24.9% — a repetitive failed-`read` loop episode
+  that still completed, merged, and passed every gate; also the fresh
+  H200 wire evidence behind the pins re-verification (G2's `/workspace`
+  singleton and G3's roster hash reproduce from this trace — provenance
+  notes in `pins/pins.gsj.json`).
 
 ## fidelity/ — the CP-09 comparison episode (our submit path, end to end)
 
