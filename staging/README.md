@@ -14,6 +14,25 @@ committed tree:
 | vLLM | `staging/serving/serve.sh` (this directory) | the CP-04′ deltas, enumerated in the script header: the symmetric chat template (`qwen3_training.jinja`), the explicit `--generation-config` pin, GPU default 3, no LoRA flags; venv + snapshot provisioning stays BRINGUP §3's |
 | self-forwards | BRINGUP §4 as needed by the consumer (the predecessor's collector needs the bridge-IP forward; this repo's Polar gateway reads the engine host-locally and needs none) | — |
 
+## serving/serve-updated.sh — serving a trainer checkpoint (CP-17)
+
+The weight-sync half of the loop. `serve.sh` with exactly two deltas: the
+model argument is a local HF-format directory (the trainer's export, so no
+`--revision`), and `--served-model-name Qwen/Qwen3-0.6B` keeps the wire
+identity constant across the sync. **The four legs are byte-identical** —
+a weight sync must not perturb what makes a trace comparable to CP-09′'s.
+Stop-then-start, not reload: vLLM at this pin has no in-place weight swap
+for a non-LoRA model, and the stop is also A-13's drain point.
+
+## The trainer side (CP-17) — what the estate did NOT already provide
+
+| need | how | delta vs the collection estate |
+|---|---|---|
+| slime v0.3.0 + Megatron + torch + Ray | the official `slimerl/slime:v0.3.0` image (24.4 GB pulled / ~55 GB on disk) | a second, entirely separate runtime; nothing in the estate's venvs is reused |
+| the image, on this box | **`docker pull` fails**: dockerd's registry egress runs as root and the uid-scoped firewall drops it (`lockdown.sh`). Cure: fetch as uid 1000 with a static `skopeo` (`skopeo copy docker://… docker-archive:…`, needs a `~/.config/containers/policy.json`), then `docker load -i` | the estate's own images predate the lockdown or were built locally; this is the first checkpoint that needed a NEW image from a public registry |
+| GPUs | serving on GPU 3, training on GPU 5 — **disjoint**, discovered free at run time | CP-09′ used one GPU; co-residency is answered by separation, not by sharing |
+| slime + Megatron checkouts | `git clone --branch v0.3.0` (slime) and `--branch 26.04-alpha.rc1` (Megatron-LM — Polar's stated slime-v0.3.0-compatible pin), plus Polar's `scripts/patch/patch_slime_router_tokens.sh` | mounted into the container; the image supplies the heavy stack, the checkouts supply the code |
+
 ## serving/qwen3_training.jinja — the adopted symmetric template
 
 HuggingFace TRL's `trl/chat_templates/qwen3_training.jinja`, **byte-verbatim**

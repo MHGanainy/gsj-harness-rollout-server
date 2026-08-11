@@ -1,0 +1,221 @@
+{
+  "rollout_id": 0,
+  "grades": [
+    {
+      "session_id": "sk-polar-0692ede3-aca8-4700-b5c0-3c1e84a857a8",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-07b32043-fa76-4c9d-ae54-f8a3cfd4bead",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-14551b93-0006-44ea-bb30-7f6efcbcbc4f",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-1669e7cc-3866-4c27-8920-c15860d47e17",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-1c59fa00-8eed-4c62-b022-f5238e679bdd",
+      "artifact": "/host/cp04prime/artifacts/sk-polar-1c59fa00-8eed-4c62-b022-f5238e679bdd/out/ep-3ba9d4a1498f89fc.md",
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-2abc26fd-7ae3-4a1b-b874-a39d3c4376ea",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-3be46403-f76a-4f7b-8e03-b0bb006ad78b",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-4450c257-7460-4398-9ee7-693d7fce9e62",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-54b74700-d9f5-4c7d-8e5c-75644d49af90",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-5bca8c1b-e5e3-40cf-983f-c44edbae89ab",
+      "artifact": "/host/cp04prime/artifacts/sk-polar-5bca8c1b-e5e3-40cf-983f-c44edbae89ab/out/ep-3ba9d4a1498f89fc.md",
+      "n_cited": 4,
+      "n_valid": 4,
+      "cutoff": 12,
+      "reward": 1.0
+    },
+    {
+      "session_id": "sk-polar-5d63e3ec-1723-4c1e-8015-492061381009",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-623c3eea-2553-486a-a063-172e44ca441f",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-654a0a28-4230-4c6b-9471-a5e33aa93364",
+      "artifact": "/host/cp04prime/artifacts/sk-polar-654a0a28-4230-4c6b-9471-a5e33aa93364/out/ep-3ba9d4a1498f89fc.md",
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-6c465300-514f-4e30-aabc-668f2e0d3ff9",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-6fc1b98e-27fc-4f35-8f3a-9064033c6edc",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-70e7dbeb-1ea9-4579-b0f1-6dbaeeade737",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-7be0b468-4671-4b88-a036-487102b12945",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-7c95132f-1fa2-4e16-95d5-ec263552124f",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-7d5c006f-6c00-4ec9-a8ad-3e50ae63b0f0",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-ac3ef5bd-a4e9-4da8-a2ea-58fc6524b71d",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-bbc0864d-00d2-4b33-8972-2cd627f49aaa",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-c3acd4e9-cd8b-4e03-bd35-cd54e883d78a",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-d8c43149-b0ae-4eff-9972-79e02e480997",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-da3f389e-a746-4637-9f4b-ed676ea0bcd6",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-de46e043-cf05-4fcb-906e-851375816066",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-e1c986a7-331a-4bd2-860f-79099ea2ab55",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    },
+    {
+      "session_id": "sk-polar-ea3be711-9b3b-4583-8e86-3e79c87a0e8d",
+      "artifact": null,
+      "n_cited": 0,
+      "n_valid": 0,
+      "cutoff": 12,
+      "reward": 0.0
+    }
+  ]
+}

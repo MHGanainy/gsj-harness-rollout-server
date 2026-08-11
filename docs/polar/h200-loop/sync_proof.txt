@@ -1,0 +1,15 @@
+# CP-17 sync proof — the deterministic-probe instrument
+
+Mechanism: /v1/completions teacher-forced echo (max_tokens 0, echo, logprobs 1,
+add_special_tokens false) over a fixed 5783-id stream (one collected episode's
+prompt_ids + response_ids). CP-09' measured this path bit-deterministic; the
+control below re-measures it on THIS engine before trusting the after-delta.
+
+## Control — two probes, identical weights (instrument noise floor)
+compare: positions=5782 mean|Δ|=0.000000 max|Δ|=0.000000 nonzero=0/5782
+
+## The sync — same stream, before vs after the checkpoint reload
+compare: positions=5782 mean|Δ|=0.041835 max|Δ|=5.829074 nonzero=5623/5782
+
+Instrument noise is exactly zero, so every one of the 5623 moved positions
+attributes to the weight update. Not an assertion — a measurement.

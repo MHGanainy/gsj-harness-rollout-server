@@ -1,10 +1,13 @@
 # VERDICT — should we adopt Polar? (CP-12, closing M3)
 
-Date: 2026-08-09. Status: **ADOPT PROVISIONALLY** — the evidence supports
-the architecture; it does not yet support the outcome. What converts it,
-and what reverses it, is named in §5. This document is standalone: it
-cites the checkpoint reports (`docs/reports/CP-XX.md`) for evidence but
-does not require reading them.
+Date: 2026-08-09. Status at CP-12: **ADOPT PROVISIONALLY**.
+**Status now (2026-08-11, CP-17): ADOPT — both converting conditions are
+met.** The two dated sections at the end of this document record how each
+condition closed; §5's body is preserved as written so the conversion can
+be audited against the conditions as they were stated in advance, not as
+they might be remembered. This document is standalone: it cites the
+checkpoint reports (`docs/reports/CP-XX.md`) for evidence but does not
+require reading them.
 
 ## What was tested
 
@@ -290,6 +293,56 @@ the CP-09′ door (mask/retokenization divergence) is closed by
 measurement; what remains are the slime-bridge door and the re-vendor
 door, as written above.
 
+### 2026-08-11 — converting condition 2: MET (CP-17, the loop) → **ADOPT**
+
+The loop closed on the H200, measured at every step
+(`docs/reports/CP-17.md`; evidence in `docs/polar/h200-loop/`):
+**collect** — 28 submissions through `gsj-rollout submit`, 27 qualifying
+(COMPLETED, findings `[]`, `chains_total == 1`, cutoff held), zero
+receiver rejections, zero quarantines; **convert** — 27 bodies → 27
+**real** `slime.utils.types.Sample`s through the CP-16 bridge with its
+three assertions live and `checks` running trainer-side from the packaged
+wheel pins; **train** — one optimizer step in real slime v0.3.0 +
+Megatron, `global_batch_size 27`, `train/grad_norm 0.4513` (non-zero and
+below the clip, so unclipped), on a **non-degenerate** reward (1 of 27
+episodes cited 4 pages within cutoff → 1.0), TIS consuming our captured
+logprobs; **sync** — checkpoint reload (torch_dist → HF → the engine
+restarted under the same served model name with all four legs
+byte-identical), proven three ways, decisively by a probe whose control
+measurement on identical weights is `mean|Δ| = 0.000000, nonzero 0/5782`
+and whose across-the-sync measurement is
+`mean|Δ| = 0.041835, nonzero 5623/5782`; **collect again** — 8/8
+qualifying against the updated policy, gates green, cutoff held, all 8
+still converting clean.
+
+**A-6 is resolved** — slime runs against Polar traces, end to end, for
+real. **A-26 holds** — the vendored adapter's `Sample` surface is the
+installed surface (`session_id`, `group_id`, `remove_sample`,
+`Status.FAILED` all accepted on first construction). **A-13's drain rule
+met a real sync** and was satisfied *by construction* (serialized loop,
+zero in-flight sessions verified at the boundary) — the situation was
+exercised, the mechanism was not.
+
+**Verdict: YES WITH FINDINGS**, three of which are named with owners —
+Polar's vendored LOO post-processor explodes an advantage to 1e6 on
+degenerate variance (only `clip_grad` prevents divergence, nothing warns);
+slime silently no-ops an entire train loop while reporting SUCCESS when
+`--load` reads as a resume; Polar's documented Megatron pin lacks the
+module its own comment requires. All three are worked around at
+trainer-side cost; none is in this repo's code, and **nothing in
+`gsj_rollout/` had to change for the loop to run.**
+
+**The CP-12 verdict converts to ADOPT.** What that means: the architecture
+and the outcome both have evidence — traces produced by this server drove
+a real optimizer step and came back as an updated policy demonstrably
+serving the next collection. What it does **not** mean: one loop at 0.6B
+on 27 episodes is not a training result, and nothing here shows learning
+(the post-sync reward and length changes are one crude step at n=8, not a
+curve). **What would still reverse it**: a re-vendor that breaks the patch
+posture — the pending `prefix_merging` refactor, A-8, still untested, no
+second vendor executed. The slime-bridge door is now closed by
+measurement; the re-vendor door is the one that remains.
+
 ---
 
 ## The register, closed (charter §7 — 31 rows, final for M3)
@@ -342,6 +395,7 @@ remaining delta from the predecessor's instrument.
 | 8 | **DONE (CP-13)** — `README.md` status section (said "CP-01 — the moves"; now states the CP-12 verdict, the working server, and the test commands) | none standing — excluded only by CP-13's lift list | noticed at the CP-12 re-read; eleven checkpoints stale | the repo's front door telling the truth |
 | 9 | **NEW (CP-13)** — G1's card hash computed **sandbox-side**, from the episode's own checkout, the way the predecessor did (`gsj-envloader task.py:878-885`) | `pi_harness.py` | CP-13's own verification: the submit-side statement landed, but a drifted `skills/<name>/SKILL.md` in a case repo stays invisible to G1 | row 9's remaining delta from the predecessor's instrument |
 | 10 | **NEW (CP-14)** — `skills/<name>/` interior strictness: the validator ignores files beside `SKILL.md` and the scaffolder silently drops them from repos (v1-inherited behavior, surfaced by CP-14's stranger-read pass; contract v2 now documents it as an honest exception rather than leaving it a surprise) | `corpus/` | CP-14 scoped to the split; tightening skills validation is a separate contract decision | the "everything it can check, it checks" doctrine holding for the one directory it currently skips |
+| 12 | **NEW (CP-17)** — `staging/serving/run/` (the serve script's runtime `endpoint.env` + `tunnel.pid`) is untracked and un-ignored, so every estate bring-up leaves the tree dirty and every CP's `git status --porcelain` DoD line has to step around it. One `.gitignore` line | root `.gitignore` — outside CP-17's `docs/**` + `staging/**` lift, so CP-17 removed the directory at teardown instead | first noticed CP-17 (the artifacts predate it — they were already untracked at session start) | the clean-tree DoD stops depending on an operator remembering to delete a run directory |
 | 11 | **NEW + DONE (CP-16)** — the trainer leg from an installed wheel: `pins/` did not ship (`pyproject` packaged `gsj_rollout` only), so `checks.PINS_PATH` resolved into site-packages and every trainer-side `validate_session_result` raised `PinsConfigurationError` — recorded at CP-11b, dispositioned there as "both legs run from the checkout by design"; M4's bridge killed that design assumption. Landed as ADR-0017: pins force-included into the wheel (`gsj_rollout/pins/`), `PINS_PATH` resolves `GSJ_PINS_PATH` → checkout → packaged copy, mismatch fails loudly as `*_not_approved`; proven from a scratch venv against the real CP-09′ body (findings `[]`). (The CP-16 prompt called this "wishlist item 10"; item 10 is the skills-interior row above, untouched — the trainer-leg fix had no row until now) | `pyproject.toml` + the `checks.py` seam (CP-16's lift) | never registered — CP-11b called it noise while both legs ran from checkouts | **the slime bridge** (examples repo), and any trainer that installs rather than clones |
 
 ## What comes next

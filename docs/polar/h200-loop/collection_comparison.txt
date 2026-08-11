@@ -1,0 +1,18 @@
+
+=== COLLECTION 1 — pre-sync (n=27) ===
+  bridge conversion : 27 bodies -> 27 slime Samples, trainer-side findings across all = 0
+  statuses          : {'COMPLETED': 27}
+  finish_reason     : {'stop': 27}
+  response_ids      : mean 4232  median 3770  min 2817  max 10355
+  mask==1 positions : mean 398  min 137  max 870
+  exact-0.0@mask1   : mean 5.0%  max 18.3%  (estate allowance 25%)
+  citation reward   : mean 0.0370  nonzero 1/27
+
+=== COLLECTION 2 — post-sync (n=8) ===
+  bridge conversion : 8 bodies -> 8 slime Samples, trainer-side findings across all = 0
+  statuses          : {'COMPLETED': 7, 'TRUNCATED': 1}
+  finish_reason     : {'stop': 7, 'length': 1}
+  response_ids      : mean 8196  median 5674  min 3893  max 27305
+  mask==1 positions : mean 507  min 348  max 1079
+  exact-0.0@mask1   : mean 9.5%  max 13.2%  (estate allowance 25%)
+  citation reward   : mean 0.3750  nonzero 3/8

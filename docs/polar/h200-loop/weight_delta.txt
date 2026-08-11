@@ -1,0 +1,4 @@
+tensors: base=311 new=310 shared=310
+tensors differing: 263/310
+max |Δw| = 1.526e-05   sum |Δw| = 6.987e+02
+VERDICT: WEIGHTS CHANGED
