@@ -376,6 +376,43 @@ one submit path and one sync script, with the server changed in exactly
 zero places. Scope law 1 held under contact twice; the DROPPED
 trainer-side rows (16–21) were needed nowhere, twice.
 
+### 2026-08-12 — M7a: the re-vendor door — NARROWED (CP-22)
+
+The last reversal door on this verdict was written as: *a re-vendor
+breaks the patch posture and A-8 fails*. CP-22 executed the second
+vendor — the first since the recipe was written — and the door did not
+fire (`docs/reports/CP-22.md`):
+
+- **The mechanism is rehearsed, not estimated.** Upstream `stable` had
+  not moved (still `f0e8343a`, still no tags or releases), so the
+  rehearsal re-vendored to the same SHA and exercised the whole recipe:
+  the re-vendored tree came out **byte-identical to the committed tree**
+  (empty `git diff`, file modes kept), all three patches applied clean by
+  script, reverse-apply walked back to the pristine pin exactly, same
+  175/3 vendored-suite split, all approved pins reproduced, the registry
+  seam resolving. Mechanical cost: ~2 minutes; with full verification
+  ~15. **A-8 is resolved** (charter §4), with its residuals named there.
+- **The named risk inside the door is now priced.** The pending
+  `prefix_merging` refactor (frozen on the `polar` branch since
+  2026-06-06), simulated as landed: P1/P2/P3's source hunks all apply
+  clean — P2's finalize-site anchor and P1's stats-dict anchor both
+  survive — and only P1's two fixture-marker test hunks need mechanical
+  re-anchoring. The wholesale re-port the door feared is, against
+  today's refactor, a fixture edit.
+
+**The door is NARROWED, not closed**: no moved-pin re-vendor has run,
+and the refactor measurement is a point-in-time reading of an unlanded
+branch — what eventually squash-lands may differ, and the vendored
+suite at that future pin remains the real gate. But the failure mode
+the door named — the patch posture breaking at a re-vendor — now has
+measured evidence against it on both halves: the mechanism reproduces,
+and the riskiest known upstream change costs fixtures, not patches.
+One finding the rehearsal surfaced is recorded where it belongs: the
+recipe's venv rebuild omitted the A-14 `gsj_rollout` install (followed
+verbatim, it breaks the registry seam) — corrected in
+`vendor/REVENDOR.md`, which has now been followed once and reflects the
+execution, not the intention.
+
 ---
 
 ## The register, closed (charter §7 — 31 rows, final for M3)

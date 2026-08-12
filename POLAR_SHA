@@ -3,6 +3,9 @@ repo:     https://github.com/NVIDIA-NeMo/ProRL-Agent-Server
 branch:   stable (HEAD at vendor time)
 commit:   "Harbor evaluator and TMAX example (#45)", 2026-06-25 (author Binfeng Xu)
 vendored: 2026-08-09 (CP-03), tree only — no history (ADR-0004/ADR-0005)
+re-vendored: 2026-08-12 (CP-22) to the SAME SHA — stable HEAD unmoved,
+          still no tags/releases; recipe reproduced the committed tree
+          byte-for-byte (patches applied clean, reverse-apply exact)
 excluded: examples/swegym_slime_grpo/swegym_train_293.jsonl (8.3 MB training data)
 patches (vendor/patches/, applied in order; committed tree is post-patch):
   P1-non-agent-filter.patch        fork cb6132824ad4 + d764ecce0d0b, hand-adapted
