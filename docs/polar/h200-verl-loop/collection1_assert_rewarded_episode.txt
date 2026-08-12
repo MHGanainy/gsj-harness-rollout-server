@@ -1,0 +1,14 @@
+ASSERT session COMPLETED, no builder ERROR: PASS — status=COMPLETED findings=[]
+ASSERT chains_total==1 with full G7 conjunction: PASS — {"chains_total": 1, "chains_reconstructed_full": 1, "chains_reconstructed_truncated": 0, "raw_completions_total": 2, "completions_total": 2, "completions_merged": 2}
+ASSERT completion_filter.excluded == []: PASS — {"input_completions": 2, "kept_completions": 2, "excluded_completions": 0}
+ASSERT glue ids unset stayed dormant (glue_stitched==0): PASS — glue_stitched=0
+trace: prompt_ids=2965 response_ids=3701 mask1=337 mask0=3364 logprobs=3701 finish=stop
+    logprobs: positive=0 sentinel@mask1=0 0.0@mask1=45/337 (13.4%) all-0.0@mask0=True
+ASSERT checks.validate_session_result == [] (estate policy 0.25): PASS — findings=[]
+ASSERT roster on the wire == configured allowlist: PASS — 11 names, byte-identical
+ASSERT completions == pi agent turns: PASS — 2 records vs 2 assistant turns
+ASSERT >= 1 mcp_gsj_* executed ok: PASS — ['mcp_gsj_case_status', 'mcp_gsj_search_case', 'mcp_gsj_search_decisions']
+H-41 LEDGER (relaxed, CP-17): successful built-ins ['write'] — informational, not a refusal
+    tools in order: [('grep', 'ERR'), ('grep', 'ERR'), ('grep', 'ERR'), ('grep', 'ERR'), ('read', 'ERR'), ('write', 'ok'), ('mcp_gsj_case_status', 'ok'), ('mcp_gsj_search_case', 'ok'), ('mcp_gsj_search_decisions', 'ok')]
+ASSERT cutoff held — every cited search page <= 12: PASS — pages [1, 2, 7, 8, 9]
+QUALIFIES

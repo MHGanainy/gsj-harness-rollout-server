@@ -343,6 +343,39 @@ posture — the pending `prefix_merging` refactor, A-8, still untested, no
 second vendor executed. The slime-bridge door is now closed by
 measurement; the re-vendor door is the one that remains.
 
+### 2026-08-12 — M6: the second trainer, and the boundary (CP-20 + CP-21)
+
+**The trainer-agnostic claim is now measured, not argued.** M6 asked
+whether the boundary this repo drew — task → sandbox → agent → trace,
+nothing else — holds against a second trainer with a completely
+different batch shape. It does, at both halves:
+
+- **M6a (CP-20, the bridge)**: callback-shaped `SessionResult` → real
+  verl `DataProto` (padded, uid-grouped, tensor — nothing like slime's
+  per-sample objects), 26 fixture-driven tests against real verl, zero
+  changes in this repo.
+- **M6b (CP-21, the loop)**: collect → convert → train → sync → collect
+  closed on the H200 — **YES WITH FINDINGS** (`docs/reports/CP-21.md`):
+  112 submissions (110 qualifying), one real verl optimizer step
+  (`TrainingWorker`/FSDP, `pg_loss −0.0944`, `grad_norm 2.32` pre-clip,
+  GRPO advantages over ONE uid group of 110 — F-10 closed by design),
+  the captured logprobs load-bearing (sequence-TIS; recompute agreement
+  mean |Δ| 0.009442 = the third instrument at the CP-09′ floor), the
+  sync proven with a zero-noise instrument, and a second collection
+  8/8 qualifying against a demonstrably different policy (no learning
+  claim — the post-sync batch is format-copying with visibly narrowed
+  lengths, the entropy/KL caution for any real run). This repo's diff:
+  **`docs/**` only**. The findings (verl's F-12/F-13, reward sparsity,
+  the clipped step) are all trainer-, evaluator-, or config-side — none
+  at the boundary.
+
+**What two loops prove that one could not**: the same server surface —
+the same wheel, the same callback JSON, the same estate recipes — fed a
+per-sample trainer (slime) and a padded-batch trainer (verl) through
+one submit path and one sync script, with the server changed in exactly
+zero places. Scope law 1 held under contact twice; the DROPPED
+trainer-side rows (16–21) were needed nowhere, twice.
+
 ---
 
 ## The register, closed (charter §7 — 31 rows, final for M3)
@@ -403,6 +436,7 @@ remaining delta from the predecessor's instrument.
 | 11 | **NEW + DONE (CP-16)** — the trainer leg from an installed wheel: `pins/` did not ship (`pyproject` packaged `gsj_rollout` only), so `checks.PINS_PATH` resolved into site-packages and every trainer-side `validate_session_result` raised `PinsConfigurationError` — recorded at CP-11b, dispositioned there as "both legs run from the checkout by design"; M4's bridge killed that design assumption. Landed as ADR-0017: pins force-included into the wheel (`gsj_rollout/pins/`), `PINS_PATH` resolves `GSJ_PINS_PATH` → checkout → packaged copy, mismatch fails loudly as `*_not_approved`; proven from a scratch venv against the real CP-09′ body (findings `[]`). (The CP-16 prompt called this "wishlist item 10"; item 10 is the skills-interior row above, untouched — the trainer-leg fix had no row until now) | `pyproject.toml` + the `checks.py` seam (CP-16's lift) | never registered — CP-11b called it noise while both legs ran from checkouts | **the slime bridge** (examples repo), and any trainer that installs rather than clones |
 | 17 | **NEW (CP-19), OPEN** — the package is not on PyPI. The release path exists and was rehearsed locally end to end (wheel clean and exclusions asserted, `twine check` PASSED on both artifacts, CP-16's install proof green from a scratch venv outside every repo against the real CP-09′ body), but nothing was uploaded: the operator was asked and chose to stop at the path rather than make an irrevocable first upload (ADR-0020 §5). **The name is unclaimed on both indexes and therefore NOT reserved** — verified via the JSON API (`gsj-harness-rollout-server` → 404, `httpx` → 200; the HTML project pages sit behind a bot challenge that returns 200 for names that do not exist, so the HTML is not an oracle). Anyone may claim the name before we do; accepted, because the alternative is an irrevocable upload made to win a race. (The CP-19 prompt called this "wishlist row 13"; row 13 is CP-18's CI row — the same numbering slip CP-16 hit at item 10/11 and CP-18 at item 12, recorded here in the row rather than silently renumbered) | none — `pyproject.toml`, `.github/workflows/**`, `LICENSE` and `docs/**` were all lifted at CP-19 and all landed | opened CP-19; nothing before it was scoped to publish | **two prerequisites, both operator-side and neither performable from this repo**: (1) a pending publisher configured at test.pypi.org and pypi.org (owner `MHGanainy`, repo `gsj-harness-rollout-server`, workflow `release.yml`, environments `testpypi` / `pypi`); (2) a `v0.1.0` tag pushed at a commit CI has already validated. With those, the workflow does the rest |
 | 18 | **NEW (CP-19), OPEN** — `checks.py` is at **520 / 520**, exactly on ADR-0014's ceiling, so **G6's tokenizer-free ids rule can no longer land inside it**. ADR-0014 reserved the 23 lines above 497 for G6 "and nothing else"; CP-16 spent 9 on the resolver seam without noting the earmark and CP-19 spent the last 2 on ADR-0019's pins signal. G6 is designed (ADR-0011) and unblocked (CP-04′ pinned `g6_expected_tail_ids` — wishlist 5), so the blocker is now purely the budget | `checks.py`, plus an ADR raising its allowance **or** a prose-banking pass moving docstring reasoning into `docs/checks-spec.md` (CP-11's mechanism, which recovered 82 lines) | opened CP-19 by its own arithmetic; the earmark was silently eroded across CP-16 and CP-19 and is surfaced here rather than discovered mid-checkpoint | **gate G6** (register row 14), the last designed-but-unlanded gate |
+| 19 | **NEW (CP-21), OPEN** — `gsj_rollout/cli.py` has no `if __name__ == "__main__"` guard, so `python -m gsj_rollout.cli serve …` defines `main` and **exits 0 silently having done nothing** — an invocation that looks like success (the console-script entry `gsj-rollout` is the only working form). Hit live at CP-21 bring-up: the receiver "started" three times with an empty log before the cause was found; the estate now runs the CLI via `python -c "from gsj_rollout.cli import main; …"`. Two inert lines, but `gsj_rollout/` was frozen at CP-21 | `cli.py` (any future freeze-lift; counts ~2 lines against §3) | opened CP-21; every estate that installs no console script (venv-less hosts driving the CLI through an interpreter path) | a silent no-op stops masquerading as a started server |
 
 ## What comes next
 
@@ -469,6 +503,14 @@ remaining delta from the predecessor's instrument.
   one (`verl_bridge/`, external ADR-0003; the boundary needed zero
   changes here). What *Proves* asked for, it got: two trainers, one
   unchanged repo.
+  **[CP-21] M6 CLOSED — the verl LOOP ran** (external ADR-0004): one
+  real optimizer step in verl @ `1ae9455` on 110 collected episodes,
+  synced back through the unchanged `serve-updated.sh` and proven by
+  the zero-noise probe (0.000000 → 0.042168, 6541/6768 positions),
+  second collection 8/8 qualifying and converting. This repo's diff:
+  `docs/**` only — `staging/**` ran a second trainer as committed. The
+  trainer-agnostic claim is **measured, not argued** (the dated M6
+  section below).
 - **Production.** Gated on artifacts only the operator can supply: H200
   cluster access and estate bring-up (with the credentialed-clone/egress
   posture), the corpus beyond the staging cases, secret management for

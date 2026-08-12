@@ -1,0 +1,51 @@
+CP-21 sync proof — CP-17's method: measure the instrument's noise floor
+first, then measure across the sync. Instrument: probe_sync.py (CP-17,
+reused verbatim) — /v1/completions echo, token-id prompt, max_tokens 0,
+teacher-forced logprobs over one collection-1 body's full id stream
+(sk-polar-051914f0-e456-444e-8f4f-42f4300bf0ad: 2965 prompt + 3804
+response = 6769 ids -> 6768 teacher-forced positions).
+
+1. NOISE FLOOR — two probes on IDENTICAL weights (pre-sync engine, idle),
+   verbatim:
+
+   compare: positions=6768 mean|Δ|=0.000000 max|Δ|=0.000000 nonzero=0/6768
+
+   Zero-noise instrument; CP-09'/CP-17 bit-determinism reconfirmed on this
+   engine a third time.
+
+2. ACROSS THE SYNC — probe_floorA (pre-sync weights) vs probe_after
+   (engine restarted on /home/sysadmin/cp21/ckpt/huggingface via
+   serve-updated.sh, four legs unchanged, same served name), verbatim:
+
+   compare: positions=6768 mean|Δ|=0.042168 max|Δ|=10.143472 nonzero=6541/6768
+
+   With a zero-noise instrument, all 6541 moved positions attribute to
+   the weight update. (CP-17's slime sync measured 0.041835 / 5623/5782 —
+   same order of magnitude, different trainer.)
+
+3. THE ENGINE REPORTS THE NEW CHECKPOINT (corroboration 1):
+
+   /v1/models -> id: Qwen/Qwen3-0.6B | root: /home/sysadmin/cp21/ckpt/huggingface | max_len: 32768
+
+   and the post-sync healthcheck tool call parsed
+   (finish_reason=tool_calls, get_utc_time) on the updated weights.
+
+4. THE WEIGHTS THEMSELVES (corroboration 2 — weight_delta.py, trained
+   export vs the pinned snapshot):
+
+   tensors: base=311 new=310 shared=310    (lm_head absent: tie_word_embeddings)
+   tensors differing: 310/310
+   max |Δw| = 1.831e-04   sum |Δw| = 4.473e+03
+   VERDICT: WEIGHTS CHANGED
+
+   Scale audit: 596,025,956 of 596,049,920 elements (99.996%) moved
+   <= 1.1e-5 — the one-AdamW-step grad-term bound at lr 1e-5; the 23,964
+   above it are decoupled weight decay on large-magnitude RMSNorm gains
+   (worst: model.layers.27.post_attention_layernorm.weight, base value
+   192.0, delta 1.831e-4 = lr * wd * |w| = 1e-5 * 0.1 * 192, rel 9.5e-7).
+   Every number is consistent with exactly one optimizer step.
+
+A-13 drain: satisfied by construction (serialized loop) and VERIFIED at
+the boundary — zero polar episode containers on gsj-staging-net, engine
+idle, before serve-updated.sh's stop (the physical drain point). Same
+posture as CP-17; second real sync, nothing differed.

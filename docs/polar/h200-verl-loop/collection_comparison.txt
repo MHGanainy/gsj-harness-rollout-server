@@ -1,0 +1,12 @@
+== collection 1 (pre-sync): n=112
+   bridge: 112 bodies -> 112 records -> DataProto batch of 112, oversize_dropped=[]
+   statuses: {'COMPLETED': 109, 'TRUNCATED': 3}  finish_reasons: {'stop': 108, 'tool_calls': 1, 'length': 3}
+   response_ids: mean=6157 max=27745  mask1: mean=438
+   exact-0.0@mask1: mean=6.4% max=17.8% (allowance 25%)
+   citation reward: mean=0.0089 nonzero=1/112
+== collection 2 (post-sync): n=8
+   bridge: 8 bodies -> 8 records -> DataProto batch of 8, oversize_dropped=[]
+   statuses: {'COMPLETED': 8}  finish_reasons: {'stop': 8}
+   response_ids: mean=3662 max=3703  mask1: mean=304
+   exact-0.0@mask1: mean=14.6% max=16.1% (allowance 25%)
+   citation reward: mean=1.0000 nonzero=8/8
