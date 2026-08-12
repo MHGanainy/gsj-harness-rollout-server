@@ -461,6 +461,14 @@ remaining delta from the predecessor's instrument.
   — decide after M4 shows what the slime bridge actually required.
   *Proves:* trainer-agnosticism is real, not aspirational.
   *Unnecessary if:* slime remains the only trainer.
+  **[CP-20] LANDED — M6a, and the starting-point hypothesis is answered
+  NO by reading uni-agent @ its pin**: its trainer-side path generates
+  into TransferQueue (entry point returns `None`, `Trajectory` is a
+  gateway type, no padded batch exists in it) — it cannot consume
+  externally-produced trajectories, so the direct bridge was the cheap
+  one (`verl_bridge/`, external ADR-0003; the boundary needed zero
+  changes here). What *Proves* asked for, it got: two trainers, one
+  unchanged repo.
 - **Production.** Gated on artifacts only the operator can supply: H200
   cluster access and estate bring-up (with the credentialed-clone/egress
   posture), the corpus beyond the staging cases, secret management for
