@@ -1,0 +1,6 @@
+# The corpus pipeline's own dependencies (a moved component, ADR-0002 —
+# never the root package's; `pyproject.toml` stays parquet-free).
+# pyarrow is the taskbank's parquet writer/reader (ADR-0022 §5), imported
+# lazily: validate/scaffold/ingest run without it.
+pyyaml
+pyarrow

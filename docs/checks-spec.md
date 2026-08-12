@@ -623,6 +623,9 @@ rejecting every honest "unstated" would quarantine the entire cli path
 to manufacture a guarantee nothing downstream relies on. The moment the
 taskbank lands (ADR-0003), every bank-submitted row states its split;
 an absent label then means "not from the bank", which is exactly true.
+**[CP-24] That moment arrived** (ADR-0022): every bank row carries
+`split`, sourced from the lock, and the submit path passes it through
+`render_task_request(split=…)` exactly as specified here.
 
 **The options not taken.** *Nothing*: rejected — the vocabulary clause
 above is real, costs six lines, and without it a malformed value lands
@@ -1226,6 +1229,20 @@ and G6's `g6_expected_tail_ids` pin (CP-04′)**, **the per-episode codec
 binding residual (row 22, estate-owned)**, and **skill-row resolution
 itself (ADR-0003, row 4)** — G1 verifies a stated card today; binding
 that statement to the sandbox's instruction text is the taskbank's job.
+**[CP-24] Done** (ADR-0022, row 4 → PARITY): the bank resolves the
+corpus-level card into the row, the row's card text is both the
+instruction and the G1 statement's source (`render_task_request`
+computes the stated hash from those bytes), and `verify`'s row half
+holds the bank to the tree. What remains of row 9's instrument delta is
+wishlist 9 unchanged: a checkout drifted from the corpus is still
+invisible until the hash is computed sandbox-side. One limit of G1
+itself, named here because CP-24's pass measured it: the gate is
+**set-membership, not name↔card binding** — a `skill:analyze` source
+stating the *summarize* card's (pinned) hash passes, because one
+approved set holds every card and nothing maps a skill name to its
+hash. The predecessor's checkout-path instrument bound the two
+implicitly; recovering that binding is wishlist 9's territory (or a
+per-name pins map, its submit-side sibling).
 
 ## [CP-10] A cutoff hole that no trace-side check can see
 

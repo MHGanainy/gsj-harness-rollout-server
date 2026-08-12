@@ -1,4 +1,4 @@
-# The corpus source-directory contract (v2, CP-14 / ADR-0015; v1: CP-33 / ADR-0046)
+# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; v1: CP-33 / ADR-0046)
 
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one
@@ -104,9 +104,17 @@ prompts:
 
 - `source: skill` — a reference to a skill card. `name` must resolve to
   `<corpus-root>/skills/<name>/SKILL.md`, and `id` must be exactly
-  `skill:<name>`. The card's *text* is not baked anywhere at build time —
-  it is resolved inside the checkout when an episode runs, so per-case
-  card variation stays possible.
+  `skill:<name>`. The card's *text* is resolved into the generated task
+  table at build time (the `taskbank` phase copies the corpus-level
+  card's bytes into every row that references it — ADR-0022; v1 deferred
+  this resolution to episode runtime). Practical consequences for you:
+  **after editing a card, re-run `taskbank`** — `verify` fails a table
+  whose card text no longer matches the tree — and tell the
+  rollout-server operator: an edited or new card also changes the hash
+  the rollout side verifies episodes against, and until *their* approved
+  set is re-derived, every episode on the new card will be rejected at
+  trace validation. The pipeline cannot do that step for you; it is
+  deliberately unaware of the rollout side's pins.
 - `source: free` — a verbatim prompt. `text` is the exact user message
   (stored byte-for-byte); `id` must be `free:<slug>` with a slug of your
   choosing (letters, digits, `._-`).
@@ -217,10 +225,17 @@ The pipeline also writes, into `<corpus-root>`:
   the prompt ids; plus the task table's row count and sha256. Commit it
   with the corpus; it is the freeze record downstream consumers pin
   against.
-- `taskbank.parquet` — the task table: one row per (case, timestep,
-  prompt), each row carrying `split` (`train` | `eval`, taken from the
-  case's directory — case-level, so every row of a case shares it) and
-  `sandbox_image`.
+- `taskbank.parquet` — the task table (ADR-0022): one row per (case,
+  timestep, prompt), flat columns `case_id`, `timestep`, `prompt_id`,
+  `split` (`train` | `eval`, taken from the case's directory —
+  case-level, so every row of a case shares it), `prompt_source`
+  (`free` | `skill:<name>`), `prompt_text` (free rows: your verbatim
+  text; null on skill rows), `skill_card_text` (skill rows: the resolved
+  `skills/<name>/SKILL.md` bytes; null on free rows), and
+  `sandbox_image`. Rows are sorted by `(case_id, timestep, prompt_id)`
+  and the file rebuilds byte-identically from an unchanged tree. A
+  consumer submits a row as-is — every column is either the triple or a
+  submit-path argument.
 
 ## Running the pipeline
 
@@ -236,8 +251,8 @@ python corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
 | `validate` | checks this contract against your tree | nothing is uploaded unless the whole tree passes |
 | `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` (incl. each case's split) |
 | `ingest` | tells the retrieval service to (re)index; waits for ready | search serves exactly the pushed corpus |
-| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory |
-| `verify` | clones everything **back from the git host**, re-reads the parquet, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split |
+| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory (via the lock — a case moved between splits must be re-scaffolded first); needs `pyarrow` (`corpus/requirements.txt`) |
+| `verify` | clones everything **back from the git host**, re-reads the parquet **row by row**, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split, and the task table's rows: counts, every triple exactly once and set-equal to your tree, split/text/image columns re-derived from the tree |
 
 `validate` checks the input; `verify` checks reality — the second half is
 what tells you an upload actually landed as intended, so never skip it.

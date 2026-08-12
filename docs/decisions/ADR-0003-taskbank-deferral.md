@@ -57,3 +57,20 @@ outcome) or, if Polar turns out to want §3.1 rows after all, this ADR is
 revisited against options (a)/(b). Gap row 4 carries the deferral; the
 predecessor remains able to rebuild the parquet at any time (it is frozen,
 not retired).
+
+---
+
+**[CP-24] The deferral resolves — ADR-0022.** The grounds above still
+hold (Polar takes `TaskRequest`s; the predecessor's library never became
+a dependency): what landed is not the §3.1 bank this ADR declined to
+build, but a consumer-facing enumeration shaped for
+`render_task_request`, built by `corpus/ingest_corpus.py` itself with
+pyarrow (`corpus/requirements.txt`). Option (c)'s exit condition fired
+in the direction the Consequence paragraph predicted, with one precision
+the paragraph's wording lacked: the builder is `TaskRequest`-shaped in
+its *surface* (every row column is the triple or a `render_task_request`
+argument) but it landed in `corpus/`'s pipeline, not `client.py`'s
+orbit — the bank enumerates rows a consumer renders; it does not render
+them itself (ADR-0022 §1). Not options (a)/(b) in any part.
+`phase_taskbank` builds, `phase_verify` runs the deferred row-level
+checks, gap row 4 → PARITY.

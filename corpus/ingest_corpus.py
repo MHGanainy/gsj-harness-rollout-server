@@ -10,10 +10,12 @@ stopping at the first failure:
                directory layout, ADR-0015)
     scaffold   deterministic case repos, pushed to Forgejo under `owner`
     ingest     trigger the MCP service reindex (POST /admin/reindex), wait ready
-    taskbank   DEFERRED to CP-07 (ADR-0003) — raises; `all` reports and skips
+    taskbank   one row per (case, timestep, prompt) into taskbank.parquet
+               (ADR-0022; split case-level from the lock, ADR-0015), its
+               sha256 recorded in the lock
     verify     clone everything BACK from the git host, check the parquet's
-               sha256, query the service — reality must match the tree and
-               the lock
+               sha256 AND its rows against the tree, query the service —
+               reality must match the tree and the lock
 
 Pre-validation checks the input; post-verification checks reality.
 
@@ -30,9 +32,11 @@ branch of every repo; pushes are ``--force --prune`` and converge.
 
 The predecessor's taskbank library API (``CaseSpec``, ``PromptSpec``,
 ``build_taskbank``, ``write_taskbank``) is deliberately NOT a dependency of
-this repo: the taskbank phase is deferred to CP-07 (ADR-0003) and verify's
-row-level bank checks are deferred with it. The committed ``corpus/staging``
-bank is carried frozen data, still sha256-verified against the lock.
+this repo (ADR-0002, upheld when the ADR-0003 deferral resolved at CP-24):
+the bank is built HERE, in the ADR-0022 row shape, with pyarrow — the one
+dependency beyond PyYAML, recorded in ``corpus/requirements.txt`` and
+imported lazily: validate/scaffold/ingest run without it (taskbank and
+verify's row half need it).
 """
 
 from __future__ import annotations
@@ -51,6 +55,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -794,7 +799,15 @@ def load_lock(root: Path, *, required: bool = False) -> dict:
         if required:
             raise PipelineError(f"{path} missing — run the scaffold phase first")
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        lock = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PipelineError(
+            f"{path} unreadable as JSON ({exc}) — a truncated or "
+            f"merge-conflicted lock; restore it or re-run scaffold") from exc
+    if not isinstance(lock, dict):
+        raise PipelineError(f"{path} must hold a JSON object — re-run scaffold")
+    return lock
 
 
 def write_lock(root: Path, lock: dict) -> None:
@@ -943,25 +956,143 @@ def phase_ingest(corpus: Corpus, mcp_url: str | None, *,
 
 
 # --------------------------------------------------------------------------
-# Phase: taskbank — DEFERRED to CP-07 (ADR-0003)
+# Phase: taskbank (ADR-0022; the ADR-0003 deferral resolved at CP-24)
 
-TASKBANK_DEFERRED = ("the taskbank phase is deferred to CP-07 (ADR-0003) — "
-                     "Polar takes TaskRequests, not §3.1 parquet rows; the "
-                     "committed corpus/staging bank is carried frozen data. "
-                     "The builder lived on the predecessor's library API and "
-                     "did not move (ADR-0002).")
+TASKBANK_COLUMNS = ("case_id", "timestep", "prompt_id", "split",
+                    "prompt_source", "prompt_text", "skill_card_text",
+                    "sandbox_image")
+
+
+def _pyarrow():
+    """The parquet writer/reader, lazily (ADR-0022 §5) — a dependency of
+    this moved component only (corpus/requirements.txt), never the root
+    package's; every other phase runs without it."""
+    try:
+        import pyarrow
+        import pyarrow.parquet  # noqa: F401 — registers pyarrow.parquet
+        return pyarrow
+    except ImportError:
+        raise PipelineError(
+            "the taskbank phase needs pyarrow (see corpus/requirements.txt): "
+            "pip install pyarrow") from None
+
+
+def _taskbank_schema(pa):
+    return pa.schema([
+        ("case_id", pa.string()), ("timestep", pa.int64()),
+        ("prompt_id", pa.string()), ("split", pa.string()),
+        ("prompt_source", pa.string()), ("prompt_text", pa.string()),
+        ("skill_card_text", pa.string()), ("sandbox_image", pa.string()),
+    ])
+
+
+def _resolved_columns(corpus: Corpus, prompt: PromptEntry) -> dict:
+    """The per-prompt half of an ADR-0022 row. Skill rows carry the
+    corpus-level card RESOLVED — raw file bytes decoded, never
+    read_text() (CP-13's binding constraint: locale/newline translation
+    would silently move the downstream hash); free rows carry the
+    contract's verbatim text."""
+    if prompt.source == "skill":
+        card_text = corpus.skills[prompt.name].read_bytes().decode("utf-8")
+        return {"prompt_source": f"skill:{prompt.name}", "prompt_text": None,
+                "skill_card_text": card_text}
+    return {"prompt_source": "free", "prompt_text": prompt.text,
+            "skill_card_text": None}
+
+
+def build_taskbank_rows(corpus: Corpus,
+                        split_of: dict[str, str]) -> list[dict]:
+    """One row per (case, timestep, prompt), sorted by
+    (case_id, timestep, prompt_id) — deterministic by construction
+    (ADR-0022 §4: fixed order, fixed schema, no timestamps)."""
+    rows: list[dict] = []
+    for case_id in sorted(corpus.cases):
+        case = corpus.cases[case_id]
+        for t in sorted(case.timesteps):
+            for prompt in case.timesteps[t].prompts:
+                rows.append({
+                    "case_id": case_id, "timestep": t,
+                    "prompt_id": prompt.id, "split": split_of[case_id],
+                    **_resolved_columns(corpus, prompt),
+                    "sandbox_image": corpus.sandbox_image,
+                })
+    rows.sort(key=lambda r: (r["case_id"], r["timestep"], r["prompt_id"]))
+    return rows
+
+
+def read_taskbank_rows(path: Path) -> list[dict]:
+    """The bank read back for verify and for consumers' reference —
+    refuses anything that is not the ADR-0022 shape."""
+    pa = _pyarrow()
+    try:
+        table = pa.parquet.read_table(path)
+    except Exception as exc:
+        raise PipelineError(
+            f"{path} is not readable as parquet: {exc!r}") from exc
+    # Full schema equality, not just column names: a float64 timestep is
+    # 1.0 == 1 in every downstream comparison and would verify clean while
+    # handing consumers the wrong types (CP-24's own adversarial pass).
+    if not table.schema.equals(_taskbank_schema(pa)):
+        raise PipelineError(
+            f"{path} schema != the ADR-0022 row shape — got "
+            f"{[(f.name, str(f.type)) for f in table.schema]}, want "
+            f"{[(f.name, str(f.type)) for f in _taskbank_schema(pa)]}")
+    return table.to_pylist()
 
 
 def phase_taskbank(corpus: Corpus, *, dry_run: bool = False,
                    only: list[str] | None = None) -> None:
-    """Still raises (ADR-0003). The split's path into a row is SPECIFIED
-    (CP-14, ADR-0015) so the deferred builder has no decisions left: each
-    row carries a ``split`` field, value ``train`` | ``eval``, case-level —
-    every row of a case takes the case's directory split as recorded in
-    ``corpus.lock.json`` ``cases.<case_id>.split``; the lock's ``taskbank``
-    block keeps the train/eval row counts; the builder passes the value to
-    ``config.render_task_request(split=…)``."""
-    raise PipelineError(TASKBANK_DEFERRED)
+    """ADR-0022. The split is sourced from ``corpus.lock.json``
+    ``cases.<case_id>.split`` (ADR-0015's row-spec, binding) — so the
+    phase needs a scaffolded lock that AGREES with the tree; the counts
+    land in the lock's ``taskbank`` block beside the sha256."""
+    if only:
+        raise PipelineError(
+            "--only cannot build the taskbank — the bank is corpus-wide and "
+            "a partial bank is the ADR-0047(e) footgun; run a plain "
+            "`taskbank`")
+    if dry_run:
+        # A never-scaffolded tree has no lock; the preview sources the
+        # split from the tree (verify holds tree == lock everywhere else).
+        rows = build_taskbank_rows(
+            corpus, {cid: case.split for cid, case in corpus.cases.items()})
+        train = sum(1 for r in rows if r["split"] == "train")
+        print(f"== taskbank (DRY-RUN — nothing written) == would write "
+              f"{len(rows)} rows (train {train} / eval {len(rows) - train}) "
+              f"to {corpus.root / TASKBANK_NAME}")
+        return
+    lock = load_lock(corpus.root, required=True)
+    lock_cases = lock.get("cases")
+    lock_cases = lock_cases if isinstance(lock_cases, dict) else {}
+    split_of: dict[str, str] = {}
+    for case_id in sorted(corpus.cases):
+        if not isinstance(lock_cases.get(case_id), dict):
+            raise PipelineError(
+                f"{case_id} is not in the lock (or its entry is malformed) "
+                f"— run the scaffold phase first (the row's split is "
+                f"sourced from cases.{case_id}.split, ADR-0015)")
+        lock_split = lock_cases[case_id].get("split")
+        if lock_split != corpus.cases[case_id].split:
+            raise PipelineError(
+                f"{case_id}: split as sourced "
+                f"{corpus.cases[case_id].split!r} != lock {lock_split!r} — "
+                f"a case that moves splits must be re-scaffolded before the "
+                f"bank states its split (ADR-0015)")
+        split_of[case_id] = lock_split
+    rows = build_taskbank_rows(corpus, split_of)
+    pa = _pyarrow()
+    bank_path = corpus.root / TASKBANK_NAME
+    pa.parquet.write_table(
+        pa.Table.from_pylist(rows, schema=_taskbank_schema(pa)), bank_path)
+    train = sum(1 for r in rows if r["split"] == "train")
+    digest = _sha256_file(bank_path)
+    lock["taskbank"] = {"path": TASKBANK_NAME, "rows": len(rows),
+                        "train": train, "eval": len(rows) - train,
+                        "sha256": digest}
+    write_lock(corpus.root, lock)
+    print(f"== taskbank == {len(rows)} rows (train {train} / eval "
+          f"{len(rows) - train}) -> {bank_path}; sha256 {digest[:16]}… "
+          f"recorded in the lock")
 
 
 # --------------------------------------------------------------------------
@@ -1103,20 +1234,89 @@ def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
                     case.split))
 
 
+def _bank_row_findings(corpus: Corpus, lock_bank: dict,
+                       rows: list[dict]) -> list[Finding]:
+    """verify's row-level half (ADR-0022; deferred since CP-01 with the
+    phase): counts vs the lock, every (case, timestep, prompt_id) triple
+    exactly once and set-equal to the tree, and each row's split /
+    sandbox_image / text columns re-derived from the tree —
+    bytes-independent, so it holds even if the parquet writer changes."""
+    findings: list[Finding] = []
+
+    def fail(detail: str) -> None:
+        findings.append(Finding("(corpus)", "taskbank rows", False, detail))
+
+    expected: dict[tuple[str, int, str], dict] = {
+        (case_id, t, prompt.id): {
+            "split": case.split,
+            **_resolved_columns(corpus, prompt),
+            "sandbox_image": corpus.sandbox_image,
+        }
+        for case_id, case in corpus.cases.items()
+        for t in sorted(case.timesteps)
+        for prompt in case.timesteps[t].prompts
+    }
+
+    if len(rows) != lock_bank.get("rows"):
+        fail(f"row count {len(rows)} != lock {lock_bank.get('rows')}")
+    counts = Counter(r.get("split") for r in rows)
+    for split in SPLITS:
+        if counts.get(split, 0) != lock_bank.get(split):
+            fail(f"{split} row count {counts.get(split, 0)} != lock "
+                 f"{lock_bank.get(split)}")
+
+    # key=repr on every sort: a doctored bank may carry null/mixed-typed
+    # triple values, and the verifier must FAIL on those, never crash.
+    triples = Counter((r.get("case_id"), r.get("timestep"),
+                       r.get("prompt_id")) for r in rows)
+    for triple, n in sorted(triples.items(), key=repr):
+        if n > 1:
+            fail(f"triple {triple} appears {n} times — one row per "
+                 f"(case, timestep, prompt)")
+    missing = sorted(set(expected) - set(triples), key=repr)
+    extra = sorted(set(triples) - set(expected), key=repr)
+    if missing:
+        fail(f"triples in the tree but missing from the bank: {missing}")
+    if extra:
+        fail(f"triples in the bank but not in the tree: {extra}")
+
+    for row in rows:
+        triple = (row.get("case_id"), row.get("timestep"),
+                  row.get("prompt_id"))
+        want = expected.get(triple)
+        if want is None:
+            continue  # already reported under `extra`
+        for column, value in want.items():
+            if row.get(column) != value:
+                shown = value if column == "split" or column == "sandbox_image" \
+                    else "the tree's bytes"
+                fail(f"row {triple}: {column} != {shown}")
+
+    if not findings:
+        findings.append(Finding(
+            "(corpus)", "taskbank rows", True,
+            f"{len(rows)} rows (train {counts.get('train', 0)} / eval "
+            f"{counts.get('eval', 0)}): triples set-equal the tree, "
+            f"splits and text columns verified"))
+    return findings
+
+
 def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                  skip_mcp: bool = False, only: list[str] | None = None) -> int:
     lock = load_lock(corpus.root, required=True)
     findings: list[Finding] = []
 
-    lock_cases = lock.get("cases", {})
+    lock_cases = lock.get("cases")
+    lock_cases = lock_cases if isinstance(lock_cases, dict) else {}
     with tempfile.TemporaryDirectory(prefix="gsj-corpus-verify-") as tmp:
         for case_id in sorted(corpus.cases):
             if only and case_id not in only:
                 continue
-            if case_id not in lock_cases:
+            if not isinstance(lock_cases.get(case_id), dict):
                 findings.append(Finding(case_id, "lock", False,
-                                        "case missing from the lock — "
-                                        "run scaffold",
+                                        "case missing from the lock (or "
+                                        "its entry malformed) — run "
+                                        "scaffold",
                                         corpus.cases[case_id].split))
                 continue
             verify_case_clone(corpus, corpus.cases[case_id], base_url,
@@ -1171,18 +1371,18 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                         f"census {got['pages']} pages, "
                         f"timesteps {got['timesteps']}"))
 
-    # The parquet vs the lock — sha256 only. The row-level semantics checks
-    # (triples-exactly-once, split, sandbox_image) needed the predecessor's
-    # read_taskbank and are deferred with the taskbank phase (ADR-0003).
+    # The parquet vs the lock and the tree: the byte half (sha256) and the
+    # row-level half deferred since CP-01 with the phase — landed, ADR-0022.
     bank_path = corpus.root / TASKBANK_NAME
     lock_bank = lock.get("taskbank")
     if only:
         findings.append(Finding("(corpus)", "taskbank", True,
                                 "SKIPPED (--only: the bank is corpus-wide)"))
-    elif lock_bank is None:
-        findings.append(Finding("(corpus)", "taskbank", True,
-                                "SKIPPED (taskbank phase deferred to CP-07, "
-                                "ADR-0003 — no bank recorded in the lock)"))
+    elif not isinstance(lock_bank, dict):
+        findings.append(Finding("(corpus)", "taskbank", False,
+                                "no bank recorded in the lock (or the "
+                                "taskbank block is malformed) — run the "
+                                "taskbank phase (ADR-0022)"))
     elif not bank_path.is_file():
         findings.append(Finding("(corpus)", "taskbank", False,
                                 f"{bank_path} missing but recorded in the "
@@ -1194,10 +1394,15 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                 "(corpus)", "taskbank", False,
                 f"sha256 {digest[:16]}… != lock {str(lock_bank.get('sha256'))[:16]}…"))
         else:
-            findings.append(Finding(
-                "(corpus)", "taskbank", True,
-                f"sha matches the lock ({lock_bank.get('rows')} rows "
-                f"recorded); row-level checks deferred to CP-07 (ADR-0003)"))
+            findings.append(Finding("(corpus)", "taskbank", True,
+                                    "sha matches the lock"))
+        try:
+            rows = read_taskbank_rows(bank_path)
+        except PipelineError as error:
+            findings.append(Finding("(corpus)", "taskbank", False,
+                                    str(error)))
+        else:
+            findings.extend(_bank_row_findings(corpus, lock_bank, rows))
 
     _print_table("verify", findings)
     return 1 if any(not f.ok for f in findings) else 0
@@ -1269,11 +1474,13 @@ def main(argv: list[str] | None = None) -> int:
                 phase_ingest(corpus, mcp_url, dry_run=args.dry_run,
                              timeout_s=args.ingest_timeout)
         if args.phase in ("taskbank", "all"):
-            if args.phase == "all":
-                # ADR-0003: `all` reports the deferral and moves on (the
-                # --only skip precedent); an explicit `taskbank` run raises.
-                print("== taskbank == DEFERRED to CP-07 (ADR-0003) — Polar "
-                      "takes TaskRequests, not §3.1 parquet rows")
+            if args.phase == "all" and args.only:
+                # ADR-0047(e): a partial bank must never exist — under
+                # --only the bank is skipped LOUDLY and the committed one
+                # is left alone; an explicit `taskbank --only` raises.
+                print("== taskbank == SKIPPED (--only: the bank is "
+                      "corpus-wide — refresh it with a plain `taskbank` "
+                      "run)")
             else:
                 phase_taskbank(corpus, dry_run=args.dry_run, only=args.only)
         if args.phase in ("verify", "all"):
