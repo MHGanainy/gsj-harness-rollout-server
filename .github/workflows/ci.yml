@@ -1,0 +1,146 @@
+# gsj-harness-rollout-server — continuous integration (CP-18, M5a).
+#
+# WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
+#   * the root suite (129)                  — gsj_rollout/, fixtures, no estate
+#   * the corpus suite (44: 43 + 1 skipped) — the pipeline over its file:// rail
+#   * the mcp-service suite (89)            — Chroma + the pinned MiniLM, localhost
+#   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
+#   Deliberately NOT here: vendor/polar's own suite, including the four
+#   carried-patch tests REVENDOR.md makes mandatory — those belong to the
+#   re-vendor recipe and Polar's uv venv, not to every push.
+#
+# WHAT IT DOES NOT COVER, AND CANNOT — everything the checkpoints actually
+# proved: the golden pairs (CP-04/CP-04'), fidelity (CP-09/CP-09'), the loop
+# (CP-17), and any episode at all. An episode needs an estate — a served
+# engine, Forgejo, the MCP service; the numbers that govern additionally need
+# the H200 and cluster time. A hosted runner has none of it. A green badge
+# means the fixtures still pass. It is not evidence that the harness runs.
+#
+# Python 3.12 only, deliberately: every environment this project DEPLOYS into
+# is 3.12 (the mcp-service image and venv, Polar's uv venv per its own
+# `uv venv --python 3.12`, the H200 collector), so a matrix would test a
+# configuration nothing runs. What that choice does not cover, said plainly:
+# `pyproject.toml` declares `requires-python = ">=3.11"` and the operator's
+# workstation venv is 3.13 — neither is exercised here.
+#
+# Size law (CHARTER §3): this file is CI configuration, not `gsj_rollout/`
+# code — outside the 2,000-line budget, on the same footing as tests and
+# vendored Polar. It adds nothing to the surface the budget governs.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  root:
+    name: root suite (129)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  corpus:
+    name: corpus suite (44)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      # A moved component (ADR-0002): its own pytest.ini, its own two
+      # dependencies, and no import of the root package. The estate it needs is
+      # the pipeline's own hermetic file:// rail — no Forgejo, no network.
+      - run: pip install pytest pyyaml
+      - run: python -m pytest -q
+        working-directory: corpus
+
+  mcp-service:
+    name: mcp-service suite (89)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: mcp-service/requirements.txt
+      # The pinned MiniLM (config.yaml: embedding.model + revision) is fetched
+      # from HuggingFace at the first embed — the one job here that needs the
+      # network for anything but pip. The key repeats that revision as a
+      # LITERAL: re-pinning config.yaml does not invalidate it, and does not
+      # need to — HF's cache is keyed by revision internally, so a stale hit
+      # simply lacks the new snapshot and downloads it. Update this key when
+      # the pin moves if you want the cache to stay warm; nothing breaks if
+      # you forget. The job passes cold either way (proven on run 1).
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface
+          key: hf-minilm-1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+      # The venv path is load-bearing, not a habit: the suite spawns its server
+      # subprocesses through a hardcoded interpreter (tests/helpers.py:
+      # `PYTHON = SERVICE_DIR / ".venv" / "bin" / "python"`), so the venv must
+      # live exactly at mcp-service/.venv. Install recipe is the service
+      # README's, CPU torch wheels included.
+      - name: venv + pinned deps
+        working-directory: mcp-service
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          .venv/bin/pip install pytest   # requirements.txt: "tests additionally need"
+      - name: pytest
+        working-directory: mcp-service
+        run: .venv/bin/python -m pytest -q
+
+  wheel:
+    name: wheel + packaged-pins install proof
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install build
+      - run: python -m build --wheel
+      # CP-16 (ADR-0017): the trainer installs the wheel, it does not clone —
+      # and every wheel built before CP-16 raised PinsConfigurationError on this
+      # exact call. The proof only means something from OUTSIDE the checkout:
+      # with the repo as cwd, `import gsj_rollout` binds to the source tree and
+      # the job would validate the checkout while proving nothing about the
+      # artifact. Hence a venv under $RUNNER_TEMP and a cwd outside the repo,
+      # with two assertions that fail unless checks was imported from
+      # site-packages and resolved the wheel's own packaged pins.
+      # The callback body is real — CP-09''s, read as data from the checkout.
+      - name: install proof, from outside the checkout
+        run: |
+          cat > "$RUNNER_TEMP/proof.py" <<'PY'
+          import json, sys
+          from pathlib import Path
+          from gsj_rollout import checks
+
+          pins = Path(checks.PINS_PATH)
+          print("PINS_PATH:", pins)
+          assert pins == Path(checks.PACKAGED_PINS), f"not the packaged copy: {pins}"
+          assert "site-packages" in pins.parts, f"not installed: {pins}"
+
+          body = json.loads(Path(sys.argv[1]).read_text())
+          findings = checks.validate_session_result(body)
+          print("session:", body["session_id"])
+          print("findings:", findings)
+          assert findings == [], findings
+          print("PROOF OK — the trainer leg works from the installed wheel")
+          PY
+          python -m venv "$RUNNER_TEMP/proof-venv"
+          "$RUNNER_TEMP/proof-venv/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/proof-venv/bin/python" proof.py \
+            "$GITHUB_WORKSPACE/docs/polar/h200-fidelity/callback_session_result.json"

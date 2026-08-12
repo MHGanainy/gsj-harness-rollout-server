@@ -14,3 +14,7 @@ forgejo/.token*
 spike/rollout_results/
 spike/pi-local/node_modules/
 spike/pi-local/workspace/
+# estate bring-up runtime state written by staging/serving/serve.sh
+# (endpoint.env, tunnel.pid) — regenerated every bring-up, never evidence
+# (wishlist 12, opened at CP-17 and closed at CP-18)
+staging/serving/run/

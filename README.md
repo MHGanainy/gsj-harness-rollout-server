@@ -1,21 +1,34 @@
 # gsj-harness-rollout-server
 
+[![CI](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml)
+
+The badge covers the fixture-driven half and nothing else: the root suite
+(129), the corpus suite (44), the mcp-service suite (89), and the wheel
+build with CP-16's packaged-pins install proof. It does not cover — and a
+hosted runner cannot — the golden pairs, fidelity, the loop, or any episode
+at all: an episode needs an estate (a served engine, Forgejo, the MCP
+service), and the numbers that govern need the H200 and cluster time.
+**Green means the fixtures still pass. It is not evidence that the harness
+runs.**
+
 A rollout server for our corpus: given a task `(case, timestep, prompt)` it
 runs our agent in an isolated sandbox with temporally-scoped retrieval and
 emits a training-ready trajectory. Trainer-agnostic, algorithm-agnostic,
 parameterization-agnostic. Episode execution and trajectory reconstruction
 are NVIDIA Polar's, vendored by SHA.
 
-**Status: M3 closed at CP-12 — ADOPT PROVISIONALLY** (the standalone
-verdict, with its converting and reversing conditions, is
+**Status: ADOPT** — the CP-12 provisional verdict converted at CP-17, both
+converting conditions met (the standalone verdict, with its reversing
+conditions, is
 [`docs/VERDICT.md`](docs/VERDICT.md)). The evaluation ran thirteen
 checkpoints end to end: Polar vendored by SHA with three carried patches
 (`vendor/`), real corpus episodes collected through our pi harness under
 Polar on the Mac estate, and the collected trace verified against the
 predecessor's golden reference (CP-09: masks exact, sampling-independent
 tokens byte-identical, logprob capture agreeing at mean |Δ| = 0.000114).
-Production numerics (H200) and one training loop remain the converting
-conditions.
+Both converting conditions have since closed on the H200: the golden pair
+and fidelity on production numerics (CP-04′/CP-09′) and one training loop
+end to end (CP-17).
 
 `gsj_rollout/` is the working server, not a scaffold: `pi_harness.py`
 (our pi under Polar, per-episode cutoff tokens, the settings echo),
