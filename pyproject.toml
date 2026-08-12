@@ -6,13 +6,50 @@ build-backend = "hatchling.build"
 name = "gsj-harness-rollout-server"
 version = "0.1.0"
 description = "Rollout server for the gsj corpus: task -> sandbox -> agent -> trace, built on NVIDIA Polar."
-requires-python = ">=3.11"
+readme = "README.md"
+# CP-19 (ADR-0020): Apache-2.0, the same licence the vendored Polar carries, so
+# the one tree holds one set of terms. `vendor/polar/` keeps its OWN LICENSE file
+# (Copyright 2026 NVIDIA) and is covered by that, not by ours — the distinction is
+# kept structural rather than textual: vendor/ is in NEITHER built artifact, so
+# nothing NVIDIA-authored ships under our name (asserted in CI, Step 3 of CP-19).
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+# 3.12 is the floor because 3.12 is what is TESTED (CI) and what this project
+# DEPLOYS into (the mcp-service image, Polar's uv venv, the H200 collector). The
+# claim was `>=3.11` and nothing ever ran 3.11 — CP-19 narrowed it rather than
+# widening CI, per its own Step 2. The operator's 3.13 workstation venv is inside
+# this range and runs the suite every CP.
+requires-python = ">=3.12"
+# Short and true, and each line has a basis. No `License ::` classifier: PEP 639
+# forbids pairing one with the SPDX `license` expression above. No
+# `Typing :: Typed`: that classifier asserts PEP 561, which needs a `py.typed`
+# marker in the package — there is none, and adding one is a `gsj_rollout/` change
+# this CP is not lifted for. 3.12 is CI's interpreter; 3.13 is the operator's
+# workstation venv, which runs the root suite every checkpoint. 4 - Beta because
+# the fixture half is CI-green and one training loop ran end to end (CP-17),
+# against a 0.1.0 with no external consumer yet.
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 # Core deps are the trainer-side weight, nothing more (ADR-0001):
 dependencies = [
     "pydantic",
     "httpx",
     "pyyaml",
 ]
+
+[project.urls]
+Repository = "https://github.com/MHGanainy/gsj-harness-rollout-server"
+# The document a stranger should read FIRST: the adoption verdict, its reversing
+# conditions, and the gap register's consolidated wishlist.
+Verdict = "https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md"
+Charter = "https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md"
+"Checks specification" = "https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md"
 
 [project.optional-dependencies]
 # [server] stays deliberately empty, now as a decision rather than a
@@ -35,6 +72,31 @@ packages = ["gsj_rollout"]
 # `checks.PINS_PATH` resolves GSJ_PINS_PATH → repo checkout → this copy.
 [tool.hatch.build.targets.wheel.force-include]
 "pins/pins.gsj.json" = "gsj_rollout/pins/pins.gsj.json"
+
+# CP-19: the sdist root set is stated EXPLICITLY because the backend's default is
+# "every tracked path", measured here at 4.6 MB / 835 files including
+# `vendor/polar/` (215 entries of NVIDIA-authored Apache-2.0 source), `corpus/`,
+# `mcp-service/`, `forgejo/`, `spike/`, `staging/`, `docs/` and `tests/`. One
+# `twine upload dist/*` would have published all of it under this project's name.
+#
+# It is `only-include`, not `include`, and that distinction is load-bearing:
+# with `include` hatchling still applied its default file selection ON TOP, which
+# globs README/LICENSE/pyproject RECURSIVELY — the sdist kept
+# `vendor/polar/LICENSE`, `vendor/polar/pyproject.toml` and 20 vendored
+# `README.md` files. Measured, not assumed (CP-19 Step 3). `only-include`
+# narrows the root set instead of extending it, and the result is
+# `gsj_rollout/` + the one pins file + the root README/LICENSE/pyproject.
+#
+# `pins/pins.gsj.json` is listed because the force-include above reads it from
+# the project ROOT — `python -m build` with no flags builds the wheel FROM the
+# sdist, so dropping it here would silently produce a pins-less wheel: the exact
+# CP-11b breakage CP-16 fixed. Publication is wheel-only regardless (ADR-0020);
+# this stanza is the guard for the local build that produces both.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "gsj_rollout",
+    "pins/pins.gsj.json",
+]
 
 # Bare `pytest` runs the repo's own suite only; the moved components' suites
 # are invoked explicitly (`cd corpus && python -m pytest`, same for

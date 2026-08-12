@@ -1,0 +1,170 @@
+# gsj-harness-rollout-server — the release path (CP-19, M5b).
+#
+# WHAT THIS DOES: on a `v*` tag, build the wheel, prove it is the right wheel,
+# publish it to TestPyPI, and then — only if TestPyPI accepted it — to PyPI.
+# `workflow_dispatch` runs the same thing but stops at TestPyPI: that is the
+# rehearsal path, and it is why the PyPI job is tag-gated rather than
+# `needs`-gated alone. A first upload that is wrong is not revocable; PyPI
+# refuses a re-upload of a version even after a yank, so the only cure for a
+# bad 0.1.0 is 0.1.1. Hence a rehearsal that is real rather than a `--dry-run`
+# flag.
+#
+# WHAT IT DELIBERATELY DOES NOT DO — it does not re-run CI. No corpus suite, no
+# mcp-service suite, no matrix. Those guard components that are not in the
+# artifact (`corpus/`, `mcp-service/` ship in neither the wheel nor the sdist),
+# and re-running them here would buy a slower tag and the same answer CI already
+# gave on `main`. What this workflow re-runs is the wheel job ONLY — build,
+# exclusions, install proof — because that is the job whose subject IS the thing
+# being published. The tag is expected to point at a commit CI has already
+# validated; nothing here enforces that, and it is stated rather than implied.
+# It also does not publish an sdist: `python -m build --wheel`, and Step 3's
+# reasoning is in ADR-0020.
+#
+# PERMISSIONS: default-deny at the top (`permissions: {}`), granted per job.
+# CP-18 omitted the block entirely because no job there used the token for
+# anything but `actions/checkout`'s read; this workflow needs `id-token: write`
+# in the two publish jobs and nothing else, because publication is via PyPI
+# TRUSTED PUBLISHING — an OIDC exchange, no API token stored in this repo and
+# none to rotate. The publish jobs do not check out the repo at all; they only
+# download the artifact the build job made.
+#
+# SETUP THIS WORKFLOW ASSUMES (one-time, on the PyPI side — it cannot be done
+# from here): a pending publisher configured at pypi.org and test.pypi.org for
+# owner `MHGanainy`, repository `gsj-harness-rollout-server`, workflow
+# `release.yml`, and environment `pypi` / `testpypi` respectively. Without them
+# the publish step fails at the OIDC exchange with `invalid-publisher`, which is
+# the correct failure: it means nothing was ever authorised to publish this name.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:   # the rehearsal: build + TestPyPI, never PyPI
+
+permissions: {}
+
+jobs:
+  build:
+    name: build the wheel and prove it
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install build twine
+
+      # A tag that disagrees with the version publishes the wrong number under
+      # the right name, and neither PyPI nor pip will ever tell you. Cheapest
+      # possible check, run before anything is built.
+      - name: tag matches the declared version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'PY'
+          import os, tomllib
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          assert tag == f"v{version}", f"tag {tag} != v{version} from pyproject.toml"
+          print(f"tag {tag} matches version {version}")
+          PY
+
+      - run: python -m build --wheel
+
+      # The failure mode this asserts against is a wheel that quietly ships a
+      # vendored Polar, the corpus, or the mcp-service — 4.6 MB of other people's
+      # source under our name. Measured at CP-19: the wheel is clean, but the
+      # DEFAULT sdist was not, which is why publication is wheel-only and why
+      # this runs on every release rather than living in a report.
+      - name: what ships — assert the exclusions
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          for banned in ("vendor/", "corpus/", "mcp-service/", "forgejo/",
+                         "spike/", "tests/", "docs/", "staging/", ".github/"):
+              hits = [n for n in names if n.startswith(banned)]
+              assert not hits, f"{banned} leaked into the wheel: {hits}"
+          for required in ("gsj_rollout/checks.py", "gsj_rollout/client.py",
+                           "gsj_rollout/pins/pins.gsj.json"):
+              assert required in names, f"{required} missing from the wheel"
+          print("\n".join(sorted(names)))
+          PY
+
+      - run: twine check dist/*
+
+      # CP-16's leg (ADR-0017), re-run against the artifact about to be
+      # published. It only means something from OUTSIDE the checkout: with the
+      # repo as cwd, `import gsj_rollout` binds to the source tree and this
+      # would prove nothing about the wheel. The two assertions before the
+      # validation are what detect that; the `cd` alone would be a convention.
+      - name: install proof, from outside the checkout
+        run: |
+          cat > "$RUNNER_TEMP/proof.py" <<'PY'
+          import json, sys
+          from pathlib import Path
+          from gsj_rollout import checks
+
+          pins = Path(checks.PINS_PATH)
+          print("PINS_PATH:", pins)
+          assert pins == Path(checks.PACKAGED_PINS), f"not the packaged copy: {pins}"
+          assert "site-packages" in pins.parts, f"not installed: {pins}"
+
+          body = json.loads(Path(sys.argv[1]).read_text())
+          findings = checks.validate_session_result(body)
+          print("session:", body["session_id"])
+          print("findings:", findings)
+          assert findings == [], findings
+          print("PROOF OK — the trainer leg works from the installed wheel")
+          PY
+          python -m venv "$RUNNER_TEMP/proof-venv"
+          "$RUNNER_TEMP/proof-venv/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/proof-venv/bin/python" proof.py \
+            "$GITHUB_WORKSPACE/docs/polar/h200-fidelity/callback_session_result.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel
+          path: dist/
+
+  testpypi:
+    name: publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write   # the OIDC token trusted publishing exchanges; nothing else
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # A rehearsal is allowed to be repeated; TestPyPI having this version
+          # already is not a reason to fail the release.
+          skip-existing: true
+
+  pypi:
+    name: publish to PyPI
+    # Tag-gated as well as needs-gated: `workflow_dispatch` must be able to
+    # rehearse the whole path WITHOUT any chance of reaching PyPI.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel
+          path: dist/
+      # No `skip-existing` here, deliberately: on PyPI a version that already
+      # exists means the release is confused about what it is publishing, and
+      # that should stop the workflow rather than pass quietly.
+      - uses: pypa/gh-action-pypi-publish@release/v1

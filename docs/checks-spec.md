@@ -280,6 +280,30 @@ pass so nobody rediscovers them:
   no-config-import path is what CP-08's client tests exercise). Pins load
   once per process (fact one above), so the override must be set before
   the first import of `gsj_rollout.checks`.
+- **What the third case says out loud — CP-19 (ADR-0019).** ADR-0017 made
+  the packaged copy work for a consumer who was, in practice, us.
+  Publication changes the audience: a stranger's default approved set is
+  this estate's hashes, and while the outcome is loud rejection rather
+  than a silent pass, a reader may reasonably conclude a library that
+  ships pins has an opinion about which rosters and prompts are
+  legitimate. It has an opinion about *ours*. So when — and only when —
+  resolution falls through to `PACKAGED_PINS` (no `GSJ_PINS_PATH`, no
+  checkout), `checks` emits **one `UserWarning` at import** naming the
+  path, stating that these are the reference estate's approved sets and
+  not defaults, naming `GSJ_PINS_PATH` as the cure, and stating the
+  consequence of ignoring it. An explicit override is silent (the
+  operator has chosen); a checkout is silent (a developer is working
+  in-tree). It is a warning and never a raise: no rule moved, the gates'
+  fail-closed posture is unchanged, and "ship empty" — making the
+  override mandatory — was rejected precisely because it converts a
+  working install into a configuration error for every consumer.
+  **Sync and re-pin**: the packaged copy cannot drift from `pins/`
+  because it is force-included from it at build time and never
+  duplicated in the tree. A re-pin costs a checkout consumer nothing
+  (the checkout outranks the packaged copy) and costs a published
+  artifact a **rebuild** — pins are baked at build time, so a wheel is a
+  snapshot of the approved sets as of its build, and a re-pin that must
+  reach installed consumers is a version bump rather than a file edit.
 - **G7's conjunction admits a fabricated all-zero (or equal-negative)
   stats block** — the clauses are equalities, no positivity floor.
   Deliberate non-fix: `reconstruction_stats` is self-reported evidence,

@@ -18,6 +18,7 @@ import json
 import math
 import os
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
@@ -111,15 +112,16 @@ class CheckPolicy:
 DEFAULT_POLICY = CheckPolicy()
 
 # The approved sets (spec §The pins…): generated data, never literals here.
-# CP-16 seam: `GSJ_PINS_PATH` override → repo checkout → the wheel's packaged
-# copy. Packaged pins are THIS estate's approved sets — another estate must
-# override, or its hashes fail loudly as `*_not_approved`, never a silent pass.
+# Resolver (CP-16/ADR-0017): GSJ_PINS_PATH → checkout → the wheel's packaged copy.
 CHECKOUT_PINS = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
 PACKAGED_PINS = Path(__file__).resolve().parent / "pins" / "pins.gsj.json"
 _pins_override = os.environ.get("GSJ_PINS_PATH")
 PINS_PATH = Path(_pins_override) if _pins_override else (
     CHECKOUT_PINS if CHECKOUT_PINS.exists() else PACKAGED_PINS
 )
+if _pins_override is None and PINS_PATH == PACKAGED_PINS:  # ADR-0019: once, at import
+    warnings.warn(f"gsj_rollout.checks: {PACKAGED_PINS} holds the REFERENCE ESTATE's approved sets,"
+                  " not defaults — set GSJ_PINS_PATH to your own or every hash gate fails *_not_approved.")
 _pins_cache: Mapping[str, list[str]] | None = None  # process-lifetime; a re-pin needs a restart
 
 
