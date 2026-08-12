@@ -57,7 +57,7 @@ the packaged copy; the format is specified in
 ## What the badge covers
 
 The badge covers the fixture-driven half and nothing else: the root suite
-(129), the corpus suite (44), the mcp-service suite (89), and the wheel
+(135), the corpus suite (44), the mcp-service suite (89), and the wheel
 build with the packaged-pins install proof. It does not cover — and a
 hosted runner cannot — the golden pairs, fidelity, the loop, or any episode
 at all: an episode needs an estate (a served engine, Forgejo, the MCP

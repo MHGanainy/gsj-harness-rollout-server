@@ -187,7 +187,6 @@ def _set(index, value):
         (lambda t: t.update(response_logprobs=None), "LP1:response_logprobs_absent"),
         (lambda t: t.update(response_logprobs=t["response_logprobs"][:-1]),
          "LP2:response_logprobs_length_ne_response_ids:3789!=3790"),
-        (lambda t: t.update(loss_mask=[]), "LP7:empty_loss_mask"),
         (lambda t: t.update(loss_mask=t["loss_mask"][:-1]),
          "LP8:loss_mask_length_ne_response_ids:3789!=3790"),
         (lambda t: t.update(finish_reason="abort"), "TR1:finish_reason_not_allowed:abort"),
@@ -201,6 +200,16 @@ def test_one_doctored_trace_per_rule(trace13, mutate, expected):
     assert checks.run_trace_checks(_doctor(trace13, mutate)) == [expected]
 
 
+def test_an_empty_loss_mask_fails_the_discipline_and_g6_together(trace13):
+    """The LP7 doctoring destroys BOTH rules' evidence — the mask — so as
+    of CP-23 the pair IS the reason the doctoring created: LP7 is the
+    discipline's finding, and a maskless trace has zero mask-1 spans for
+    G6 to check (fail closed, the gates' posture)."""
+    doctored = _doctor(trace13, lambda t: t.update(loss_mask=[]))
+    assert checks.run_trace_checks(doctored) == [
+        "LP7:empty_loss_mask", "G6:missing_evidence:turns"]
+
+
 def test_off_domain_loss_mask_cannot_disarm_the_discipline(trace13):
     """LP9. Every other mask-keyed rule tests `flag == 1`, which is False
     for "1", 2, and JSON NaN — so without a domain rule a single field's
@@ -212,7 +221,10 @@ def test_off_domain_loss_mask_cannot_disarm_the_discipline(trace13):
             loss_mask=[bad] * len(t["loss_mask"]),
             response_logprobs=[-9999.0] * len(t["response_logprobs"]),
         ))
-        assert checks.run_trace_checks(stringly) == [expected], bad
+        # an off-domain mask has zero mask-1 spans, so G6 loses its evidence
+        # too and fails closed beside LP9 (CP-23) — the same one-field attack
+        assert checks.run_trace_checks(stringly) == [
+            expected, "G6:missing_evidence:turns"], bad
     # `True == 1` in Python, so a bool mask still reaches the sentinel rule:
     # LP9 rejects the mask AND LP3 sees the values — both firing is correct.
     boolean = _doctor(trace13, lambda t: t.update(
@@ -380,6 +392,9 @@ def test_failure_vocabulary_snapshot():
         "G5:missing_evidence:workspace",
         "G5:search_page_gt_timestep",
         "G5:workspace_branch_ne_timestep",
+        "G6:interstitial_ne_tail_ids",
+        "G6:missing_evidence:turns",
+        "G6:prompt_suffix_ne_tail_ids",
         "G7:chains_total_ne_1",
         "G7:chains_truncated",
         "G7:completions_merged_ne_total",
@@ -680,6 +695,94 @@ def test_h41_flag_is_policy_gated_and_fires_for_its_own_reason(trace13):
     # no roster offered is G3's shape, never H41's
     no_roster = _doctor(toolless, lambda t: t.pop("tools"))
     assert checks.run_trace_checks(no_roster, armed) == ["G3:missing_evidence:tools"]
+
+
+# --- CP-23: G6, the thinking tail (ADR-0011's landing design) --------------
+
+
+def _polar_body(*parts):
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "docs" / "polar"
+    return json.loads(root.joinpath(*parts).read_text())
+
+
+def test_g6_passes_clean_on_every_real_body(trace13, body13):
+    """The pinned tail closes every turn opening on every real episode this
+    repo holds: the Mac pair's asymmetric-era merged streams (the stitched
+    glue IS the tail) and the CP-04′/CP-09′ symmetric-template bodies,
+    where the tail also rides history re-renders — the subject G6 asserts
+    now. The H200 bodies carry the CP-13/13a statements natively, so the
+    full seam stays clean on them raw."""
+    assert checks.check_thinking_tail(trace13) == []
+    assert checks.check_thinking_tail(body13["trajectory"]["traces"][0]) == []
+    for parts in (("h200-stitch", "attempt5.accepted.json"),
+                  ("h200-fidelity", "callback_session_result.json")):
+        body = _polar_body(*parts)
+        for trace in body["trajectory"]["traces"]:
+            assert checks.check_thinking_tail(trace) == [], parts
+        assert checks.validate_session_result(body) == [], parts
+
+
+def test_g6_doctored_prompt_suffix_fails_for_its_own_reason(trace13):
+    """The first-turn clause: turn 1's opening sits at the END of
+    `prompt_ids` (the generation prompt), so a mutated suffix is a turn the
+    interstitial clause can never see."""
+    doctored = _doctor(trace13, lambda t: t.update(
+        prompt_ids=t["prompt_ids"][:-1] + [t["prompt_ids"][-1] + 1]))
+    assert checks.run_trace_checks(doctored) == ["G6:prompt_suffix_ne_tail_ids"]
+
+
+def test_g6_doctored_interstitial_fails_for_its_own_reason(trace13):
+    """Turn n>1's opening is the mask-0 run before its span; mutating its
+    last id breaks the ids-endswith for exactly that turn."""
+    mask = trace13["loss_mask"]
+    start2 = next(i for i in range(1, len(mask)) if mask[i] == 1 and mask[i - 1] == 0)
+    doctored = _doctor(trace13,
+                       lambda t: t["response_ids"].__setitem__(start2 - 1, 0))
+    assert checks.run_trace_checks(doctored) == [
+        "G6:interstitial_ne_tail_ids:first=2:count=1"]
+
+
+def test_g6_zero_turns_fails_closed(trace13):
+    """A trace with no mask-1 span has no turn opening to verify: missing
+    evidence, never a clean pass — the posture every other gate holds."""
+    doctored = _doctor(trace13, lambda t: t.update(
+        loss_mask=[0] * len(t["loss_mask"])))
+    assert checks.run_trace_checks(doctored) == ["G6:missing_evidence:turns"]
+
+
+def test_the_single_turn_case_is_actually_checked(trace13):
+    """The first-turn clause's whole reason for existing (ADR-0011, the
+    CP-11b verification): the first mask-1 span starts at `response_ids[0]`
+    on both real traces, so a single-turn episode has ZERO pre-turn
+    interstitials and a `response_ids`-only rule would check nothing while
+    reporting clean. Slice the real CP-09 episode to its first turn and
+    prove the rule still has exactly one place to look — and looks."""
+    end = trace13["loss_mask"].index(0)  # the first span is response_ids[0:end]
+    single = _doctor(trace13, lambda t: t.update(
+        response_ids=t["response_ids"][:end], loss_mask=t["loss_mask"][:end],
+        response_logprobs=t["response_logprobs"][:end]))
+    assert (set(single["loss_mask"]), end) == ({1}, 166), "fixture drifted"
+    assert checks.run_trace_checks(single) == []       # a clean single turn passes
+    mutated = _doctor(single, lambda t: t.update(
+        prompt_ids=t["prompt_ids"][:-1] + [0]))
+    assert checks.run_trace_checks(mutated) == ["G6:prompt_suffix_ne_tail_ids"]
+
+
+def test_checks_allowance_is_machine_checked():
+    """ADR-0021: the allowance equals the landed size EXACTLY and lives
+    HERE as a tripwire — ADR-0014's G6 earmark was eroded across three
+    CPs (14/16/19) without any of them noticing, which an equality in the
+    suite makes impossible to repeat in either direction: growth is §3's
+    stop-and-justify, and a shrink must lower the allowance with it
+    rather than leave unpoliced headroom. Moving this number is an ADR's
+    decision, never absorbed silently."""
+    from pathlib import Path
+
+    lines = Path(checks.__file__).read_text().count("\n")
+    assert lines == 528, f"checks.py at {lines} != ADR-0021's exact 528-line allowance"
 
 
 def test_pins_are_loaded_not_inlined_and_raise_loudly(monkeypatch):

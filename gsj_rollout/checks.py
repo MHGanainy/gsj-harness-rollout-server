@@ -1,15 +1,14 @@
 """BOTH — trace validators. `docs/checks-spec.md` is the specification and
-carries ALL reasoning (CP-11 budget migration); this module implements.
+carries ALL reasoning (CP-11/CP-23 budget migrations); this module implements.
 
 One entry point, `validate_session_result`: takes the callback-shaped
 `SessionResult` mapping (never the on-disk `ses_*.json` — CP-07 finding 5),
 returns byte-stable ``{id}:{slug}[:detail]`` findings, empty = accepted,
-never raises on content (ADR-0008 §6; unusable pins are configuration, not
-content — they raise `PinsConfigurationError`, the gates never fail open). Both
-legs of law 6 call it. Live: `ADM*`, `LP*`/`TR*`, G5's backstop, gates
-G1/G2/G3/G7 (stats + settings echo) against `pins/pins.gsj.json`, the
-policy-gated H-41 flag. Not here, reasons in the spec: G4/G6 (ADR-0011),
-replay."""
+never raises on content (ADR-0008 §6; unusable pins raise
+`PinsConfigurationError` — configuration, never fail-open). Both legs of
+law 6 call it. Live: `ADM*`, `LP*`/`TR*`, G5, gates G1/G2/G3/G6/G7 against
+`pins/pins.gsj.json`, the policy-gated H-41 flag. Not here, reasons in the
+spec: G4 (ADR-0011), replay."""
 
 from __future__ import annotations
 
@@ -59,6 +58,9 @@ G5_MISSING_TIMESTEP = "G5:missing_evidence:timestep"
 G5_MISSING_WORKSPACE = "G5:missing_evidence:workspace"
 G5_SEARCH_PAGE_GT_TIMESTEP = "G5:search_page_gt_timestep"  # the predecessor's constant
 G5_WORKSPACE_BRANCH = "G5:workspace_branch_ne_timestep"
+G6_INTERSTITIAL_TAIL = "G6:interstitial_ne_tail_ids"
+G6_MISSING_TURNS = "G6:missing_evidence:turns"
+G6_PROMPT_TAIL = "G6:prompt_suffix_ne_tail_ids"
 G7_CHAINS_TOTAL = "G7:chains_total_ne_1"
 G7_CHAINS_TRUNCATED = "G7:chains_truncated"
 G7_MERGED = "G7:completions_merged_ne_total"
@@ -75,6 +77,7 @@ FINDING_VOCABULARY = (
     G3_MISSING_TOOLS, G3_NOT_APPROVED, G5_CHECKOUT_POSTURE, G5_CHECKOUT_MAX_PAGE,
     G5_CHECKOUT_NOT_CONTIGUOUS, G5_MISSING_TIMESTEP, G5_MISSING_WORKSPACE,
     G5_SEARCH_PAGE_GT_TIMESTEP, G5_WORKSPACE_BRANCH,
+    G6_INTERSTITIAL_TAIL, G6_MISSING_TURNS, G6_PROMPT_TAIL,
     G7_CHAINS_TOTAL, G7_CHAINS_TRUNCATED, G7_MERGED, G7_MISSING_STATS,
     G7_MISSING_SETTINGS, G7_RAW, G7_SETTINGS_NOT_APPROVED, H41_TOOLLESS_ROSTER,
     LP1_LOGPROBS_ABSENT, LP2_LOGPROBS_LENGTH, LP3_SENTINEL_AT_MASK1, LP4_NONFINITE,
@@ -83,8 +86,7 @@ FINDING_VOCABULARY = (
 )
 
 ALLOWED_FINISH_REASONS = frozenset({"stop", "tool_calls", "stop_sequence", "length"})
-# ADR-0015: a tuple, not a frozenset — membership must not hash (wire content
-# can be unhashable, and checks never raise on content).
+# ADR-0015: a tuple, not a frozenset — membership must not hash wire content.
 ALLOWED_SPLITS = ("train", "eval")
 
 # The binding compatibility contract (`mcp-service/README.md`; spec §G5).
@@ -99,9 +101,8 @@ _CASE_STATUS_TOOL = "mcp_gsj_case_status"
 
 @dataclass(frozen=True)
 class CheckPolicy:
-    """The platform-conditioned knobs (spec §The logprob discipline —
-    sentinel: the vLLM `-9999.0` floor; zero-rate: CP-09's bf16 numbers, a
-    CUDA estate sets 0.0). `reject_toolless_roster` arms H-41 (spec §H-41)."""
+    """The platform-conditioned knobs (spec §The logprob discipline);
+    `reject_toolless_roster` arms H-41 (spec §The H-41 lesson)."""
 
     sentinel_threshold: float = -9000.0
     zero_at_mask1_max_rate: float = 0.25
@@ -111,8 +112,7 @@ class CheckPolicy:
 # Rebound by `config.load_config`, resolved at CALL time (ADR-0010).
 DEFAULT_POLICY = CheckPolicy()
 
-# The approved sets (spec §The pins…): generated data, never literals here.
-# Resolver (CP-16/ADR-0017): GSJ_PINS_PATH → checkout → the wheel's packaged copy.
+# The approved sets (spec §The pins…): generated data, never literals; ADR-0017 resolver.
 CHECKOUT_PINS = Path(__file__).resolve().parent.parent / "pins" / "pins.gsj.json"
 PACKAGED_PINS = Path(__file__).resolve().parent / "pins" / "pins.gsj.json"
 _pins_override = os.environ.get("GSJ_PINS_PATH")
@@ -126,8 +126,7 @@ _pins_cache: Mapping[str, list[str]] | None = None  # process-lifetime; a re-pin
 
 
 class PinsConfigurationError(Exception):
-    """Pins are configuration, not content: every way loading them can fail
-    is the server's fault, never the caller's (spec §the pins seam)."""
+    """Every pins-loading fault is the server's, never the caller's (spec)."""
 
 
 def approved_set(key: str) -> list[str]:
@@ -226,14 +225,13 @@ def run_trace_checks(
         *check_system_prompt(trace),
         *check_skill_card(trace),
         *check_settings_echo(trace),
+        *check_thinking_tail(trace),
         *check_toolless_roster(trace, policy),
     ]
 
 
 def check_tool_roster(trace: Mapping[str, Any]) -> list[str]:
-    """G3 (spec §G3's actual mechanism): canonical-JSON hash of the wire
-    `tools` ∈ approved set. CP-05 caveat: a merged trace carries the FIRST
-    completion's tools — cross-completion stability is the builder's `R11`."""
+    """G3 (spec §G3's actual mechanism + the CP-05 first-completion caveat)."""
     tools = trace.get("tools")
     if not isinstance(tools, list) or not tools:
         return [G3_MISSING_TOOLS]
@@ -244,8 +242,7 @@ def check_tool_roster(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_system_prompt(trace: Mapping[str, Any]) -> list[str]:
-    """G2: sha256 of every wire `system` text ∈ the approved singleton,
-    flattened via `_content_text` first (finding (b) is binding — spec)."""
+    """G2 (spec §The gates as landed; finding (b) binding via `_content_text`)."""
     approved = approved_set("system_prompt_hash")
     findings, seen = [], 0
     for message in _as_list(trace.get("prompt_messages")):
@@ -258,10 +255,7 @@ def check_system_prompt(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_skill_card(trace: Mapping[str, Any]) -> list[str]:
-    """G1 (spec §The gates as landed, CP-13): the stated `prompt_source`
-    decides — `skill:<name>`: stated card-bytes hash ∈ `skill_card_hash`;
-    `free`: n/a, pass; neither/absent: fail closed. Stated-evidence limit
-    recorded in row 9."""
+    """G1 (spec §The gates as landed, CP-13): the stated `prompt_source` decides."""
     metadata = _as_mapping(trace.get("metadata"))
     source = metadata.get("prompt_source")
     if source == "free":
@@ -277,9 +271,7 @@ def check_skill_card(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_settings_echo(trace: Mapping[str, Any]) -> list[str]:
-    """G7's settings clause (spec §G7's chain snapshot, CP-13): canonical
-    hash of the harness-echoed rendered settings ∈ `settings_hash`; a
-    missing echo fails closed (row 15's residual, closed)."""
+    """G7's settings clause (spec §G7's chain snapshot, CP-13): trace echo only."""
     settings = _as_mapping(trace.get("metadata")).get("gsj_settings")
     if not isinstance(settings, Mapping) or not settings:
         return [G7_MISSING_SETTINGS]
@@ -294,8 +286,7 @@ _G7_STAT_KEYS = ("chains_total", "chains_reconstructed_truncated",
 
 
 def check_chain_snapshot(trajectory_metadata: Mapping[str, Any]) -> list[str]:
-    """G7's stats conjunction (spec §G7's chain snapshot; CP-05 tightening).
-    The settings-hash clause has no callback evidence — recorded gap, row 15."""
+    """G7's stats conjunction (spec §G7's chain snapshot; CP-05 tightening)."""
     stats = _as_mapping(trajectory_metadata.get("reconstruction_stats"))
     for key in _G7_STAT_KEYS:  # fail-closed before any comparison
         if isinstance(stats.get(key), bool) or not isinstance(stats.get(key), int):
@@ -316,8 +307,7 @@ def check_chain_snapshot(trajectory_metadata: Mapping[str, Any]) -> list[str]:
 def check_toolless_roster(
     trace: Mapping[str, Any], policy: CheckPolicy | None = None
 ) -> list[str]:
-    """H-41 (spec §The H-41 lesson): roster offered, zero parsed tool calls.
-    POLICY-GATED, default off — a legitimate episode can call no tools."""
+    """H-41 (spec §The H-41 lesson): POLICY-GATED, default off."""
     policy = DEFAULT_POLICY if policy is None else policy
     if not policy.reject_toolless_roster:
         return []
@@ -396,17 +386,13 @@ def check_logprob_discipline(
 
 
 def check_trace_tripwires(trace: Mapping[str, Any]) -> list[str]:
-    """The `finish_reason` allowlist, the re-vendor canary, and the split
-    vocabulary (spec §TR1/TR2/TR3). TR3 verifies the submitter's own
-    statement — absent is legal (unstated, ADR-0015), a third value is not."""
+    """TR1/TR2/TR3 (spec §As landed rule-by-rule + §The split label)."""
     findings: list[str] = []
     finish_reason = trace.get("finish_reason")
     if not (isinstance(finish_reason, str) and finish_reason in ALLOWED_FINISH_REASONS):
         findings.append(f"{TR1_FINISH_REASON}:{finish_reason}")
     metadata = _as_mapping(trace.get("metadata"))
-    # Presence-based, not None-based: an explicit null is a value the
-    # renderer can never produce (None omits the key) — exactly the
-    # serializer-mangled shape TR3 exists to flag (spec §The split label).
+    # presence-based: an explicit null is TR3's shape (spec §The split label)
     if "split" in metadata and metadata["split"] not in ALLOWED_SPLITS:
         findings.append(f"{TR3_SPLIT_DOMAIN}:{metadata['split']}")
     masked = _as_mapping(
@@ -419,8 +405,7 @@ def check_trace_tripwires(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_page_cutoff(trace: Mapping[str, Any]) -> list[str]:
-    """G5's backstop (spec §G5): no cited search page may exceed T; T from
-    the trace only (metadata first, `case_status` fallback), else fail closed."""
+    """G5's backstop (spec §G5's transcript backstop): T from the trace only."""
     timestep = _episode_timestep(trace)
     if timestep is None:
         return [G5_MISSING_TIMESTEP]
@@ -432,10 +417,7 @@ def check_page_cutoff(trace: Mapping[str, Any]) -> list[str]:
 
 
 def check_workspace(trace: Mapping[str, Any]) -> list[str]:
-    """G5's checkout census, returned (spec §G5, CP-13a): the harness echoes
-    what the sandbox CONTAINED and the branch/max-page clauses cross-check it
-    against the trainer's independently-sourced timestep. Detects an honest
-    misconfiguration, not a hostile harness — reasoning in the spec."""
+    """G5's checkout census (spec §The checkout census, returned — CP-13a)."""
     workspace = _as_mapping(trace.get("metadata")).get("gsj_workspace")
     if not isinstance(workspace, Mapping) or not workspace:
         return [G5_MISSING_WORKSPACE]
@@ -457,6 +439,32 @@ def check_workspace(trace: Mapping[str, Any]) -> list[str]:
         findings.append(f"{G5_WORKSPACE_BRANCH}:{workspace.get('branch')}!=timestep-{timestep}")
     if high != timestep:  # max checkout page == T — the predecessor's clause
         findings.append(f"{G5_CHECKOUT_MAX_PAGE}:{high}!={timestep}")
+    return findings
+
+
+def check_thinking_tail(trace: Mapping[str, Any]) -> list[str]:
+    """G6 (spec §The gates as landed, ADR-0011): every turn opening ids-ends
+    with a pinned tail — turn 1 at the `prompt_ids` suffix, later turns at
+    the pre-turn mask-0 interstitial; zero mask-1 spans fail closed."""
+    tails = [t for t in approved_set("g6_expected_tail_ids") if isinstance(t, list) and t]
+    ids = _as_list(trace.get("response_ids"))
+    mask = _as_list(trace.get("loss_mask"))
+    starts = [i for i, f in enumerate(mask) if f == 1 and (not i or mask[i - 1] != 1)]
+    if not starts:
+        return [G6_MISSING_TURNS]
+    ends = [i + 1 for i, f in enumerate(mask) if f == 1 and mask[i + 1:i + 2] != [1]]
+    offenders = []
+    for turn, start in enumerate(starts, 1):
+        opening = (_as_list(trace.get("prompt_ids")) + ids[:start] if turn == 1
+                   else ids[ends[turn - 2]:start])
+        if not any(opening[-len(tail):] == tail for tail in tails):
+            offenders.append(turn)
+    findings = []
+    if offenders[:1] == [1]:
+        findings.append(G6_PROMPT_TAIL)
+        offenders = offenders[1:]
+    if offenders:
+        findings.append(f"{G6_INTERSTITIAL_TAIL}:first={offenders[0]}:count={len(offenders)}")
     return findings
 
 

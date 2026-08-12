@@ -169,6 +169,15 @@ sentinel −9000, zero-rate allowance 0.25, RAW semantics); the tripwires
 **G2** wire system prompt vs the `/workspace` singleton; **G3** wire
 tool roster vs the pinned hash; **G7** the four-clause reconstruction
 conjunction (fail-closed); **H-41** toolless-roster (armed by policy).
+*[Kept accurate after the fact, per this list's inheritance role —
+later landings:]* **G1** stated `prompt_source` + card hash and **G7's
+settings-hash clause** (CP-13); **G5's checkout census**, returned via
+the workspace echo (CP-13a); **TR3** split vocabulary (CP-14); **G6**
+thinking-off (CP-23): tokenizer-free ids-`endswith` of
+`g6_expected_tail_ids` over the turn-1 `prompt_ids` suffix and each
+pre-turn interstitial, zero mask-1 spans fail-closed — under the
+symmetric template it asserts thinking stayed off at every turn opening
+of the merged stream, history re-renders included.
 All hash gates consume `pins/pins.gsj.json` at check time; missing pins
 raise (never fail open); hostile content (NaN, surrogates, big ints,
 unhashable ids, non-string enums) yields findings, never exceptions.
@@ -186,12 +195,15 @@ the engine pins (generation-config, tool parser — serve argv).
 
 **Not checked, each with its owner and blocker:** G1 skill card (no
 trace-side card identity; `prompt_source` in task metadata, config
-freeze-lift + taskbank); G4 codec receiver-side (no evidence on the
+freeze-lift + taskbank) *[landed CP-13]*; G4 codec receiver-side (no
+evidence on the
 callback; estate-side `derive_pins.py` at bring-up, CP-04′; per-episode
 binding open, row 22); G6 thinking-off (needs `g6_expected_tail_ids` on
 the next walk; then receiver-side ids rule incl. the first-turn
-`prompt_ids` clause); G7's settings-hash clause (no callback evidence;
-harness echo, next `pi_harness.py` lift); sampling provenance (row 22,
+`prompt_ids` clause) *[pinned CP-04′, landed CP-23]*; G7's settings-hash
+clause (no callback evidence;
+harness echo, next `pi_harness.py` lift) *[landed CP-13]*; sampling
+provenance (row 22,
 estate); replay (deliberately absent, F2–F4); mid-chain aborts (carried
 patch P2's job, D3); per-completion records (never ride the callback,
 A-5 — builder's domain); a fabricated-but-consistent stats block

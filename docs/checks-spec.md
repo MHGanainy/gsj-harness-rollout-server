@@ -7,7 +7,13 @@ in-code prose here wholesale (367 → 285 lines; every rule body
 byte-untouched, the one code change being the declared `policy=None`
 call-time-default seam of §The CheckPolicy operator surface; the 59-test
 suite the proof), leaving one-line pointers in code — an auditor reads
-here, the module enforces (ADR-0009). Normative sources: the predecessor's
+here, the module enforces (ADR-0009). **[CP-23] The second banking pass**
+re-applied the same mechanism to the docstrings that had crept back to
+2–4 lines across CP-13/13a/14 (520 → 497; AST identical after docstring
+strip, all 129 tests unmodified) — everything those docstrings said is in
+this document's own sections, with the one fragment that was not (TR3's
+presence-based clause) migrated in place and the G3 caveat's framing
+corrected (it read "stands in the docstring"; the spec is the home now). Normative sources: the predecessor's
 `gsj/envloader/gates.py` and `gsj/envloader/pin.py` @ v0.8.0 (frozen — read
 them, never modify them, law 3), its README §6, `mcp-service/README.md`
 (the G3/G5 surface), and CP-00's report notes. `checks.py` runs on **both
@@ -85,9 +91,15 @@ shared implementation per convention, no inline copies:
    template *string extracted from the JSON field* of
    `tokenizer_config.json` (not of the file). Two different algorithms in
    one gate — do not "simplify" them into one.
-4. **No hash at all** — G6. The decoded assistant-turn opening is compared
-   **verbatim** with `str.endswith` against `g6_expected_tail`
-   (`pins/g6_tail.captured.txt`, 41 bytes of Qwen chat-template tail).
+4. **No hash at all** — G6. As first specced: the decoded assistant-turn
+   opening compared **verbatim** with `str.endswith` against
+   `g6_expected_tail` (`pins/g6_tail.captured.txt`, 41 bytes of Qwen
+   chat-template tail). **[CP-23] As landed, tokenizer-free (ADR-0011)**:
+   no decode happens anywhere — the comparison is a list-`endswith` of
+   **token ids** against `g6_expected_tail_ids` (the same 41 bytes as ids
+   under the served tokenizer, derived estate-side at CP-04′ where a
+   tokenizer exists at PIN time only). Same convention class: a verbatim
+   comparison, never a hash.
 
 ## The gates (what survives is CP-11's call — gap rows 9–15)
 
@@ -115,7 +127,8 @@ exception (the seam's contract survives hostile payloads).
 - **G3 — LANDED** (`check_tool_roster`, trace-level): canonical-JSON
   sha256 of `trace.tools` ∈ `tool_roster_hash`. Evidence: the wire array
   as persisted (CP-06 proved persisted == wire for `tools`). The CP-05
-  caveat stands in the docstring: merged traces carry the FIRST
+  caveat, stated here (the docstring is a pointer since the CP-23
+  banking): merged traces carry the FIRST
   completion's tools, so cross-completion roster stability is the
   builder's `R11`, not this gate.
 - **G2 — LANDED** (`check_system_prompt`, trace-level): sha256 of every
@@ -183,15 +196,59 @@ exception (the seam's contract survives hostile payloads).
   the hash for a CRLF or non-UTF-8 card. `render_task_request` computes the
   hash itself from that text, so the convention cannot be got wrong
   through the sanctioned API.
-- **G4/G6 — NOT LANDED, deferred by ADR-0011 (measure-at-serve)**: no
+- **G4 — NOT LANDED, deferred by ADR-0011 (measure-at-serve)**: no
   codec evidence rides the callback (measured — and the only fingerprint
   that exists anywhere, the persisted record's `system_fingerprint`, is
   an engine platform string, not a codec identity, on a record that never
   rides the callback). G4 is verified estate-side by `pins/derive_pins.py`
-  against the served snapshot at bring-up (CP-04′ DoD items 3–5); G6
-  lands receiver-side, tokenizer-free, as an ids-`endswith` once
-  `g6_expected_tail_ids` is pinned on the next walk. Trust-provenance
-  rejected — the F1 shape: it verifies the claim, not the artifact.
+  against the served snapshot at bring-up (CP-04′ DoD items 3–5).
+  Trust-provenance rejected — the F1 shape: it verifies the claim, not
+  the artifact.
+- **G6 — LANDED at CP-23** (`check_thinking_tail`, trace-level), exactly
+  ADR-0011's landing design once CP-04′ pinned `g6_expected_tail_ids`
+  and ADR-0021 paid for the lines. **Tokenizer-free**: the rule is an
+  ids-`endswith` — no decode at check time, because neither this package
+  nor Polar's venv carries a tokenizer (A-14); deriving the ids needed
+  one at PIN time only, estate-side. Mechanics: the assistant turns are
+  the maximal mask-1 runs of `loss_mask`; **turn 1's opening is the
+  suffix of `prompt_ids`** (plus any leading mask-0 run — measured on
+  both real traces, the first mask-1 span starts at `response_ids[0]`,
+  so without this clause a single-turn episode is checked nowhere while
+  reporting clean: the CP-11b first-turn correction), and **each later
+  turn's opening is the mask-0 interstitial run preceding its span**.
+  Every opening must ids-end with an entry of `g6_expected_tail_ids`
+  (`[151644, 77091, 198, 151667, 271, 151668, 271]` — the 41-byte empty
+  think block under the served tokenizer). Zero mask-1 spans ⇒
+  `G6:missing_evidence:turns`, fail-closed; a bad turn-1 opening ⇒
+  `G6:prompt_suffix_ne_tail_ids`; bad later openings ⇒ one
+  `G6:interstitial_ne_tail_ids:first={turn}:count={n}` (the per-position
+  flood guard). Per the standing rule the gate reads token ids, never
+  `response_messages` (the message log can desync from the token stream —
+  §silent-degradation), and never raises on content: pinned entries are
+  used only if they are non-empty lists (a wrong-shaped entry fails
+  closed, and an empty pinned tail cannot fail open against an empty
+  opening). **What G6 asserts now that the template is symmetric
+  (CP-04′ changed its subject)**: every assistant turn of the merged
+  stream — the first at the generation prompt's end, every later one at
+  its history-render interstitial — opens from the pinned empty think
+  block, i.e. thinking was OFF at every position the template could have
+  shown it, not merely at the final generation prompt. Validated clean on
+  all four real bodies (CP-07, CP-09, and the CP-04′/CP-09′ H200 bodies,
+  whose history renders are exactly the new subject).
+  **Thinking-on, recorded for Phase C**: the pinned tail IS the empty
+  think block, so on a thinking-ON estate the tail never appears and this
+  gate fails every episode — correct behavior for a gate named "thinking
+  off", loud and fail-closed, and exactly finding (c)'s guarantee. C-2
+  must therefore decide before the first thinking-on episode reaches a
+  receiver: **re-pin** (under the symmetric template a thinking-on
+  opening ends at `<|im_start|>assistant\n` = ids `[151644, 77091, 198]`
+  — a shorter tail, which re-conceives the gate as "turn openings match
+  the pinned template tail", template integrity rather than thinking-off,
+  and weakens it accordingly), **re-conceive** (a paired gate: thinking-on
+  episodes must NOT end their openings with the empty-block ids), or
+  **retire** (row 14 reverts to estate-side enforcement). Re-pinning is
+  data (`pins/` + a walk); any rule reshaping pays ADR-0021's
+  zero-headroom discipline.
 - **H-41 — LANDED as a policy-gated check** (`check_toolless_roster`):
   a roster offered with zero parsed `tool_calls` anywhere in the message
   stream emits `H41:roster_offered_zero_tool_calls` **only when
@@ -344,7 +401,10 @@ the returning checkout census (`G5:workspace_branch_ne_timestep`,
 `G5:checkout_history_posture`, `G5:missing_evidence:workspace`), again
 pure additions. **[CP-14] One more, `TR3:split_not_train_or_eval`**
 (ADR-0015, §The split label below) — a pure addition; every pre-existing
-entry byte-identical. Still never emitted: `G4:*`/`G6:*` (ADR-0011).
+entry byte-identical. **[CP-23] Three more, all `G6:*`** (the gate's
+landing — `G6:missing_evidence:turns`, `G6:prompt_suffix_ne_tail_ids`,
+`G6:interstitial_ne_tail_ids`), again pure additions. Still never
+emitted: `G4:*` (ADR-0011 — estate-side by design).
 Per-position rules report **one finding per rule** with
 `:first={index}:count={n}` rather than one per position, so a
 systematically broken array cannot flood the list.
@@ -551,7 +611,12 @@ enforce trace-side, and it is enforced on both legs of law 6.
 submit path cannot know the split (resolution never happens there, the
 same reason its `prompt_source` is definitionally `free`), and every
 pre-CP-14 trace predates the label. `render_task_request(split=None)`
-omits the key; TR3 passes an absent label. This is deliberately NOT the
+omits the key; TR3 passes an absent label. The rule is therefore
+**presence-based, not None-based**: an explicit `null` is a value the
+renderer can never produce (None omits the key) — exactly the
+serializer-mangled shape TR3 exists to flag, so it is rejected, not
+waived (the CP-14 adversarial pass's +3 lines; the in-code comment is a
+pointer here since CP-23). This is deliberately NOT the
 gates' fail-closed posture: the split is a routing label the trainer
 reads, not evidence a gate consumes — there is no approved set, and
 rejecting every honest "unstated" would quarantine the entire cli path
