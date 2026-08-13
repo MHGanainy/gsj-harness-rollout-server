@@ -676,6 +676,38 @@ its hypothesis list. Wishlist rows 20–21 opened for what the stranger
 read found and this CP could not fix (frozen files). No status changes;
 the tally stands: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-26] No row moves; the consumer surface met its stranger, and the
+loop RAN — the friction list is the deliverable.** The stranger test
+executed end to end on the H200 estate from a fresh directory, a fresh
+venv, and both repos side-loaded at HEAD (the first finding: side-loading
+was the ONLY way — external F-14): install (2 attempts + an un-runnable
+printed cure, F-15), configure (five of six SUPPLY values already correct
+on the reference estate; the sixth, `traces_dir`, un-creatable as
+exampled, F-26), collect (**71/72 attempts qualified in under 7 min**, 1
+LP6 quarantine — the run book's attrition expectations described the
+strict/serial regime, F-18), dry-run clean (reward **1/71**, inside the
+measured sparse band — that expectation was exactly right), the GPU step
+after five attempts (uvicorn/fastapi/peft missing — the stated closure
+was the desk closure, F-17 — then the cu13x torch trap with its silent
+pip no-op, F-16; grad_norm 0.1970, advantages centred, HF export
+written), and the sync leg failing DIAGNOSED on its workstation-topology
+assumption (the run book sent it "estate-side" — the wrong side, F-29).
+Twenty-six findings, F-14–F-39 in the external register, 18 fixed same-CP
+in docs/example within the enumerated set (RUNBOOK, example config,
+install.sh, requirements.txt, README), the library-shaped rest opened as
+wishlist rows 22–25 (serve's invisible instructions; two more
+config-schema strangerward gaps; the unverifiable MCP secret; train.py
+polish). CP-25's hypothesis list scored: (a) soft-confirmed, (b)
+confirmed with runtime shapes measured, (c) wider than predicted (the
+bring-up hole reaches the stranger through the session-start seam), (d)
+(e) not hit (same estate, same box), (f) confirmed-latent, (g) worse
+(the library repo is needed twice and its public mirror is six commits
+stale). The members nobody predicted — F-15/16/17/18/19/20/26/29/30-35 —
+outnumber the predicted list, which is the CP working as designed
+(finding over feature, law 7). Estate torn down after; `~/cp26-stranger/`
+stays as the evidence artifact beside `~/cp21`. No status changes; the
+tally stands: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
