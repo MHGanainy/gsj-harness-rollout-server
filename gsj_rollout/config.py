@@ -32,28 +32,51 @@ class _Section(BaseModel):
 
 
 class EstateConfig(_Section):
-    clone_url_for: str  # Forgejo clone URL pattern with {case_id}
-    mcp_url_base: str
-    mcp_token_secret_env: str = "GSJ_MCP_TOKEN_SECRET"
-    serving_base_url: str  # the engine the gateway proxies to
+    """Six values a consumer must supply: the four here, plus
+    `GatewayNodeConfig.public_url` and `ReceiverConfig.traces_dir` —
+    everything else in this file has a working default (CP-25)."""
+
+    clone_url_for: str  # Forgejo clone URL pattern with {case_id}; episode
+    # containers clone it THEMSELVES (CP-11), so it must resolve from inside
+    # the sandbox network, not just from the host
+    mcp_url_base: str  # the MCP retrieval service, again sandbox-reachable
+    mcp_token_secret_env: str = "GSJ_MCP_TOKEN_SECRET"  # env var holding the
+    # HMAC secret; must equal the mcp-service's own secret
+    serving_base_url: str  # the engine the gateway proxies to — NO /v1 suffix
+    # (Polar's proxy appends /v1/chat/completions itself; CP-04′)
     provider: str = "gsj"  # pi provider key; model_name = "<provider>/<model>"
-    model: str
+    model: str  # must equal the engine's --served-model-name byte-for-byte
 
 
 class RuntimeConfig(_Section):
     backend: str = "docker"
-    image: str
-    network: str = "bridge"  # CP-07's proven Mac leg; host on the H200 estate
+    # The published pinned harness image (node + git + pi 0.83.0, CP-06);
+    # an estate that builds its own overrides — the default is the image
+    # every measured episode ran.
+    image: str = "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
+    network: str = "bridge"  # CP-07's proven Mac leg; the estate's compose
+    # network wherever services are addressed container-to-container (CP-04′)
 
 
 class HarnessConfig(_Section):
     import_path: str = "gsj_rollout.pi_harness:PiHarness"
-    tools_allowlist: list[str] = Field(min_length=1)  # the G3 pinned input (row 31)
-    artifacts_dir: str
-    workdir: str = "/workspace"
+    # The G3-pinned roster (row 31): the wire `tools` array hashes into the
+    # shipped approved set, so any OTHER roster fails
+    # `G3:tool_roster_hash_not_approved` until the estate re-pins.
+    tools_allowlist: list[str] = Field(
+        default=["read", "ls", "grep", "find", "write", "edit", "bash",
+                 "mcp_gsj_search_case", "mcp_gsj_search_decisions",
+                 "mcp_gsj_case_status", "mcp_gsj_decision_stats"],
+        min_length=1)
+    artifacts_dir: str = "/tmp/gsj-artifacts"  # host-side, written by the
+    # gateway process; the reward grader reads deliverables here — point it
+    # somewhere durable for real runs (/tmp is ephemeral, honestly so)
+    workdir: str = "/workspace"  # in-image; G2's approved hash is the
+    # /workspace singleton — changing it means a re-pin walk
     context_window: int = 32768
     max_tokens: int = 8192
-    thinking: str = "off"
+    thinking: str = "off"  # flipping it needs a symmetric served template
+    # AND re-conceiving G6 (A-22, CP-23) — not a knob today
     pi_entry: str | None = None
     pi_mcp_extension: str | None = None
     mcp_token_ttl_s: int = 3600
@@ -61,8 +84,14 @@ class HarnessConfig(_Section):
 
 class BuilderConfig(_Section):
     strategy: str = "gsj_rollout.builder:ValidatingPrefixMergingBuilder"
-    end_of_turn_token_id: int  # required, never auto-detected (A-15)
-    generation_prompt_glue_ids: list[int] | None = None  # template-specific (A-21)
+    # Pinned, never auto-detected (A-15) — a default is still an explicit pin
+    # on every rendered TaskRequest, and 151645 is <|im_end|> under the Qwen3
+    # tokenizer the default model serves. Re-derive when `estate.model`
+    # changes: tokenizer.convert_tokens_to_ids("<|im_end|>") — or your
+    # template's end-of-turn token — against the SERVED tokenizer.
+    end_of_turn_token_id: int = 151645
+    generation_prompt_glue_ids: list[int] | None = None  # template-specific
+    # (A-21); dormant since CP-04′ — set only under an asymmetric template
 
 
 class ChecksConfig(_Section):
@@ -90,7 +119,9 @@ class GatewayNodeConfig(_Section):
     id: str = "gsj-node-01"
     host: str = "0.0.0.0"
     port: int = 8100
-    public_url: str  # required: must serve host dispatch AND the sandbox (CP-03 finding 2)
+    public_url: str  # required: ONE URL reachable from host dispatch AND
+    # from inside episode containers (CP-03 finding 2) — a LAN IP or the
+    # estate network's gateway IP, never localhost
     engine: str = "vllm"
     max_init_workers: int = 4
     max_run_workers: int = 2
@@ -107,7 +138,9 @@ class ReceiverConfig(_Section):
     host: str = "127.0.0.1"
     port: int = 8300
     public_url: str | None = None
-    traces_dir: str
+    traces_dir: str  # required, no default on purpose: this is where the
+    # training data lands, and a /tmp default would lose it silently (the
+    # CP-19 honest-defaults rule) — choose durable storage
     quarantine_dir: str | None = None  # default: <traces_dir>/quarantine
 
     @property
@@ -121,9 +154,12 @@ class ReceiverConfig(_Section):
 
 class RunConfig(_Section):
     estate: EstateConfig
-    runtime: RuntimeConfig
-    harness: HarnessConfig
-    builder: BuilderConfig
+    # runtime/harness/builder/checks may be omitted wholesale (CP-25): every
+    # field of theirs has a working default, so absence means "the measured
+    # reference values", stated per-field at each default.
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    harness: HarnessConfig = Field(default_factory=HarnessConfig)
+    builder: BuilderConfig = Field(default_factory=BuilderConfig)
     checks: ChecksConfig = Field(default_factory=ChecksConfig)
     polar: PolarConfig
     receiver: ReceiverConfig

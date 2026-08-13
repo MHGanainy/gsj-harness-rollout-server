@@ -38,11 +38,45 @@ def test_unknown_key_names_section_and_key(tmp_path):
 
 def test_missing_required_key_is_loud(tmp_path):
     doc = yaml.safe_load(FIXTURE.read_text())
-    del doc["builder"]["end_of_turn_token_id"]  # A-15: required, never defaulted
+    del doc["receiver"]["traces_dir"]  # required, no default (CP-25: a /tmp
+    # default would lose the training data silently — honest-defaults rule)
     bad = tmp_path / "bad.yaml"
     bad.write_text(yaml.safe_dump(doc))
-    with pytest.raises(ValueError, match="end_of_turn_token_id"):
+    with pytest.raises(ValueError, match="traces_dir"):
         load_config(bad)
+
+
+# --- CP-25: the consumer surface — endpoints required, the rest defaulted --
+
+
+def test_a_stranger_config_of_endpoints_only_loads(tmp_path):
+    """The CP-25 claim, machine-checked: the six values a consumer must
+    supply — four estate endpoints, the gateway public_url, the traces
+    dir — are a COMPLETE config; everything else has a working default."""
+    minimal = {
+        "estate": {
+            "clone_url_for": "http://git.example:3000/gsj/{case_id}.git",
+            "mcp_url_base": "http://mcp.example:8790",
+            "serving_base_url": "http://127.0.0.1:8000",
+            "model": "Qwen/Qwen3-0.6B",
+        },
+        "polar": {"gateway": {"public_url": "http://192.0.2.1:8100"}},
+        "receiver": {"traces_dir": "/data/traces"},
+    }
+    path = tmp_path / "minimal.yaml"
+    path.write_text(yaml.safe_dump(minimal))
+    cfg = load_config(path)
+    # The defaults are the measured estate values, stated at their source:
+    assert cfg.runtime.image == "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
+    assert len(cfg.harness.tools_allowlist) == 11  # the G3-pinned roster
+    assert cfg.harness.artifacts_dir == "/tmp/gsj-artifacts"
+    assert cfg.builder.end_of_turn_token_id == 151645  # A-15: still an
+    # explicit pin on every render — the default is the pin, not detection
+    rendered = render_task_request(cfg, task_id="t", instruction="i",
+                                   case_id="c", timestep=1)
+    assert rendered["builder"]["config"]["end_of_turn_token_id"] == 151645
+    assert rendered["agent"]["settings"]["tools_allowlist"][0] == "read"
+    assert render_topology(cfg)["gateway"]["nodes"][0]["public_url"] == "http://192.0.2.1:8100"
 
 
 def test_user_section_is_free_form_and_never_read(tmp_path):

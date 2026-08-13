@@ -59,6 +59,14 @@ Charter = "https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/doc
 # which works because our core deps are a subset of Polar's five (A-14).
 server = []
 dev = ["pytest"]
+# There is NO [verl] and NO [slime] extra, decided at CP-25 (ADR-0023):
+# verl must install `--no-deps` from git at a pinned SHA (its declared
+# closure drags GPU-stack deps a trainer host must not resolve, and pip
+# extras cannot express --no-deps; PyPI additionally rejects direct git
+# URLs in published metadata), and slime is a 24.4 GB container image, not
+# a pip target at all. Each bridge's install is a requirements file plus
+# one documented command in the examples repo — see
+# gsj-harness-rollout-server-examples/example_project/.
 
 [project.scripts]
 gsj-rollout = "gsj_rollout.cli:main"

@@ -30,7 +30,21 @@ pip install gsj-harness-rollout-server
 ```
 
 Gives you `gsj_rollout.client` (submit + collect) and `gsj_rollout.checks`
-(the trace validators). Requires Python ≥ 3.12.
+(the trace validators). Requires Python ≥ 3.12. Until the first PyPI
+upload lands (wishlist 17 — the release path exists, nothing is uploaded),
+build the same wheel from a checkout: `python -m build --wheel`, then
+install `dist/gsj_harness_rollout_server-*.whl`.
+
+**To actually run a training loop**, start from the examples repo
+(`gsj-harness-rollout-server-examples`, beside this one — not yet
+published) and its `example_project/` (CP-25): a commented `config.yaml`
+a stranger can fill in (six required
+values), the committed taskbank, a readable `train.py`, one install
+command, and `RUNBOOK.md` — the start-to-finish document, including what
+an estate is and what collection costs. There are deliberately no
+`[verl]`/`[slime]` extras on this package (ADR-0023): verl installs
+`--no-deps` from git at a pinned SHA, slime is a container image — each
+bridge's install is one documented command over there.
 
 ### The approved sets that ship with it are ours, not defaults
 
@@ -57,7 +71,7 @@ the packaged copy; the format is specified in
 ## What the badge covers
 
 The badge covers the fixture-driven half and nothing else: the root suite
-(135), the corpus suite (44), the mcp-service suite (89), and the wheel
+(136), the corpus suite (58), the mcp-service suite (89), and the wheel
 build with the packaged-pins install proof. It does not cover — and a
 hosted runner cannot — the golden pairs, fidelity, the loop, or any episode
 at all: an episode needs an estate (a served engine, Forgejo, the MCP
