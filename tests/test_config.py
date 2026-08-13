@@ -233,6 +233,80 @@ def test_split_vocabulary_is_validated_at_render():
                                 case_id="c", timestep=1, split=bad)
 
 
+# --- CP-27: the strangerward validators (wishlist 21, 23; F-25, F-23) -----
+
+
+def _write(tmp_path, doc, name="cfg.yaml"):
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(doc))
+    return path
+
+
+def test_serving_base_url_v1_suffix_rejected_at_load(tmp_path):
+    """Wishlist 21(b): the suffixed form used to be accepted and fail at run
+    time as a bare 404 on /v1/v1/… reading as a wrong host (CP-26 §3)."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    for trap in ("http://127.0.0.1:8021/v1", "http://127.0.0.1:8021/v1/"):
+        doc["estate"]["serving_base_url"] = trap
+        with pytest.raises(ValueError, match=r"serving_base_url.*must not end in /v1"):
+            load_config(_write(tmp_path, doc))
+    doc["estate"]["serving_base_url"] = "http://127.0.0.1:8021"  # the engine root
+    assert load_config(_write(tmp_path, doc)).estate.serving_base_url == "http://127.0.0.1:8021"
+
+
+def test_gateway_port_public_url_mismatch_rejected_at_load(tmp_path):
+    """Wishlist 21(a): one fact, two keys — the mismatch used to surface as
+    connection-refused on the advertised URL at the first dead submit."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["polar"]["gateway"]["public_url"] = "http://192.168.0.158:9100"  # port default: 8100
+    with pytest.raises(ValueError, match=r"advertises port 9100 but the gateway "
+                                         r"listens on port 8100"):
+        load_config(_write(tmp_path, doc))
+    # no explicit port advertises the scheme default — the same dead URL
+    doc["polar"]["gateway"]["public_url"] = "http://192.168.0.158"
+    with pytest.raises(ValueError, match=r"advertises port 80 but the gateway"):
+        load_config(_write(tmp_path, doc))
+    # agreement in BOTH keys is the accepted form, at any port
+    doc["polar"]["gateway"]["public_url"] = "http://192.168.0.158:9100"
+    doc["polar"]["gateway"]["port"] = 9100
+    cfg = load_config(_write(tmp_path, doc))
+    assert cfg.polar.gateway.port == 9100
+    # a scheme-less URL parses port-less ("IP:8100" reads as path or as a
+    # host-named scheme) — reject naming the REAL gap, never "port 80"
+    doc["polar"]["gateway"]["public_url"] = "192.168.0.158:9100"
+    with pytest.raises(ValueError, match=r"needs an explicit http:// or https://"):
+        load_config(_write(tmp_path, doc))
+
+
+def test_null_section_error_names_the_missing_fields(tmp_path):
+    """F-25: a required line deleted whole leaves a comment-only section →
+    YAML null → the old error was 'Input should be a valid dictionary'
+    naming no field. It must name the section and what it needs."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["polar"]["gateway"] = None  # what `gateway:` + only comments parses to
+    with pytest.raises(ValueError, match=r"'polar\.gateway\.public_url': Field required"):
+        load_config(_write(tmp_path, doc))
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["estate"] = None  # a whole top-level section commented out
+    with pytest.raises(ValueError, match=r"'estate\.clone_url_for': Field required"):
+        load_config(_write(tmp_path, doc))
+    # the dict-typed free section takes the same F-25 mutation shape: a
+    # serve-only consumer gutting `user:` to its header must still load
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["user"] = None
+    assert load_config(_write(tmp_path, doc)).user == {}
+
+
+def test_model_revision_is_an_optional_in_band_pin(tmp_path):
+    """F-23's config half (wishlist 23): the served snapshot's revision may
+    travel with the config; absent means unpinned — stated, never guessed."""
+    assert load_config(FIXTURE).estate.model_revision is None
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["estate"]["model_revision"] = "c1899de289a04d12100db370d81485cdf75e47ca"
+    cfg = load_config(_write(tmp_path, doc))
+    assert cfg.estate.model_revision == "c1899de289a04d12100db370d81485cdf75e47ca"
+
+
 def test_checks_config_mirrors_check_policy_completely():
     """Step 2's teeth: every `CheckPolicy` field has a `ChecksConfig`
     counterpart with the same default (and nothing extra), so the CP-11b

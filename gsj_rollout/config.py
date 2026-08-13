@@ -8,10 +8,12 @@ server renders the receiver + Polar's `topology.yaml`, the trainer renders
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (BaseModel, ConfigDict, Field, ValidationError,
+                      field_validator, model_validator)
 
 from . import checks
 
@@ -46,6 +48,22 @@ class EstateConfig(_Section):
     # (Polar's proxy appends /v1/chat/completions itself; CP-04′)
     provider: str = "gsj"  # pi provider key; model_name = "<provider>/<model>"
     model: str  # must equal the engine's --served-model-name byte-for-byte
+    model_revision: str | None = None  # optional in-band pin: the engine's
+    # served snapshot revision (the HF commit sha) — the server never reads
+    # it; a trainer's `--snapshot` can verify against it BEFORE the GPU
+    # instead of matching the engine by luck (CP-26 F-23, wishlist 23)
+
+    @field_validator("serving_base_url")
+    @classmethod
+    def _reject_v1_suffix(cls, value: str) -> str:
+        # Wishlist 21(b): the suffixed form is schema-plausible and fails at
+        # run time as a bare 404 on /v1/v1/… that reads as a wrong host.
+        if value.rstrip("/").endswith("/v1"):
+            raise ValueError(
+                "must not end in /v1 — Polar's proxy appends /v1/chat/completions "
+                "itself (CP-04′), so this URL would request /v1/v1/…; drop the "
+                "suffix and point at the engine root, e.g. http://127.0.0.1:8000")
+        return value
 
 
 class RuntimeConfig(_Section):
@@ -127,6 +145,32 @@ class GatewayNodeConfig(_Section):
     max_run_workers: int = 2
     max_postrun_workers: int = 4
 
+    @model_validator(mode="after")
+    def _port_agrees_with_public_url(self) -> "GatewayNodeConfig":
+        # Wishlist 21(a): one fact, two keys — a mismatch dispatches to a URL
+        # nothing listens on (measured: connection refused, CP-26). Reject
+        # rather than derive: public_url is the consumer's statement of
+        # reachability and silently rewriting either key would hide the typo.
+        parsed = urlsplit(self.public_url)
+        if parsed.scheme not in ("http", "https"):
+            # A scheme-less "IP:8100" parses as path (or host-as-scheme), so
+            # the port check below would misread it as "port 80" and suggest
+            # a fix that validates yet stays undialable. Name the real gap.
+            raise ValueError(
+                f"public_url {self.public_url!r} needs an explicit http:// or "
+                f"https:// scheme — without one the URL cannot be dialed and "
+                f"its port cannot be read")
+        advertised = parsed.port if parsed.port is not None else (
+            443 if parsed.scheme == "https" else 80)
+        if advertised != self.port:
+            raise ValueError(
+                f"public_url advertises port {advertised} but the gateway "
+                f"listens on port {self.port} — one fact, two keys; set "
+                f"public_url's port to :{self.port} or set gateway.port "
+                f"to {advertised} (a mismatch means connection-refused on "
+                f"the advertised URL at the first dispatch)")
+        return self
+
 
 class PolarConfig(_Section):
     rollout: RolloutConfig = Field(default_factory=RolloutConfig)
@@ -170,6 +214,28 @@ def _default_url(host: str, port: int) -> str:
     return f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}"
 
 
+def _null_sections_to_empty(data: dict[str, Any], model: type[BaseModel]) -> None:
+    """F-25 (wishlist 23): a section whose every key is deleted or commented
+    out parses as YAML null, and pydantic reports 'Input should be a valid
+    dictionary' naming no field. Normalize null to {} wherever the model
+    expects a section, so the field-level errors fire instead — the message
+    then names the section AND its missing keys ('polar.gateway.public_url:
+    Field required'). Model-driven, not a hardcoded section list. Dict-typed
+    sections (`user:`) normalize too — gutting the free section down to its
+    header must not reject the config."""
+    for name, field in model.model_fields.items():
+        sub = field.annotation
+        if name not in data:
+            continue
+        if isinstance(sub, type) and issubclass(sub, BaseModel):
+            if data[name] is None:
+                data[name] = {}
+            elif isinstance(data[name], dict):
+                _null_sections_to_empty(data[name], sub)
+        elif get_origin(sub) is dict and data[name] is None:
+            data[name] = {}
+
+
 def load_config(path: str | Path) -> RunConfig:
     """Load and validate the one YAML; unknown keys name section and key."""
     with open(path) as handle:
@@ -179,6 +245,7 @@ def load_config(path: str | Path) -> RunConfig:
             raise ValueError(f"config {path}: invalid YAML: {exc}") from exc
     if not isinstance(loaded, dict):
         raise ValueError(f"config {path} must contain a top-level mapping")
+    _null_sections_to_empty(loaded, RunConfig)
     try:
         cfg = RunConfig.model_validate(loaded)
     except ValidationError as exc:

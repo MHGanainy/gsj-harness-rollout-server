@@ -261,6 +261,28 @@ the (ADR-0012-raised) law is the binding number. `checks.py` untouched at
 159 builder + 528 checks + 163 cli + 123 client + 331 config + 322
 pi_harness + 184 receiver = **1,828**.
 
+**[CP-27] Budget status: 1,910 / 2,000 — two modules moved, all of it
+strangerward.** `config.py` 331 → 398 (+67): wishlist 21's two validators
+(the `/v1`-suffix reject and the gateway port/public_url agreement check,
+with an explicit-scheme guard the CP's own adversarial pass forced — a
+scheme-less `IP:8100` parses port-less and the port check would have
+misdiagnosed it as "port 80"), F-25's null-section normalizer
+(`_null_sections_to_empty`, model-driven rather than a hardcoded section
+list, dict-typed sections included so a gutted `user:` still loads), and
+F-23's optional `estate.model_revision` pin. The wishlist estimated ~6
+lines; the executable checks ARE about that size — the excess is the
+error messages themselves (three to five lines each, naming the key, the
+measured runtime symptom, and the fix — the message a stranger can act on
+is the deliverable, per CP-26's finding that both traps fail as bare 404
+/ connection-refused) plus the house-style comments citing the findings.
+`cli.py` 163 → 178 (+15): the `__main__` guard (wishlist 19), `flush=True`
+on the six serve-session prints (F-20), and the absolute
+`vendor/polar/.venv` path via the already-computed repo root (F-21's
+one-line half). `checks.py` untouched at 528/528 (the ADR-0021 equality
+tripwire passed unmodified). Total 18 + 159 builder + 528 checks + 178
+cli + 123 client + 398 config + 322 pi_harness + 184 receiver =
+**1,910**, headroom 90.
+
 **Deliberately dropped** (and whose problem each becomes):
 
 - the store — trainer's problem
@@ -707,6 +729,43 @@ outnumber the predicted list, which is the CP working as designed
 (finding over feature, law 7). Estate torn down after; `~/cp26-stranger/`
 stays as the evidence artifact beside `~/cp21`. No status changes; the
 tally stands: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-27] No row moves; the strangerward lift — the CP-26 findings words
+could not close, fixed in code.** Library side (`config.py` + `cli.py`,
+the enumerated freeze-lift): wishlist 21's two validators land — a
+`serving_base_url` ending in `/v1` and a `gateway.port` ≠
+`public_url`-port mismatch now fail at load naming the key, the measured
+runtime symptom (bare 404 on `/v1/v1/…`; connection-refused on the
+advertised URL), and the fix, instead of at the first dead episode;
+F-25's comment-only-section-reads-as-null trap now yields field-level
+errors (`'polar.gateway.public_url': Field required`) via a model-driven
+null→`{}` normalizer; F-23's config half lands as optional
+`estate.model_revision` (the in-band snapshot pin — carried, never read
+by the server); wishlist 19's `__main__` guard makes
+`python -m gsj_rollout.cli` behave like the console script (the CP-21/
+CP-26 silent 0-exit no-op is dead); and F-20/F-21's serve half — every
+pre-block print flushes so a nohup'd log holds the session's
+instructions, and the printed Polar path is absolute. Examples-repo side
+(wishlist 25): train.py aggregates collect and reward counts (F-27),
+takes `--gpu N` → `CUDA_VISIBLE_DEVICES` (F-34), and its closing
+printout sends the sync to the workstation side (F-29); RUNBOOK and
+FINDINGS rows updated to match. Every LIBRARY-side fix has a test that
+fails with the fix removed (root suite 136 → 143; the flush verified
+independently of the guard through a pipe); the examples-repo fixes are
+code-inspected only — that repo has no suite. NOT touched: `checks.py`
+(528/528 — F-39's warn-once needs its own ADR), `mcp-service/` (frozen —
+wishlist 24's secret probe stays open), publishing (F-14 stays the one
+BLOCKER, operator-owned, wishlist 17). What the next stranger hits,
+updated from CP-26's list: F-14 first and still (they cannot get the
+trees); the cold-cache install cost; F-22's secret (named, unverifiable
+before spending); the sync topology unless seated at the workstation
+(documented, not cured); and — new residual — a wheel-installed
+`gsj-rollout serve` prints a `vendor/polar` path into site-packages
+where no vendor tree exists (the path is now absolute and loud, but the
+provisioning walk is still Polar's README — wishlist 22's missing-venv
+hint remains). The config traps are off the list: they now fail at load,
+by name. Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER ·
+1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |

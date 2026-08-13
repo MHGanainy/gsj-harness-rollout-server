@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -109,6 +110,67 @@ def test_serve_render_only(tmp_path, capsys):
     assert yaml.safe_load(rendered.read_text())["gateway"]["nodes"][0]["model_served"] == "Qwen/Qwen3-0.6B"
     out = capsys.readouterr().out
     assert "serve_rollout" in out and "serve_gateway" in out
+
+
+# --- CP-27: the strangerward lift (wishlist 19, 22; F-20, F-21) -----------
+
+
+def test_module_form_help_exits_zero_and_prints():
+    """Wishlist 19's other half: the module form must behave like the
+    console script, not like an import."""
+    result = subprocess.run([sys.executable, "-m", "gsj_rollout.cli", "--help"],
+                            capture_output=True, text=True, cwd=REPO_ROOT)
+    assert result.returncode == 0
+    assert "gsj-rollout" in result.stdout
+
+
+def test_module_form_serve_bad_config_exits_2_not_silently_0(tmp_path):
+    """Hypothesis (f), measured at CP-26: `python -m gsj_rollout.cli serve`
+    exited 0 with zero bytes of output having started nothing. With the
+    __main__ guard it takes the CP-08 contract: stated exit code, says why."""
+    result = subprocess.run(
+        [sys.executable, "-m", "gsj_rollout.cli", "serve",
+         "--config", str(tmp_path / "missing.yaml")],
+        capture_output=True, text=True, cwd=REPO_ROOT)
+    assert result.returncode == 2  # EXIT_CONFIG, not the silent 0
+    assert result.stderr.strip()   # and it says why
+
+
+def test_serve_instructions_survive_a_pipe(tmp_path):
+    """F-20: the topology + the two Polar commands are the session's only
+    instructions, and block-buffered stdout lost them under `nohup … > log`.
+    Through a pipe (not a tty), they must arrive WHILE the server runs."""
+    import queue
+    import threading
+    import time
+
+    config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "gsj_rollout.cli", "serve", "--config", str(config)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT,
+        # a parent env with PYTHONUNBUFFERED set would make this test pass
+        # without the flush — pin it off so the coverage is unconditional
+        env={**os.environ, "PYTHONUNBUFFERED": ""})
+    channel: "queue.Queue[str]" = queue.Queue()
+    threading.Thread(target=lambda: [channel.put(line) for line in proc.stdout],
+                     daemon=True).start()
+    lines: list[str] = []
+    try:
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline and len(lines) < 5:
+            try:
+                lines.append(channel.get(timeout=0.2))
+            except queue.Empty:
+                pass
+        assert proc.poll() is None, (proc.returncode, proc.stderr.read())
+        joined = "".join(lines)
+        assert "serve_rollout" in joined and "serve_gateway" in joined
+        assert "receiver listening" in joined
+        # F-21: the printed Polar path is absolute, not cwd-relative
+        assert str(REPO_ROOT / "vendor" / "polar" / ".venv") in joined
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 def test_no_signal_handler_installed_at_import():

@@ -40,18 +40,26 @@ def serve(args: argparse.Namespace) -> int:
     with open(topology_path, "w") as handle:
         yaml.safe_dump(config_mod.render_topology(cfg), handle, sort_keys=False)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    print(f"topology rendered: {topology_path} — run Polar's two processes yourself:")
-    print(f"  PYTHONPATH={repo_root} vendor/polar/.venv/bin/polar serve_rollout -c {topology_path}")
+    # F-21: the Polar path is printed absolute — the cwd these commands run
+    # from is not this process's cwd. F-20: every pre-serve print flushes,
+    # so `nohup … > log` holds the session's only instructions while the
+    # receiver blocks below, instead of an empty block-buffered log.
+    polar_bin = os.path.join(repo_root, "vendor", "polar", ".venv", "bin", "polar")
+    print(f"topology rendered: {topology_path} — run Polar's two processes yourself:",
+          flush=True)
+    print(f"  PYTHONPATH={repo_root} {polar_bin} serve_rollout -c {topology_path}",
+          flush=True)
     print(f"  {cfg.estate.mcp_token_secret_env}=<secret> PYTHONPATH={repo_root} "
-          f"vendor/polar/.venv/bin/polar serve_gateway -c {topology_path}")
+          f"{polar_bin} serve_gateway -c {topology_path}", flush=True)
     print(f"callbacks: {cfg.receiver.base_url}/callbacks/session_result | traces -> "
-          f"{cfg.receiver.traces_dir} | quarantine -> {cfg.receiver.resolved_quarantine_dir}")
+          f"{cfg.receiver.traces_dir} | quarantine -> {cfg.receiver.resolved_quarantine_dir}",
+          flush=True)
     if args.render_only:
         return EXIT_OK
 
     receiver = Receiver(cfg.receiver.host, cfg.receiver.port,
                         cfg.receiver.traces_dir, cfg.receiver.resolved_quarantine_dir)
-    print(f"receiver listening on {cfg.receiver.host}:{receiver.port}")
+    print(f"receiver listening on {cfg.receiver.host}:{receiver.port}", flush=True)
     stop = threading.Event()
     previous = {sig: signal.signal(sig, lambda *_: stop.set())
                 for sig in (signal.SIGINT, signal.SIGTERM)}
@@ -64,7 +72,8 @@ def serve(args: argparse.Namespace) -> int:
         thread.join(timeout=5.0)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
-    print(f"receiver stopped: accepted={receiver.accepted} rejected={receiver.rejected}")
+    print(f"receiver stopped: accepted={receiver.accepted} rejected={receiver.rejected}",
+          flush=True)
     return EXIT_OK
 
 
@@ -161,3 +170,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return args.func(args)
+
+
+if __name__ == "__main__":
+    # Wishlist 19: without this, `python -m gsj_rollout.cli serve …` exits 0
+    # silently having started nothing (measured at CP-21 and again at CP-26).
+    raise SystemExit(main())
