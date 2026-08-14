@@ -1,0 +1,85 @@
+# staging/rollout.h200.yaml — the one YAML for the H200 estate (CP-04′).
+# Host-bound VALUES for this estate (the predecessor's delta law: swap
+# values, never code). The Polar processes, the receiver, and submission
+# all run ON the H200 host as uid 1000.
+#
+# Networking facts this file encodes (measured at CP-04′):
+#   - THE ONE THAT COSTS AN EPISODE IF FORGOTTEN: our harness clones INSIDE
+#     the sandbox (the CP-11 hardened `--depth 1` clone), where the
+#     predecessor cloned host-side and mounted the checkout — so OUR episode
+#     containers must reach Forgejo's static container IP themselves.
+#     Docker inter-network isolation blocks default-bridge → 172.28.9.10
+#     (attempt 1 failed exactly there); the cure is a config value:
+#     `runtime.network: gsj-staging-net` puts episodes ON the staging
+#     compose network (container → container, same network — the estate's
+#     own reachability matrix).
+#   - Polar's DockerRuntime passes only `--network`; no `--add-host`, so
+#     `host.docker.internal` never resolves in episode containers on this
+#     Linux host. Host-bound services (MCP 0.0.0.0:8790, gateway
+#     0.0.0.0:8200) are addressed by the staging network's own gateway IP
+#     172.28.9.1 (probed from a gsj-staging-net container: Forgejo, MCP,
+#     and gateway all reachable; 172.17.0.1 also works but names another
+#     network's interface).
+#   - The engine is host-local (127.0.0.1:8000); only the gateway talks to
+#     it, from the host — no bridge forward needed for this stack. 8100 is
+#     left free: BRINGUP §4's engine self-forward convention owns it.
+#   - The gateway public_url serves host dispatch AND the sandbox
+#     (CP-03 finding 2): 172.28.9.1 is host-local too, so one URL does both.
+
+estate:
+  clone_url_for: "http://172.28.9.10:3000/gsj-staging/{case_id}.git"
+  mcp_url_base: "http://172.28.9.1:8790"
+  mcp_token_secret_env: GSJ_MCP_TOKEN_SECRET
+  # NO /v1 suffix: Polar's proxy appends /v1/chat/completions itself
+  # (proxy.py:126 — attempt 2 404'd on /v1/v1/... with the suffixed form)
+  serving_base_url: "http://127.0.0.1:8000"
+  provider: gsj
+  model: Qwen/Qwen3-0.6B
+
+runtime:
+  backend: docker
+  image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
+  network: gsj-staging-net
+
+harness:
+  tools_allowlist:
+    [read, ls, grep, find, write, edit, bash,
+     mcp_gsj_search_case, mcp_gsj_search_decisions,
+     mcp_gsj_case_status, mcp_gsj_decision_stats]
+  artifacts_dir: /home/sysadmin/cp28/artifacts-on
+  workdir: /workspace
+  context_window: 32768
+  max_tokens: 8192
+  thinking: "medium"
+
+builder:
+  strategy: gsj_rollout.builder:ValidatingPrefixMergingBuilder
+  end_of_turn_token_id: 151645   # <|im_end|> under the served tokenizer (A-15)
+  # generation_prompt_glue_ids: DELIBERATELY UNSET (CP-04' Step 4) — the
+  # symmetric served template keeps consecutive pi prompts prefix-stable,
+  # so Polar's grouping merges natively; the stitch code stays dormant as
+  # the fallback for any future asymmetric template (ADR-0007 stands).
+
+checks:
+  # Row 27's "a CUDA estate sets 0.0" is MEASURED FALSE on this estate
+  # (CP-04' attempt 4): CUDA vLLM bf16 emits exact-0.0 at 34/237 = 14.3%
+  # of mask==1 positions — near-delta rounding is not an MLX artifact.
+  # The CP-10 default allowance (0.25) already covers the measurement;
+  # stated explicitly here so the estate's policy is visible.
+  zero_at_mask1_max_rate: 0.25
+
+polar:
+  rollout:
+    host: 127.0.0.1
+    port: 8080
+  gateway:
+    id: gsj-node-01
+    host: 0.0.0.0
+    port: 8200
+    public_url: "http://172.28.9.1:8200"
+    engine: vllm
+
+receiver:
+  host: 127.0.0.1
+  port: 8300
+  traces_dir: /home/sysadmin/cp28/traces-on

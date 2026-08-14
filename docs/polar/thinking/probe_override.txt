@@ -1,0 +1,23 @@
+# CP-28 pre-collection probes against the live engine (tunnel 8100 -> 8000).
+# Q1: does a per-request chat_template_kwargs override the serve argv's
+#     --default-chat-template-kwargs '{"enable_thinking": false}'?
+# Q2: which field carries parsed reasoning back, and does an inbound
+#     assistant-history reasoning field re-render?
+
+## Probe 1 — single user message, max_tokens bounded
+default (no kwargs):        prompt_tokens=22  completion_tokens=9   reasoning=none   "2 + 2 = 4."
+kwargs enable_thinking=F:   prompt_tokens=22  completion_tokens=9   reasoning=none   "2 + 2 = 4."
+kwargs enable_thinking=T:   prompt_tokens=18  completion_tokens=107 reasoning in message["reasoning"]
+# -> override WORKS: 22-18 = 4 ids = the empty think block [151667,271,151668,271]
+# -> vLLM 0.26's qwen3 reasoning parser returns the reasoning under
+#    message.reasoning (NOT reasoning_content) on this build.
+
+## Probe 2 — 3-message history, assistant carries prior reasoning; enable_thinking=true
+history: assistant {content only}                       prompt_tokens=46
+history: assistant {content + "reasoning": <text>}      prompt_tokens=76
+history: assistant {content + "reasoning_content": ...} prompt_tokens=76
+history: assistant {content with literal <think> block} prompt_tokens=76
+# -> all three reasoning-bearing forms render identically: the engine maps
+#    the inbound `reasoning` field into the template's reasoning_content
+#    path, so pi's round-trip (thinkingSignature = the field it found,
+#    echoed verbatim on replay) re-renders sampled reasoning in history.

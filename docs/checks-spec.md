@@ -249,6 +249,30 @@ exception (the seam's contract survives hostile payloads).
   **retire** (row 14 reverts to estate-side enforcement). Re-pinning is
   data (`pins/` + a walk); any rule reshaping pays ADR-0021's
   zero-headroom discipline.
+  **[CP-28] The Phase-C evidence exists (M9a measured,
+  `docs/polar/thinking/`)**: two 15-episode collections on the golden
+  triple, identical but for `harness.thinking`. As predicted, thinking-on
+  failed G6 on every episode, loudly and fail-closed — findings were
+  G6-only (`G6:prompt_suffix_ne_tail_ids` ×15, plus
+  `G6:interstitial_ne_tail_ids` covering the 26 later openings), every
+  episode quarantined with forensics, gate unweakened — and **all 41 turn
+  openings end `[151644, 77091, 198]`**, the re-pin candidate's claim
+  confirmed against real thinking-on renders (the pinned empty-think tail
+  appeared zero times). One measured correction to the re-pin option as
+  stated above: the 3-id tail is NOT an `endswith`-suffix of the 7-id
+  empty-block tail (which ends `[271, 151668, 271]`), so pinning the 3-id
+  tail ALONE keeps the gate **mode-asserting** — a thinking-off opening
+  fails it — rather than weakening to template-integrity; only pinning
+  BOTH tails weakens. CP-28's verdict (GO) therefore favours **re-pin as
+  per-mode pin data**: a thinking-on estate pins `[[151644, 77091, 198]]`,
+  a thinking-off estate keeps the empty-block ids — zero rule reshaping,
+  ADR-0021's 528 untouched; the estate owns keeping `harness.thinking`
+  and the pin in agreement (a mismatch fails every episode loudly, which
+  is the correct failure). The decision and its landing stay C-2's; the
+  deadline is now live — thinking-on episodes have reached a receiver
+  (this measurement, deliberately) and the gate answered correctly; C-2
+  lands the re-pin before any thinking-on episode is expected to be
+  *accepted*.
 - **H-41 — LANDED as a policy-gated check** (`check_toolless_roster`):
   a roster offered with zero parsed `tool_calls` anywhere in the message
   stream emits `H41:roster_offered_zero_tool_calls` **only when

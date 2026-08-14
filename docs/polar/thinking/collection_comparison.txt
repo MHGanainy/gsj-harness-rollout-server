@@ -1,0 +1,76 @@
+CP-28 collection comparison — same triple (case_0001, timestep 12, the golden
+skill:summarize instruction, 626 bytes), same estate, same engine process,
+same four legs; the ONLY config delta is harness.thinking: off -> medium
+(+ per-leg artifacts/traces dirs). 15 attempts per leg, serial singles.
+
+== thinking OFF (control) ==
+  attempts 15 | receiver-accepted 15 | quarantined 0
+  finding kinds: none
+  chains_total==1: 15/15 | glue_stitched: 0
+  builder findings: 0 episodes
+  G2 system-prompt sha == pin: 15/15
+  finish_reasons: {'stop': 15}
+  mcp_ok>=1: 15/15 | builtin_ok>=1 (H-41 ledger): 9/15 | write ok>=1: 1/15
+  think_tokens: {'n': 15, 'min': 0, 'p25': 0, 'median': 0, 'p75': 0, 'max': 0, 'mean': 0}
+  response_len: {'n': 15, 'min': 2689, 'p25': 3558, 'median': 3705, 'p75': 3893, 'max': 10319, 'mean': 4056.9}
+  total_len: {'n': 15, 'min': 5654, 'p25': 6523, 'median': 6670, 'p75': 6858, 'max': 13284, 'mean': 7021.9}
+  run_ms: {'n': 15, 'min': 3586, 'p25': 7289, 'median': 7693, 'p75': 8428, 'max': 11254, 'mean': 7965.2}
+  turn-opening tails observed: ['empty7']
+
+== thinking ON (measurement) ==
+  attempts 15 | receiver-accepted 0 | quarantined 15
+  finding kinds: ['interstitial_ne_tail_ids', 'prompt_suffix_ne_tail_ids']
+  chains_total==1: 15/15 | glue_stitched: 0
+  builder findings: 0 episodes
+  G2 system-prompt sha == pin: 15/15
+  finish_reasons: {'stop': 14, 'tool_calls': 1}
+  mcp_ok>=1: 15/15 | builtin_ok>=1 (H-41 ledger): 13/15 | write ok>=1: 8/15
+  think_tokens: {'n': 15, 'min': 539, 'p25': 713, 'median': 1100, 'p75': 1430, 'max': 2523, 'mean': 1152.2}
+  response_len: {'n': 15, 'min': 2029, 'p25': 4692, 'median': 7136, 'p75': 12682, 'max': 23533, 'mean': 8593.3}
+  total_len: {'n': 15, 'min': 4990, 'p25': 7653, 'median': 10097, 'p75': 15643, 'max': 26494, 'mean': 11554.3}
+  run_ms: {'n': 15, 'min': 15050, 'p25': 18181, 'median': 21136, 'p75': 29611, 'max': 44660, 'mean': 25479.6}
+  turn-opening tails observed: ['short3']
+
+ON G6 accounting: 15 prompt-suffix findings (one per episode),
+  26 failed interstitial openings across 41 total turn openings —
+  every one of the 41 openings ends with [151644, 77091, 198] (short3,
+  '<|im_start|>assistant\n'), the CP-23 re-pin candidate; the pinned empty-think
+  tail appeared 0 times.
+
+think fraction of sampled (mask==1) tokens, ON, per episode, sorted:
+  [0.441, 0.551, 0.551, 0.586, 0.59, 0.654, 0.666, 0.673, 0.692, 0.694, 0.717, 0.746, 0.872, 0.896, 0.95]
+
+per-episode, ON:
+  sid              s   resp    tot  %32k turns  think  frac tools(ok/all) mcp_ok finish
+  a2ee5e5c7f49    15  11621  14582  44.5     2    631  0.65      4/4           4 stop
+  7dfee036e36a    16   4675   7636  23.3     2    539  0.44      8/8           3 stop
+  b4f9bb0ded17    17   7161  10122  30.9     2    582  0.55      6/6           5 stop
+  b3c947e521c8    18  23533  26494  80.9     2    713  0.55     11/18          9 tool_calls
+  e734af6ea07d    20   9605  12566  38.3     4   1308  0.90      6/6           3 stop
+  93e5e0999b82    20   4800   7761  23.7     2    757  0.59      9/9           3 stop
+  e4666f581fe0    21   4692   7653  23.4     2    744  0.59      6/6           4 stop
+  7abc2b39a1d6    21   2481   5442  16.6     2    843  0.69      6/6           4 stop
+  6d80ba86d640    23  12682  15643  47.7     3   1121  0.69     10/10          4 stop
+  37b18f09a702    25   2029   4990  15.2     2   1100  0.72      1/1           1 stop
+  c33cee284b8a    29  13133  16094  49.1     2   1194  0.67     10/10          6 stop
+  12a0a387a589    29   7136  10097  30.8     3   1430  0.75      6/6           2 stop
+  2543fd421493    39   5918   8879  27.1     4   2084  0.87     12/12          9 stop
+  affdff18c910    40  13890  16851  51.4     5   1714  0.67     36/36          4 stop
+  59daa5172645    44   5543   8504  26.0     4   2523  0.95      5/5           1 stop
+
+per-episode, OFF:
+  ce9834209bfa     3   2689   5654  17.3     2      0  0.00      2/2           1 stop
+  08fe7f41f132     6   3536   6501  19.8     2      0  0.00      2/2           2 stop
+  7b75b978ab1c     6   3558   6523  19.9     2      0  0.00      2/2           2 stop
+  3da6cc23f65f     7   3718   6683  20.4     2      0  0.00      8/8           3 stop
+  44e695d8b04f     7   3672   6637  20.3     2      0  0.00      2/2           2 stop
+  4dd653115117     7   3705   6670  20.4     2      0  0.00      8/8           3 stop
+  54f250e80d06     7   3602   6567  20.0     2      0  0.00      2/2           2 stop
+  8548cf16e767     7   3683   6648  20.3     2      0  0.00      2/2           2 stop
+  33f153bc8f1c     7   2907   5872  17.9     2      0  0.00      1/1           1 stop
+  5c98c02036ac     7   3760   6725  20.5     2      0  0.00      9/9           3 stop
+  292fd4f8db2d     8  10319  13284  40.5     2      0  0.00     13/13          5 stop
+  a51795a2c4a8     8   3837   6802  20.8     2      0  0.00     11/11          3 stop
+  72f4206cac50    10   3893   6858  20.9     2      0  0.00     10/10          3 stop
+  7f60dafb2fc1    11   3993   6958  21.2     2      0  0.00      9/9           3 stop
+  4880c824af10    11   3981   6946  21.2     2      0  0.00      8/8           3 stop
