@@ -1,0 +1,27 @@
+ok   tool_roster_hash <- convention anchor pins/tools.captured.json: a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56
+ok   tool_roster_hash <- docs/polar/pi-corpus/trace.json tools[]: a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56
+ok   system_prompt_hash <- docs/polar/pi-corpus/trace.json prompt_messages[0]: f56e8a6e9ea9dd1c19be89c6754a4e8d3d1c0f89e04bb21f60237aa2e8837df4
+ok   tool_roster_hash <- docs/polar/fidelity/trace.json tools[]: a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56
+ok   system_prompt_hash <- docs/polar/fidelity/trace.json prompt_messages[0]: f56e8a6e9ea9dd1c19be89c6754a4e8d3d1c0f89e04bb21f60237aa2e8837df4
+ok   system_prompt_hash <- pins/container/system_prompt.container.derived.txt: f56e8a6e9ea9dd1c19be89c6754a4e8d3d1c0f89e04bb21f60237aa2e8837df4
+ok   settings_hash <- pins/settings.rendered.json: dae8948524be8253e04c4174632477e0333adc0323e791a6e54ace3b31004d20
+ok   settings_hash <- pi_harness settings_json constant: dae8948524be8253e04c4174632477e0333adc0323e791a6e54ace3b31004d20
+ok   skill_card_hash <- corpus/staging/skills/summarize/SKILL.md: d41ec6eaffbb940ec48191b50513ddfa44a3669c242a8df519f94127a20f449a
+ok   skill_card_hash <- corpus/staging/skills/analyze/SKILL.md: 15ae463eb20428b2daef45df00600f6bf7df4f7a6622e377310127a786b17f88
+ok   tokenizer_hash <- codec tokenizer.json: 949e1ec83f61520a25c75426edc4a43acc36f29a
+note chat_template_hash [codec snapshot, not approved]: a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8
+ok   tokenizer_hash <- served tokenizer.json: 949e1ec83f61520a25c75426edc4a43acc36f29a
+note chat_template_hash [served snapshot, not approved]: a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8
+ok   chat_template_hash <- served --chat-template file qwen3_training.jinja: 1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9
+ok   g6_expected_tail <- pins/g6_tail.captured.txt: <|im_start|>assistant
+<think>
+
+</think>
+
+
+ok   thinking-on pins: non-G6 approved sets == pins.gsj.json
+ok   thinking-on tail: byte-prefix of the off tail, ids its first three
+ok   g6_expected_tail_ids <- served tokenizer over pins/g6_tail.captured.txt: [151644, 77091, 198, 151667, 271, 151668, 271]
+ok   thinking-on g6_expected_tail_ids <- served tokenizer: [151644, 77091, 198]
+
+all approved values reproduced

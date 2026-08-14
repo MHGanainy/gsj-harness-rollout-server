@@ -34,7 +34,7 @@ MINIMAL_CFG = {
     "estate": {
         "clone_url_for": "http://forgejo.invalid:3000/gsj-staging/{case_id}.git",
         "mcp_url_base": "http://mcp.invalid:8790",
-        "serving_base_url": "http://serve.invalid:8000/v1",
+        "serving_base_url": "http://serve.invalid:8000",
         "model": "qwen3-0p6b",
     },
     "runtime": {"image": "example.invalid/harness:1"},

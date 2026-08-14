@@ -953,3 +953,75 @@ def test_the_wheel_ships_the_pins_by_config():
     config = tomllib.loads(pyproject.read_text())
     include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert include["pins/pins.gsj.json"] == "gsj_rollout/pins/pins.gsj.json"
+
+
+# --- CP-30 (ADR-0024): the per-mode G6 pin — mode selection is pins data --
+
+
+def _on_pins_path():
+    from pathlib import Path
+
+    return Path(__file__).resolve().parent.parent / "pins" / "thinking-on" / "pins.gsj.json"
+
+
+def _select_pins(monkeypatch, path):
+    # the in-process analogue of GSJ_PINS_PATH (which resolves at import;
+    # the resolver itself is proven by the subprocess tests above)
+    monkeypatch.setattr(checks, "_pins_cache", None)
+    monkeypatch.setattr(checks, "PINS_PATH", path)
+
+
+def test_g6_thinking_on_trace_passes_the_full_seam_against_the_on_pins(monkeypatch):
+    """ADR-0024's point: the real CP-28 thinking-on episode — quarantined
+    then, G6-only findings — passes the FULL seam clean once the estate's
+    pins state the mode. Same rule, same key, different approved data;
+    the six non-G6 sets are byte-equal so every other gate is untouched."""
+    body = _polar_body("thinking", "episode-on.quarantined.json")["session_result"]
+    _select_pins(monkeypatch, _on_pins_path())
+    for trace in body["trajectory"]["traces"]:
+        assert checks.check_thinking_tail(trace) == []
+    assert checks.validate_session_result(body) == []
+
+
+def test_g6_thinking_on_trace_fails_against_the_off_pins():
+    """The CP-28 behaviour, still available under the default (off) pins:
+    mode selection does the work — the gate was never loosened. The
+    receiver's recorded quarantine verdict reproduces byte-stable."""
+    wrapper = _polar_body("thinking", "episode-on.quarantined.json")
+    assert checks.validate_session_result(wrapper["session_result"]) == wrapper["findings"]
+    assert wrapper["findings"][0] == "G6:prompt_suffix_ne_tail_ids"
+
+
+def test_g6_thinking_off_trace_fails_against_the_on_pins(trace13, monkeypatch):
+    """Mode-asserting in BOTH directions (the non-suffix geometry, CP-28):
+    an off opening ends with the empty-think block, which cannot
+    ids-endswith the bare 3-id generation prompt."""
+    _select_pins(monkeypatch, _on_pins_path())
+    assert checks.check_thinking_tail(trace13) == [
+        "G6:prompt_suffix_ne_tail_ids",
+        "G6:interstitial_ne_tail_ids:first=2:count=1"]
+
+
+def test_derive_pins_walk_guards_the_per_mode_shape():
+    """ADR-0024 §6: the walk verifies the thinking-on sibling in the same
+    run — non-G6 set equality, the byte-prefix relation, ids = the off
+    ids' first three — and stays green deskside (tokenizer legs skip,
+    never silently pass)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    # Hermetic like the resolver subprocess tests above: an estate shell's
+    # GSJ_* evidence overrides must not redirect the walk this test runs.
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GSJ_PINS_PATH", "GSJ_CODEC_SNAPSHOT",
+                          "GSJ_SERVED_SNAPSHOT", "GSJ_SERVED_TEMPLATE")}
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "pins" / "derive_pins.py")],
+        capture_output=True, text=True, env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ok   thinking-on pins: non-G6 approved sets == pins.gsj.json" in result.stdout
+    assert ("ok   thinking-on tail: byte-prefix of the off tail, "
+            "ids its first three") in result.stdout

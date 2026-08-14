@@ -33,6 +33,11 @@ class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# pi's own level list (CP-28, measured in clampThinkingLevel's source): any
+# value outside it is silently clamped to "off" — the validator's subject.
+_PI_THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
 class EstateConfig(_Section):
     """Six values a consumer must supply: the four here, plus
     `GatewayNodeConfig.public_url` and `ReceiverConfig.traces_dir` —
@@ -93,11 +98,40 @@ class HarnessConfig(_Section):
     # /workspace singleton — changing it means a re-pin walk
     context_window: int = 32768
     max_tokens: int = 8192
-    thinking: str = "off"  # flipping it needs a symmetric served template
-    # AND re-conceiving G6 (A-22, CP-23) — not a knob today
+    thinking: str = "off"  # a validated knob since CP-30 (ADR-0024): pi's
+    # levels only. A non-off level needs the symmetric served template
+    # (CP-04′, already the default) AND the thinking-on pins selected via
+    # GSJ_PINS_PATH (pins/thinking-on/) on both law-6 legs, or G6 fails
+    # every episode — loudly, by design (the estate owns the agreement).
     pi_entry: str | None = None
     pi_mcp_extension: str | None = None
     mcp_token_ttl_s: int = 3600
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _yaml11_bool_spellings(cls, value: Any) -> Any:
+        # pyyaml is YAML 1.1: bare `off`/`on`/`no`/`yes` parse as BOOLEANS
+        # before pydantic sees them. `thinking: off` must keep meaning off
+        # (not a type error naming no level); a truthy bool is exactly the
+        # clamp typo and falls through to the rejection below by its name.
+        if isinstance(value, bool):
+            return "off" if value is False else "on"
+        return value
+
+    @field_validator("thinking")
+    @classmethod
+    def _reject_pi_clamped_thinking(cls, value: str) -> str:
+        # ADR-0024, the CP-28 silent clamp: pi maps any unknown --thinking
+        # value to "off" (clampThinkingLevel → availableLevels[0]), zero error.
+        if value not in _PI_THINKING_LEVELS:
+            raise ValueError(
+                f"{value!r} is not a pi thinking level — use one of "
+                f"{'|'.join(_PI_THINKING_LEVELS)}; pi silently clamps any other "
+                "value to 'off' (CP-28), so this run would collect a "
+                "thinking-OFF control wearing the measurement's label; every "
+                "non-off level is wire-equivalent under qwen-chat-template, "
+                "so 'medium' is the conventional ON")
+        return value
 
 
 class BuilderConfig(_Section):

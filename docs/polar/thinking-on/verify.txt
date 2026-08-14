@@ -1,0 +1,14 @@
+== off: stored=1 quarantined=0
+ session: sk-polar-1c2bd6f2-a0f6-4341-8cdb-ab68dd2a9a4d status: COMPLETED
+ stats: {'chains_total': 1, 'chains_reconstructed_full': 1, 'chains_reconstructed_truncated': 0, 'completions_total': 2, 'completions_merged': 2, 'raw_completions_total': 2}
+ gsj_validation: {'builder': 'gsj_rollout.builder:ValidatingPrefixMergingBuilder', 'findings': [], 'glue_stitched': 0}
+ prompt_ids=2965 response_ids=10273 mask1=334 turns=2 think_ids@mask1=0 think_ids@mask0=2 finish=stop
+ prompt tail is ON-tail: False | prompt tail is OFF-tail: True
+ logprobs: positive=0 zero@mask1=13/334 (3.9%)
+== on: stored=1 quarantined=0
+ session: sk-polar-61eaa850-064a-4a45-baad-de0338a0c18f status: COMPLETED
+ stats: {'chains_total': 1, 'chains_reconstructed_full': 1, 'chains_reconstructed_truncated': 0, 'completions_total': 3, 'completions_merged': 3, 'raw_completions_total': 3}
+ gsj_validation: {'builder': 'gsj_rollout.builder:ValidatingPrefixMergingBuilder', 'findings': [], 'glue_stitched': 0}
+ prompt_ids=2961 response_ids=9504 mask1=1630 turns=3 think_ids@mask1=6 think_ids@mask0=0 finish=stop
+ prompt tail is ON-tail: True | prompt tail is OFF-tail: False
+ logprobs: positive=0 zero@mask1=62/1630 (3.8%)

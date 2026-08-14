@@ -273,6 +273,40 @@ exception (the seam's contract survives hostile payloads).
   (this measurement, deliberately) and the gate answered correctly; C-2
   lands the re-pin before any thinking-on episode is expected to be
   *accepted*.
+  **[CP-30] Phase C RESOLVED — re-pin, as per-mode pins data (ADR-0024;
+  C-2 landed).** Of the three options above: **re-pin taken** — the CP-28
+  geometry makes a single-tail per-mode pin mode-asserting, so the
+  weakened-gate cost the re-pin option was recorded with never
+  materializes in either mode; **re-conceive rejected** — a paired
+  not-this-tail gate would be a `checks.py` rule reshape ADR-0021 prices,
+  buying nothing the non-suffix geometry does not already give;
+  **retire rejected** — the gate still does real per-episode work in both
+  modes. The mechanism: the mode reaches the check as the pins FILE the
+  estate selects — `pins/thinking-on/pins.gsj.json`, a complete
+  `gsj-pins/1` document whose six non-G6 approved sets are byte-equal to
+  the primary's (drift-guarded by `derive_pins.py`: key-set equality,
+  the on tail == the off tail's first line exactly, ids == the off ids'
+  first three, tokenizer re-verify estate-side) and whose G6 keys carry
+  `<|im_start|>assistant\n` = `[[151644, 77091, 198]]` — selected via
+  `GSJ_PINS_PATH` on BOTH law-6 legs (receiver and trainer); default
+  resolution (checkout → packaged) keeps meaning the thinking-off
+  reference. `checks.py` reads the same key through the same
+  `approved_set` call, byte-unchanged at 528/528. What the gate asserts,
+  per mode — **off**: every assistant-turn opening carries the pinned
+  empty-think block, i.e. thinking was OFF at every position the
+  template could have shown it; **on**: every opening ends at the pinned
+  bare generation prompt — template integrity plus the mode assertion
+  that no opening carries the off signature; it no longer proves
+  thinking-suppression, because thinking is on and rides mask-1 sampled
+  content outside any opening. The estate owns `harness.thinking`/pins
+  agreement; a mismatch fails every episode loudly in either direction
+  (the off-pin/on-mode direction measured at CP-28; the
+  on-pin/off-trace direction test-proven at CP-30). Proven live at
+  CP-30: one episode per mode through the real receiver, both accepted
+  clean with `chains_total == 1` (`docs/polar/thinking-on/`); in-suite,
+  the CP-28 quarantined exemplar passes the full seam under the on-pins
+  and reproduces its recorded quarantine findings byte-stable under the
+  off-pins, and a real off trace fails the on-pins.
 - **H-41 — LANDED as a policy-gated check** (`check_toolless_roster`):
   a roster offered with zero parsed `tool_calls` anywhere in the message
   stream emits `H41:roster_offered_zero_tool_calls` **only when

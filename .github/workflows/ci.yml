@@ -1,8 +1,8 @@
 # gsj-harness-rollout-server — continuous integration (CP-18, M5a).
 #
 # WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
-#   * the root suite (129)                  — gsj_rollout/, fixtures, no estate
-#   * the corpus suite (44: 43 + 1 skipped) — the pipeline over its file:// rail
+#   * the root suite (150)                  — gsj_rollout/, fixtures, no estate
+#   * the corpus suite (58)                 — the pipeline over its file:// rail
 #   * the mcp-service suite (89)            — Chroma + the pinned MiniLM, localhost
 #   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
 #   Deliberately NOT here: vendor/polar's own suite, including the four
@@ -37,7 +37,7 @@ on:
 
 jobs:
   root:
-    name: root suite (129)
+    name: root suite (150)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,17 +48,21 @@ jobs:
       - run: pytest -q
 
   corpus:
-    name: corpus suite (44)
+    name: corpus suite (58)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      # A moved component (ADR-0002): its own pytest.ini, its own two
-      # dependencies, and no import of the root package. The estate it needs is
-      # the pipeline's own hermetic file:// rail — no Forgejo, no network.
-      - run: pip install pytest pyyaml
+      # A moved component (ADR-0002): its own pytest.ini, its dependencies
+      # refreshed from its own requirements.txt rather than named here (CP-30,
+      # wishlist 26 — pyarrow arrived with the taskbank at CP-24 and this job
+      # never learned), plus the root package: two taskbank tests import
+      # gsj_rollout to prove the row → render_task_request submit path. The
+      # estate it needs is still the pipeline's own hermetic file:// rail —
+      # no Forgejo, no network.
+      - run: pip install -e . pytest -r corpus/requirements.txt
       - run: python -m pytest -q
         working-directory: corpus
 

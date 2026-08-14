@@ -110,6 +110,26 @@ def main() -> int:
            f"served --chat-template file {SERVED_TEMPLATE.name}")
     tail_text = (REPO / "pins/g6_tail.captured.txt").read_text()
     expect("g6_expected_tail", tail_text, "pins/g6_tail.captured.txt")
+    # CP-30 (ADR-0024): the per-mode sibling — one estate mode per pins FILE,
+    # selected via GSJ_PINS_PATH; this walk is the drift guard between them.
+    on_pins = json.loads((REPO / "pins/thinking-on/pins.gsj.json").read_text())["pins"]
+    g6_keys = {"g6_expected_tail", "g6_expected_tail_ids"}
+    shared_ok = set(on_pins) == set(pins) and all(
+        on_pins[key] == pins[key] for key in set(pins) - g6_keys)
+    print(f"{'ok  ' if shared_ok else 'FAIL'} thinking-on pins: non-G6 approved sets == pins.gsj.json")
+    if not shared_ok:
+        failures.append("thinking-on pins: non-G6 sets diverge from pins.gsj.json")
+    on_tail = (REPO / "pins/thinking-on/g6_tail.captured.txt").read_text()
+    # EXACT identity, not startswith: the on tail is the off tail's first
+    # line (through its '\n'), so any other prefix length fails deskside —
+    # the adversarial pass measured bare startswith green on a corrupted
+    # 41-byte or 12-byte tail file wherever the tokenizer leg skips.
+    on_ok = (on_pins["g6_expected_tail"] == [on_tail]
+             and on_tail == tail_text[:tail_text.index("\n") + 1]
+             and on_pins["g6_expected_tail_ids"] == [pins["g6_expected_tail_ids"][0][:3]])
+    print(f"{'ok  ' if on_ok else 'FAIL'} thinking-on tail: byte-prefix of the off tail, ids its first three")
+    if not on_ok:
+        failures.append("thinking-on tail/ids do not derive from the off tail")
     try:
         from transformers import AutoTokenizer  # estate-side only (ADR-0011)
     except ImportError:
@@ -121,6 +141,13 @@ def main() -> int:
             expect("g6_expected_tail_ids",
                    tok(tail_text, add_special_tokens=False)["input_ids"],
                    "served tokenizer over pins/g6_tail.captured.txt")
+            on_ids = tok(on_tail, add_special_tokens=False)["input_ids"]
+            on_ids_ok = on_ids in on_pins["g6_expected_tail_ids"]
+            print(f"{'ok  ' if on_ids_ok else 'FAIL'} thinking-on g6_expected_tail_ids "
+                  f"<- served tokenizer: {on_ids}")
+            if not on_ids_ok:
+                failures.append(f"thinking-on g6_expected_tail_ids: derived {on_ids}, "
+                                f"approved {on_pins['g6_expected_tail_ids']}")
         else:
             print("skip g6_expected_tail_ids (served snapshot absent)")
 

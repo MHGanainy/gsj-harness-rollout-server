@@ -353,3 +353,48 @@ def test_checks_section_reaches_the_frozen_call_sites(tmp_path, callback_body, m
     # The CP-07 trace carries 27/441 exact-0.0 at mask==1: clean under the
     # default allowance, rejected under the configured strictness.
     assert "LP6:zero_logprob_rate_at_mask1:27/441>0.0" in checks.validate_session_result(callback_body)
+
+
+# --- CP-30 (ADR-0024): the thinking knob --------------------------------
+
+
+def test_thinking_accepts_every_pi_level(tmp_path):
+    """ADR-0024: the knob's whole domain — pi's own levels — loads and
+    rides the rendered TaskRequest verbatim (`pi_harness` forwards it as
+    `--thinking <level>` unchanged; CP-28 measured the full path)."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    for level in ("off", "minimal", "low", "medium", "high", "xhigh", "max"):
+        doc["harness"]["thinking"] = level
+        cfg = load_config(_write(tmp_path, doc))
+        assert cfg.harness.thinking == level
+        rendered = render_task_request(cfg, task_id="t", instruction="i",
+                                       case_id="c", timestep=1)
+        assert rendered["agent"]["settings"]["thinking"] == level
+
+
+def test_thinking_pi_clamped_values_rejected_at_load(tmp_path):
+    """The CP-28 silent clamp: pi maps anything off its level list to
+    "off" with no error, so a typo collects a control run wearing the
+    measurement's label. Reject at load, naming the levels and the
+    hazard (CP-27's message standard)."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    for trap in ("on", "true", "enabled", "OFF", "Medium", ""):
+        doc["harness"]["thinking"] = trap
+        with pytest.raises(ValueError,
+                           match=r"'harness\.thinking'.*not a pi thinking level"
+                                 r".*off\|minimal\|low\|medium\|high\|xhigh\|max"
+                                 r".*silently clamps"):
+            load_config(_write(tmp_path, doc))
+
+
+def test_thinking_yaml11_bare_spellings(tmp_path):
+    """pyyaml is YAML 1.1: bare `off`/`on` parse as booleans before pydantic
+    ever sees them. The natural spelling `thinking: off` must keep meaning
+    off, and bare `on` — exactly the clamp typo — must get the clamp
+    rejection, not a bare 'Input should be a valid string' naming no level."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["harness"]["thinking"] = False   # what bare `off`/`no` parse to
+    assert load_config(_write(tmp_path, doc)).harness.thinking == "off"
+    doc["harness"]["thinking"] = True    # what bare `on`/`yes`/`true` parse to
+    with pytest.raises(ValueError, match=r"'harness\.thinking'.*silently clamps"):
+        load_config(_write(tmp_path, doc))
