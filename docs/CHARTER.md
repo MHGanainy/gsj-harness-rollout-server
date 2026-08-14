@@ -906,6 +906,30 @@ both accepted clean on attempt 1, `chains_total == 1`
 not have. Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER ·
 1 TBD**.
 
+**[CP-31] No row moves; M9c — thinking in the consumer surface
+(external repo + `docs/**` only; every library path byte-untouched).**
+The examples project ships thinking ON: `thinking: "medium"` is a
+first-class documented value in `example_project/config.yaml` (the
+comment carries CP-28's cost/benefit, the YAML-1.1 quoted-form trap,
+and the pins coupling), `train.py --thinking` overrides it, and every
+run prints its mode. The load-bearing piece was pins: the wheel carries
+only the off-mode set, so a pip-only consumer had NO thinking-on pins —
+the examples repo now carries a byte-identical copy
+(`example_project/pins/thinking-on/`, provenance in `pins/README.md`),
+train.py sets `GSJ_PINS_PATH` from the effective mode BEFORE its first
+`gsj_rollout` import (the CP-11b once-per-process fact forced the
+import restructure) and refuses a visible mode/pins mismatch in words
+before the estate is spent; the RUNBOOK's serve command carries the
+variable inline for the receiver leg, and an all-G6 collect wipeout is
+named in train.py's own output (the F-18 lesson applied to the new
+regime — the run book's §Thinking section gives each mode dated,
+attributed expectations and labels every pre-CP-31 number as
+off-measured). Interim, stated as such: the durable cure is the wheel
+carrying both mode files — **wishlist 28 opened** (external F-40; the
+ordering trap is F-41). CP-32 (the stranger test, both modes) inherits
+the section written to be followed literally. Tally unchanged: **21
+PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
