@@ -805,6 +805,63 @@ reasoning" is expressible only by consumer-side ids segmentation over
 the `<think>` span ids, not by the shipped mask. Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-29] No row moves; M8d — published. F-14, CP-26's only BLOCKER, is
+RETIRED by demonstration, not assertion.** The release path ran end to
+end for the first time. The public mirror pushed current — nine commits,
+CP-20..CP-28, +9615/−279, 42 of 43 new files under `docs/` — preceded by
+a five-finder secret sweep over the unpushed range and the examples
+repo's entire history (adversarially verified, completeness-critiqued):
+**zero credential values anywhere**; the CP-04′ 0600 scratch file's
+contents never entered git (`log -S` across all refs); the two note-level
+exposures are the MCP secret's *filename* (`~/.gsj-mcp-secret-cp04prime`,
+one occurrence, CP-26's report — the value arrives only by operator
+handover, which is what the report says) and `/data/gsj/traces`; every
+estate IP the push adds (`172.28.9.10`, `172.28.9.1`, `192.168.0.158` —
+all RFC1918) was already public since CP-19. The examples repo got its
+public remote and its full history pushed
+(github.com/MHGanainy/gsj-harness-rollout-server-examples) — F-14's
+other half; a published wheel whose run book lives nowhere fetchable
+would have been half a cure. TestPyPI rehearsed via `workflow_dispatch`
+— the three never-executed things all passed first try: the OIDC
+exchange (no `invalid-publisher`), the exclusion assertions in CI, a
+real index accepting PEP 639's SPDX + `license-files` — with the PyPI
+job structurally skipped; then `v0.1.0` tagged at `1565813` and the tag
+run went green through build → TestPyPI → PyPI. Proof on both indexes,
+scratch venvs outside every repo, the real CP-09′ body: TestPyPI with
+`--extra-index-url https://pypi.org/simple/` (no dependency mirror
+there), then the one that retires F-14 — `pip install
+gsj-harness-rollout-server`, no flags, no local wheel → packaged pins →
+findings `[]`. ADR-0023's local-wheel-first ordering in the examples
+repo's install.sh reversed (index by default, sibling wheel = developer
+override): its stated justification was the unclaimed name, which no
+longer exists. **The finding (wishlist 26): main's CI is RED at the
+published tag** — CI's first contact with five checkpoints of drift:
+the corpus job's dependency set stale since CP-24 (17 failures:
+pyarrow absent, `gsj_rollout` not installed, the job comment's "no
+import of the root package" now false) and, beneath it, the CP-24
+corpus fixture pinning the exact `/v1` trap the CP-27 validator now
+rightly rejects (2 failures, `corpus/tests/test_taskbank.py:37`) — the
+cure is one fixture line plus CI deps, both outside this CP's lift; the
+release-relevant jobs (root 143, wheel + packaged-pins proof,
+mcp-service) are green at the tag, and the red job's subject ships in
+no artifact. Second finding (wishlist 27): 0.1.0's landing page
+immutably embeds the pre-publication README — structural to the
+one-commit protocol, cured by any next version. **What the next
+stranger hits, re-ordered now that F-14 is gone**: (1) the red badge,
+fronting both landing pages (wishlist 26 — a reader told "green means
+the fixtures still pass" reasonably concludes they don't); (2) the
+stale 0.1.0 landing text (wishlist 27); (3) the cold-cache install cost
+(~15–25 min of downloads CP-26's warm caches hid); (4) — server role
+only — F-22's secret (named, still unprobeable, wishlist 24), the
+site-packages `vendor/polar` path from a wheel-installed serve
+(wishlist 22's residual), and the sync topology unless seated at the
+workstation (F-29, documented); (5) the pins warning shouting on the
+reference estate (F-39, wishlist 22). The structural change underneath:
+the trainer role now needs **zero handover** — clone the examples repo,
+`bash install.sh`, done; the operator-held list (secret, revision,
+estate values) matters only once an estate enters. Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

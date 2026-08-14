@@ -30,14 +30,13 @@ pip install gsj-harness-rollout-server
 ```
 
 Gives you `gsj_rollout.client` (submit + collect) and `gsj_rollout.checks`
-(the trace validators). Requires Python ≥ 3.12. Until the first PyPI
-upload lands (wishlist 17 — the release path exists, nothing is uploaded),
-build the same wheel from a checkout: `python -m build --wheel`, then
-install `dist/gsj_harness_rollout_server-*.whl`.
+(the trace validators). Requires Python ≥ 3.12. Published at CP-29
+(`v0.1.0`, wheel-only — ADR-0020); a checkout still builds the identical
+wheel (`python -m build --wheel`) if you want to run ahead of a release.
 
 **To actually run a training loop**, start from the examples repo
-(`gsj-harness-rollout-server-examples`, beside this one — not yet
-published) and its `example_project/` (CP-25): a commented `config.yaml`
+([`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples))
+and its `example_project/` (CP-25): a commented `config.yaml`
 a stranger can fill in (six required
 values), the committed taskbank, a readable `train.py`, one install
 command, and `RUNBOOK.md` — the start-to-finish document, including what
