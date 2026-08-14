@@ -930,6 +930,42 @@ ordering trap is F-41). CP-32 (the stranger test, both modes) inherits
 the section written to be followed literally. Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-32] No row moves; M9d — the stranger test, both modes (external
+repo + `docs/**` only; every frozen path byte-untouched).** The shipped
+triple ran end to end from the public artifacts alone — GitHub clones
+(~2 s), `install.sh` from PyPI (~11 min, the torch warning firing as
+documented), one config value edited (`traces_dir`) — and the honest
+answer is YES with one carried workaround: a stranger can run this in
+both modes today, but the serve printout's Polar commands are broken
+under a PyPI install (F-45, wishlist 29) and only the rewritten §Run
+sentence carries them past it. Measured, replacing CP-31's
+extrapolations (all 2026-08-14): pooled ON collect **72/72 in 13m35s**
+vs same-day OFF **72/72 in 4m36s** — **2.95× pooled** (the 15–20 min
+guess was high; the yield beat ~98% at 100/100); the first ON GPU leg
+— replay **mean|Δ| 0.016546, 0.35% of positions over 0.21** (~2× the
+off floor, same order: F-43's reading guidance holds), peak **135 GB /
+94%** of the device at rows to 32,645 ids (F-13's prediction, real),
+advantages centring exactly (mean 0.0000, nonzero 8/72) though reward
+came SPARSER not denser (1/72 vs CP-28's 3/15), think-share 61% vs the
+67% median; and the sync proving 0.040184 mean|Δ| over 96% of
+positions. Hunt list scored: 1 CONFIRMED (72/72 accepted, nothing
+hand-set), 2 CONFIRMED (symptom matches §Thinking verbatim; the cure
+is findable only there — train.py's own healthy-reading line was the
+misleader, F-51, fixed), 3 & 4 MEASURED (above), 5 WRONG SHAPE (no
+G6-named ingest failure exists — silent masking then an undiagnosable
+assert, F-49, mitigated), 6 WRONG SHAPE (a pydantic type traceback,
+not the documented by-name rejection, F-50), 7 HIT AND WORSE (7/72
+`finish_reason: length`, max row 32,645/32,768, all qualifying
+silently — F-47), 8 NOT HIT (no artifacts dir >1 `.md`). Not
+predicted: F-45 (the PyPI-era print), F-46 (trainer-side buffering,
+fixed), F-48 (the archive mixes modes), F-52 (both repos' CP-31
+commits sat unpushed — "public" lagged "landed" by one checkpoint),
+F-53 (serve-updated.sh's health gate runs by accident — verified).
+External register F-45–F-53; **wishlist rows 29–33 opened**; fixes
+landed examples-side only (RUNBOOK ×7, config comment, train.py ×3 —
+each verified live). Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP
+· 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
