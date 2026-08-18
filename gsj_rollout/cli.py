@@ -40,13 +40,19 @@ def serve(args: argparse.Namespace) -> int:
     with open(topology_path, "w") as handle:
         yaml.safe_dump(config_mod.render_topology(cfg), handle, sort_keys=False)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # F-21: the Polar path is printed absolute — the cwd these commands run
-    # from is not this process's cwd. F-20: every pre-serve print flushes,
-    # so `nohup … > log` holds the session's only instructions while the
-    # receiver blocks below, instead of an empty block-buffered log.
+    # F-21: absolute paths (the commands run elsewhere); F-20: flushed prints.
     polar_bin = os.path.join(repo_root, "vendor", "polar", ".venv", "bin", "polar")
     print(f"topology rendered: {topology_path} — run Polar's two processes yourself:",
           flush=True)
+    if not os.path.exists(polar_bin):
+        # F-45: pip installs ship no vendor/ — say which case, never an ENOENT.
+        hint = ("this is an installed wheel — no wheel ships vendor/polar; clone "
+                "https://github.com/MHGanainy/gsj-harness-rollout-server and substitute <checkout>"
+                if not os.path.isdir(os.path.join(repo_root, "vendor", "polar")) else
+                "vendor/polar's venv is unbuilt — provision per vendor/REVENDOR.md's "
+                "recipe (it includes the A-14 gsj_rollout install), then rerun")
+        print(f"  NOTE: {polar_bin} does not exist — {hint}", flush=True)
+        repo_root, polar_bin = "<checkout>", "<checkout>/vendor/polar/.venv/bin/polar"
     print(f"  PYTHONPATH={repo_root} {polar_bin} serve_rollout -c {topology_path}",
           flush=True)
     print(f"  {cfg.estate.mcp_token_secret_env}=<secret> PYTHONPATH={repo_root} "
@@ -77,23 +83,69 @@ def serve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _bank_row(path: str, index: int) -> dict:
+    """Wishlist 20: an ADR-0022 taskbank row, rendered with zero translation;
+    pyarrow stays lazy behind a named error (ADR-0022 §5) — core never imports it."""
+    try:
+        import pyarrow.parquet as parquet
+    except ImportError:
+        raise ValueError("--from-bank needs pyarrow (pip install pyarrow); "
+                         "core deps stay pyarrow-free by ADR-0022") from None
+    rows = parquet.read_table(path).to_pylist()
+    if not 0 <= index < len(rows):
+        raise ValueError(f"--row {index} out of range: {path} holds rows 0..{len(rows) - 1}")
+    for column in ("case_id", "timestep", "split", "prompt_source",
+                   "prompt_text", "skill_card_text", "sandbox_image"):
+        if column not in rows[index]:
+            raise ValueError(f"{path} is not an ADR-0022 taskbank: no {column!r} column")
+    return rows[index]
+
+
 def submit(args: argparse.Namespace) -> int:
     try:
         cfg = _load(args.config)
-        if args.prompt_file:
-            with open(args.prompt_file) as handle:
-                instruction = handle.read()
-        else:
-            instruction = args.prompt
     except SystemExit as exc:
         print(exc, file=sys.stderr)
         return EXIT_CONFIG
-    except OSError as exc:
-        print(f"gsj-rollout: {exc}", file=sys.stderr)
-        return EXIT_CONFIG
+    if args.from_bank:
+        if args.case or args.timestep is not None or args.prompt or args.prompt_file:
+            print("gsj-rollout: --from-bank carries the triple itself — drop "
+                  "--case/--timestep/--prompt", file=sys.stderr)
+            return EXIT_CONFIG
+        try:
+            row = _bank_row(args.from_bank, args.row)
+        except (OSError, ValueError) as exc:
+            print(f"gsj-rollout: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
+        if row["sandbox_image"] != cfg.runtime.image:
+            print(f"gsj-rollout: bank row wants sandbox_image {row['sandbox_image']!r} "
+                  f"but runtime.image is {cfg.runtime.image!r} — the render reads the "
+                  f"config's, so the row would run the wrong image; align the config",
+                  file=sys.stderr)
+            return EXIT_CONFIG
+        triple = dict(case_id=row["case_id"], timestep=row["timestep"],
+                      instruction=row["prompt_text"] or row["skill_card_text"],
+                      prompt_source=row["prompt_source"], split=row["split"],
+                      skill_card_text=row["skill_card_text"])
+    else:
+        if not (args.case and args.timestep is not None
+                and (args.prompt or args.prompt_file)):
+            print("gsj-rollout: submit needs --case, --timestep and "
+                  "--prompt/--prompt-file — or --from-bank", file=sys.stderr)
+            return EXIT_CONFIG
+        try:
+            if args.prompt_file:
+                with open(args.prompt_file) as handle:
+                    instruction = handle.read()
+            else:
+                instruction = args.prompt
+        except OSError as exc:
+            print(f"gsj-rollout: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
+        triple = dict(case_id=args.case, timestep=args.timestep, instruction=instruction)
     request = config_mod.render_task_request(
-        cfg, task_id=args.task_id, instruction=instruction, case_id=args.case,
-        timestep=args.timestep, episodes=args.episodes, timeout_seconds=args.timeout,
+        cfg, task_id=args.task_id, episodes=args.episodes,
+        timeout_seconds=args.timeout, **triple,
     )
     client = RolloutClient(cfg.polar.rollout.base_url, poll_interval_s=args.poll_interval)
     seen: list[int] = [-1]
@@ -125,6 +177,13 @@ def submit(args: argparse.Namespace) -> int:
         print(f"rejected {result.get('session_id')}: {findings}")
     print(f"collected {len(accepted)}/{args.episodes} episodes"
           + (f" -> {args.out}" if args.out else ""))
+    # ADR-0025 (F-47): tail length qualifies BY DESIGN — count it out loud.
+    truncated = sum(1 for r in accepted
+                    if any(t.get("finish_reason") == "length"
+                           for t in (r.get("trajectory") or {}).get("traces") or []))
+    print(f"length-terminated: {truncated}/{len(accepted)} accepted episodes ended "
+          f"finish_reason=length — qualified by design; training on them is the "
+          f"trainer's call (ADR-0025)")
     return EXIT_OK if len(accepted) == args.episodes else EXIT_PARTIAL
 
 
@@ -149,11 +208,15 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     submit_p.add_argument("--config", required=True, help="the one YAML (config.py)")
-    submit_p.add_argument("--case", required=True, help="case repo name, e.g. case_0001")
-    submit_p.add_argument("--timestep", required=True, type=int, help="T — branch and cutoff claim")
-    prompt = submit_p.add_mutually_exclusive_group(required=True)
+    submit_p.add_argument("--case", help="case repo name, e.g. case_0001 (or --from-bank)")
+    submit_p.add_argument("--timestep", type=int, help="T — branch and cutoff claim (or --from-bank)")
+    prompt = submit_p.add_mutually_exclusive_group()
     prompt.add_argument("--prompt", help="the instruction text")
     prompt.add_argument("--prompt-file", help="file containing the instruction text")
+    submit_p.add_argument("--from-bank", default=None, metavar="PARQUET",
+                          help="submit an ADR-0022 taskbank row — triple, prompt, source, split all from the row")
+    submit_p.add_argument("--row", type=int, default=0,
+                          help="bank row index, 0-based (--from-bank only; default 0)")
     submit_p.add_argument("--episodes", type=int, default=1,
                           help="ATTEMPTS to run (num_samples) — see collect-N semantics below")
     submit_p.add_argument("--task-id", default="gsj-task", help="Polar task id")

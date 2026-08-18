@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gsj-harness-rollout-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rollout server for the gsj corpus: task -> sandbox -> agent -> trace, built on NVIDIA Polar."
 readme = "README.md"
 # CP-19 (ADR-0020): Apache-2.0, the same licence the vendored Polar carries, so
@@ -58,7 +58,10 @@ Charter = "https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/doc
 # points the other way — Polar's venv hosts gsj_rollout via import_path,
 # which works because our core deps are a subset of Polar's five (A-14).
 server = []
-dev = ["pytest"]
+# pyarrow is here for the `--from-bank` tests (CP-33, wishlist 20): the CLI
+# imports it lazily behind a named error and core stays pyarrow-free
+# (ADR-0022 §5) — dev needs it so CI actually exercises the happy path.
+dev = ["pytest", "pyarrow"]
 # There is NO [verl] and NO [slime] extra, decided at CP-25 (ADR-0023):
 # verl must install `--no-deps` from git at a pinned SHA (its declared
 # closure drags GPU-stack deps a trainer host must not resolve, and pip
@@ -80,6 +83,12 @@ packages = ["gsj_rollout"]
 # `checks.PINS_PATH` resolves GSJ_PINS_PATH → repo checkout → this copy.
 [tool.hatch.build.targets.wheel.force-include]
 "pins/pins.gsj.json" = "gsj_rollout/pins/pins.gsj.json"
+# CP-33 (wishlist 28): the thinking-on set rides beside it, data only, so a
+# pip-only thinking-on estate has a file to point GSJ_PINS_PATH at:
+#   site-packages/gsj_rollout/pins/thinking-on/pins.gsj.json
+# Selection stays explicit-env (ADR-0024) — default resolution still means
+# the thinking-off reference (ADR-0019); nothing in checks.py changed.
+"pins/thinking-on/pins.gsj.json" = "gsj_rollout/pins/thinking-on/pins.gsj.json"
 
 # CP-19: the sdist root set is stated EXPLICITLY because the backend's default is
 # "every tracked path", measured here at 4.6 MB / 835 files including
@@ -104,6 +113,7 @@ packages = ["gsj_rollout"]
 only-include = [
     "gsj_rollout",
     "pins/pins.gsj.json",
+    "pins/thinking-on/pins.gsj.json",
 ]
 
 # Bare `pytest` runs the repo's own suite only; the moved components' suites

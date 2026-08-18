@@ -98,11 +98,10 @@ class HarnessConfig(_Section):
     # /workspace singleton — changing it means a re-pin walk
     context_window: int = 32768
     max_tokens: int = 8192
-    thinking: str = "off"  # a validated knob since CP-30 (ADR-0024): pi's
-    # levels only. A non-off level needs the symmetric served template
-    # (CP-04′, already the default) AND the thinking-on pins selected via
-    # GSJ_PINS_PATH (pins/thinking-on/) on both law-6 legs, or G6 fails
-    # every episode — loudly, by design (the estate owns the agreement).
+    thinking: str = "off"  # a validated knob (ADR-0024): pi's levels only. A
+    # non-off level needs the thinking-on pins via GSJ_PINS_PATH on BOTH
+    # law-6 legs (packaged at gsj_rollout/pins/thinking-on/ since CP-33),
+    # or G6 fails every episode — loudly, by design.
     pi_entry: str | None = None
     pi_mcp_extension: str | None = None
     mcp_token_ttl_s: int = 3600
@@ -110,10 +109,8 @@ class HarnessConfig(_Section):
     @field_validator("thinking", mode="before")
     @classmethod
     def _yaml11_bool_spellings(cls, value: Any) -> Any:
-        # pyyaml is YAML 1.1: bare `off`/`on`/`no`/`yes` parse as BOOLEANS
-        # before pydantic sees them. `thinking: off` must keep meaning off
-        # (not a type error naming no level); a truthy bool is exactly the
-        # clamp typo and falls through to the rejection below by its name.
+        # YAML 1.1: bare `off`/`on` reach pydantic as BOOLEANS — `off` must
+        # keep meaning off; a truthy bool is the clamp typo, rejected by name.
         if isinstance(value, bool):
             return "off" if value is False else "on"
         return value
@@ -148,8 +145,7 @@ class BuilderConfig(_Section):
 
 class ChecksConfig(_Section):
     """`CheckPolicy` mirror, defaults read from it (CP-11, spec §operator
-    surface); a CUDA estate sets `zero_at_mask1_max_rate: 0.0` (row 27).
-    CP-13 closed the declared mirror drift: complete by test."""
+    surface); a CUDA estate sets `zero_at_mask1_max_rate: 0.0`. Complete by test."""
 
     sentinel_threshold: float = checks.CheckPolicy.sentinel_threshold
     zero_at_mask1_max_rate: float = checks.CheckPolicy.zero_at_mask1_max_rate
@@ -182,9 +178,8 @@ class GatewayNodeConfig(_Section):
     @model_validator(mode="after")
     def _port_agrees_with_public_url(self) -> "GatewayNodeConfig":
         # Wishlist 21(a): one fact, two keys — a mismatch dispatches to a URL
-        # nothing listens on (measured: connection refused, CP-26). Reject
-        # rather than derive: public_url is the consumer's statement of
-        # reachability and silently rewriting either key would hide the typo.
+        # nothing listens on (CP-26). Reject rather than derive: silently
+        # rewriting either key would hide the typo the validator exists for.
         parsed = urlsplit(self.public_url)
         if parsed.scheme not in ("http", "https"):
             # A scheme-less "IP:8100" parses as path (or host-as-scheme), so
@@ -249,14 +244,10 @@ def _default_url(host: str, port: int) -> str:
 
 
 def _null_sections_to_empty(data: dict[str, Any], model: type[BaseModel]) -> None:
-    """F-25 (wishlist 23): a section whose every key is deleted or commented
-    out parses as YAML null, and pydantic reports 'Input should be a valid
-    dictionary' naming no field. Normalize null to {} wherever the model
-    expects a section, so the field-level errors fire instead — the message
-    then names the section AND its missing keys ('polar.gateway.public_url:
-    Field required'). Model-driven, not a hardcoded section list. Dict-typed
-    sections (`user:`) normalize too — gutting the free section down to its
-    header must not reject the config."""
+    """F-25 (wishlist 23): a section gutted to comments parses as YAML null
+    and pydantic names no field. Normalize null → {} wherever the model
+    expects a section (dict-typed `user:` included), so the field-level
+    message fires: 'polar.gateway.public_url: Field required'. Model-driven."""
     for name, field in model.model_fields.items():
         sub = field.annotation
         if name not in data:
@@ -342,23 +333,13 @@ def render_task_request(
     """One Polar `TaskRequest` body for the triple `(case, timestep, prompt)`;
     `callback_url` is the zero-patch push channel (ADR-0008 §2).
 
-    `prompt_source` states the task's origin for G1 (row 9): `free` for
-    verbatim text (the frozen `cli.py` path — resolution never happens
-    there), `skill:<name>` for taskbank skill rows (ADR-0003). Passing the
-    resolved card text states its bytes-hash (convention 1) at
-    `metadata.skill_card_hash`; omitting it leaves the hash to whoever
-    reads the card from the checkout, and G1 fails closed until one of
-    them supplies it — the taskbank keeps the choice.
-
-    `split` (ADR-0015) states the case's train/eval placement — a render
-    parameter like `prompt_source`, never a lock lookup: the config
-    surface grows no corpus dependency, and the taskbank supplies the
-    value from `corpus.lock.json` when ADR-0003 lands. None (the frozen
-    `cli.py` path, which cannot know it) omits the key: absent means
-    UNSTATED, never `train` — a false label is worse than a missing one.
-    Carried and visible, not enforced: the trainer owns not training on
-    eval (row 32); `checks.py` rejects only a value outside the ADR-0015
-    vocabulary (TR3)."""
+    `prompt_source` states the task's origin for G1: `free` | `skill:<name>`
+    (ADR-0022). Passing the resolved card text states its bytes-hash
+    (convention 1) at `metadata.skill_card_hash`; omitting it leaves G1
+    fail-closed to whoever reads the card — the taskbank keeps the choice.
+    `split` (ADR-0015) states train/eval placement, a render parameter never
+    a lock lookup; None omits the key — absent means UNSTATED, never
+    `train`. Carried and visible, not enforced (spec §TR3)."""
     skill_card_hash = None
     if not isinstance(prompt_source, str):
         raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")

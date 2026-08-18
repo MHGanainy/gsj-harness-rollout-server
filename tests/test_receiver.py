@@ -28,7 +28,7 @@ def test_real_callback_body_round_trips(receiver, body13):
     assert response.status_code == 200
     assert response.json() == {"accepted": 1, "rejected": 0}
 
-    persisted_path = receiver.tmp_path / "traces" / f"{body13['session_id']}.json"
+    persisted_path = receiver.tmp_path / "traces" / f"{body13['session_id']}.thinking-off.json"
     assert persisted_path.exists()
     persisted = json.loads(persisted_path.read_text())
     # CP-07 finding 5's property: unlike the rollout server's ses_*.json,
@@ -48,9 +48,9 @@ def test_builder_error_status_is_quarantined(receiver, body13):
     assert response.json() == {"accepted": 0, "rejected": 1}
 
     session_id = doctored["session_id"]
-    assert not (receiver.tmp_path / "traces" / f"{session_id}.json").exists()
+    assert not (receiver.tmp_path / "traces" / f"{session_id}.thinking-off.json").exists()
     quarantined = json.loads(
-        (receiver.tmp_path / "quarantine" / f"{session_id}.json").read_text()
+        (receiver.tmp_path / "quarantine" / f"{session_id}.thinking-off.json").read_text()
     )
     assert "ADM1:status_not_completed:ERROR" in quarantined["findings"]
     assert quarantined["session_result"] == doctored  # forensics beat counters
@@ -64,7 +64,7 @@ def test_builder_findings_are_quarantined_even_when_completed(receiver, body13):
     response = httpx.post(receiver.url, json=doctored)
     assert response.json() == {"accepted": 0, "rejected": 1}
     quarantined = json.loads(
-        (receiver.tmp_path / "quarantine" / f"{doctored['session_id']}.json").read_text()
+        (receiver.tmp_path / "quarantine" / f"{doctored['session_id']}.thinking-off.json").read_text()
     )
     assert "ADM2:builder_findings_present:1" in quarantined["findings"]
     assert "S1:empty_prompt_ids:c-0001" in quarantined["findings"]
@@ -75,7 +75,7 @@ def test_task_result_envelope_is_unwrapped(receiver, body13):
                 "results": [body13], "result_paths": []}
     response = httpx.post(receiver.url, json=envelope)
     assert response.json() == {"accepted": 1, "rejected": 0}
-    assert (receiver.tmp_path / "traces" / f"{body13['session_id']}.json").exists()
+    assert (receiver.tmp_path / "traces" / f"{body13['session_id']}.thinking-off.json").exists()
 
 
 def test_mixed_envelope_partitions_per_member(receiver, body13):
@@ -86,9 +86,9 @@ def test_mixed_envelope_partitions_per_member(receiver, body13):
                 "results": [body13, errored], "result_paths": []}
     response = httpx.post(receiver.url, json=envelope)
     assert response.json() == {"accepted": 1, "rejected": 1}
-    assert (receiver.tmp_path / "traces" / f"{body13['session_id']}.json").exists()
-    assert not (receiver.tmp_path / "traces" / "sk-polar-mixed-errored.json").exists()
-    assert (receiver.tmp_path / "quarantine" / "sk-polar-mixed-errored.json").exists()
+    assert (receiver.tmp_path / "traces" / f"{body13['session_id']}.thinking-off.json").exists()
+    assert not (receiver.tmp_path / "traces" / "sk-polar-mixed-errored.thinking-off.json").exists()
+    assert (receiver.tmp_path / "quarantine" / "sk-polar-mixed-errored.thinking-off.json").exists()
 
 
 # --- CP-13: the pins-failure seam, over HTTP (the CP-11b shapes cured) ----
@@ -217,7 +217,7 @@ def test_a_repeated_session_id_in_one_envelope_is_last_wins(receiver, body13):
     assert response.json() == {"accepted": 0, "rejected": 1}   # last wins
     assert list((receiver.tmp_path / "traces").iterdir()) == []
     assert [p.name for p in (receiver.tmp_path / "quarantine").iterdir()] == [
-        f"{body13['session_id']}.json"]
+        f"{body13['session_id']}.thinking-off.json"]
     assert (receiver.accepted, receiver.rejected) == (0, 1)
     assert not list((receiver.tmp_path / "quarantine").glob("*.tmp"))
 
@@ -260,3 +260,24 @@ def test_malformed_body_gets_400(receiver):
     assert (
         httpx.post(f"http://127.0.0.1:{receiver.port}/elsewhere", json={}).status_code == 404
     )
+
+
+def test_the_archive_carries_the_pins_mode_stamp(tmp_path, body13, monkeypatch):
+    """F-48 (wishlist 31): across serve restarts both modes' accepted traces
+    land in ONE traces_dir, distinguishable only by content. The filename now
+    carries the mode the resolving pins document declares (ADR-0024), so a
+    mixed archive stays attributable years later. Under the on-pins this
+    off-mode body fails G6 — the ADR-0024 mode assertion — and the stamp
+    says WHICH pins this process judged under, on the quarantine side too."""
+    from pathlib import Path
+
+    import gsj_rollout.checks as checks
+
+    on_pins = Path(__file__).resolve().parent.parent / "pins" / "thinking-on" / "pins.gsj.json"
+    monkeypatch.setattr(checks, "PINS_PATH", on_pins)
+    monkeypatch.setattr(checks, "_pins_cache", None)  # force the ON document
+    server = Receiver("127.0.0.1", 0, str(tmp_path / "traces"), str(tmp_path / "quarantine"))
+    assert server.pins_mode == "thinking-on"
+    accepted, rejected = server.ingest(dict(body13))
+    assert (accepted, rejected) == (0, 1)  # off-mode body under on pins: G6, by design
+    assert (tmp_path / "quarantine" / f"{body13['session_id']}.thinking-on.json").exists()

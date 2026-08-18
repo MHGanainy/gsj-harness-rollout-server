@@ -299,6 +299,27 @@ the per-mode G6 re-pin is pins DATA, zero code). Total 18 + 159 builder
 + 528 checks + 178 cli + 123 client + 432 config + 322 pi_harness +
 184 receiver = **1,944**, headroom 56.
 
+**[CP-33] Budget status: 1,999 / 2,000 — the cluster lands, paid for by a
+banking pass.** `cli.py` 178 → 241 (+63: F-45's which-case printout with
+the unbuilt-venv hint, ADR-0025's length-terminated count line, and
+wishlist 20's `--from-bank` — a whole consumer path with the CP-27
+message standard, the biggest single spend); `receiver.py` 184 → 195
+(+11: the F-48 pins-mode filename stamp); `config.py` 432 → 413 (−19)
+NOT from feature work — row 32's fix already existed (CP-30) — but from
+re-applying the CP-11/CP-23 **banking pass**: comment and docstring prose
+whose content is verbatim-recorded elsewhere moved out, pointers kept
+(`render_task_request`'s prompt_source/split paragraphs → ADR-0022 /
+ADR-0015 / spec §TR3; the thinking and YAML-bool comments → ADR-0024 and
+the §3 [CP-30] paragraph above; `_null_sections_to_empty`'s narrative →
+wishlist 23 / the CP-27 report; two validator comments condensed). Every
+stranger-facing MESSAGE kept in full — the banked lines are commentary,
+not output. Total 18 + 159 builder + 528 checks + 241 cli + 123 client +
+413 config + 322 pi_harness + 195 receiver = **1,999**, headroom 1.
+`checks.py` untouched at 528/528 (ADR-0021 tripwire green). **Handed
+forward, ADR-0019-style**: one line of headroom means CP-34's likely
+`checks.py` rule needs a §1 budget decision alongside its ADR-0021
+allowance ADR — discovered now, not mid-checkpoint.
+
 **Deliberately dropped** (and whose problem each becomes):
 
 - the store — trainer's problem
@@ -966,6 +987,45 @@ landed examples-side only (RUNBOOK ×7, config comment, train.py ×3 —
 each verified live). Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP
 · 1 BETTER · 1 TBD**.
 
+**[CP-33] No row moves; M10a — the wishlist cluster (freeze-lift:
+cli/config/receiver, pyproject, ci.yml, serve-updated.sh, pins packaging,
+tests, docs, the external repo).** The CP's one real design call is
+**ADR-0025: length termination is surfaced, never screened** — CP-32's
+7/72 thinking-on episodes at the wall stay trainable (TR1's allowlist has
+admitted tail `length` since CP-02, both bridges already label it
+TRUNCATED, CP-17 trained one live); what changes is that `gsj-rollout
+submit` and train.py's collect AND grade now print `length-terminated:
+K/N` unconditionally, the bridge's TRUNCATED label is aggregated at
+grade, and the spec §logprob-discipline carries the posture as an
+`[added at CP-33]` bullet. No `checks.py` rule — fail-closed at the one
+unrecoverable point would quarantine correct evidence — so no CP-34 stop.
+Row 28 landed as pure packaging: the wheel force-includes
+`pins/thinking-on/pins.gsj.json` beside the off reference (ADR-0019/0024
+posture unchanged — default resolution still means thinking-off), the
+examples repo's interim copy and its drift guard are RETIRED (train.py
+locates the packaged file via `find_spec`, before its first import), and
+the packaged path is documented in the README's pins section. The CP-32
+cluster closed with failing-when-removed tests: F-45's printout says
+which install shape it is (NOTE + `<checkout>` placeholders on a wheel,
+runnable absolutes on a checkout — row 22's missing-venv hint landed in
+the same branch), F-48's receiver stamps the resolving pins document's
+declared mode into every archived filename, F-53's health gate rides
+`bash -s` like the script's other two remote blocks (a content tripwire
+guards it), and row 32 was found ALREADY CURED at HEAD — CP-30 landed
+both the `True → "on"` mapping and its test; F-50 measured the 0.1.0
+wheel, which predates it, so the row closes by documentation plus the
+release. Wishlist 20 landed as `submit --from-bank <parquet> [--row K]`
+(lazy pyarrow behind a named error; zero-translation proven against the
+recorded TaskRequest). Row 26's flake: **waits, recorded** — no committed
+report evidences the hosted-runner ULP flake (the repo's record, row 14,
+is the arm64 story; the last three CI runs are green), and by §4's own
+rule a reported defect stays UNVERIFIED until a checkpoint verifies it —
+weakening ADR-0016's named-hazard guard with `np.allclose` on unverified
+evidence would be backwards, and `mcp-service/tests` is frozen this CP
+regardless. Row 24 untouched (`mcp-service/` frozen). F-52's durable
+cure: §8 rule 8. Release 0.1.1 cut (row 27 heals with it). Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
@@ -1022,6 +1082,15 @@ The seven scope laws as operating rules:
 7. Treat findings as deliverables: a checkpoint that proves Polar cannot
    do something is a success, recorded in the gap register, not a failure
    to route around.
+8. **Push both repos at the end of every CP** — the commit protocol ends
+   at the remote, not the working tree. F-52 (CP-32) measured the cost of
+   the alternative: both repos' CP-31 commits sat unpushed when the
+   stranger test began, so "public" lagged "landed" by a checkpoint and
+   the fresh-environment proof nearly measured the wrong artifact. A CP's
+   report may state "pushed" only after `git status -sb` shows no ahead
+   count in either repo. (Added at CP-33; the CLAUDE.md workflow section
+   is outside this CP's freeze-lift, so the rule lives here — §8 is where
+   operating rules bind.)
 
 ## 9. What would make us abandon this
 

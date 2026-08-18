@@ -78,12 +78,17 @@ echo "vllm started on updated weights (pid $(cat run/vllm.pid), gpu $GPU, ckpt $
 REMOTE_START
 
 log "waiting for /health"
-ssh "$SSH_HOST" bash -c '
-for i in $(seq 1 120); do
-  curl -sf -m 3 "http://127.0.0.1:'"$PORT"'/health" >/dev/null 2>&1 && exit 0
+# F-53 (wishlist 33): the old `bash -c '<newline>…'` word-joined so the remote
+# bash -c got an EMPTY first line as its whole script and the loop ran in the
+# login shell by accident. Same delivery as the two blocks above: bash -s.
+ssh "$SSH_HOST" bash -s "$PORT" <<'REMOTE_HEALTH'
+PORT="$1"
+for _ in $(seq 1 120); do
+  curl -sf -m 3 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1 && exit 0
   sleep 5
 done
-echo "ERROR: /health not up after 600s"; exit 1'
+echo "ERROR: /health not up after 600s"; exit 1
+REMOTE_HEALTH
 ssh "$SSH_HOST" "curl -sf http://127.0.0.1:${PORT}/v1/models" | grep -q "\"${GSJ_MODEL_ID}\"" \
   || { log "ERROR: /v1/models does not list ${GSJ_MODEL_ID}"; exit 1; }
 log "serving the UPDATED weights as ${GSJ_MODEL_ID} — same four legs, same served name"

@@ -67,6 +67,17 @@ falls through to ours. Resolution order is `GSJ_PINS_PATH` → a repo checkout �
 the packaged copy; the format is specified in
 [`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).
 
+**Thinking-on estates** (gate G6 is per-mode pins data, ADR-0024): the wheel
+also carries the reference thinking-on set, so a pip-only estate has a file
+to point at — default resolution still means thinking-off. Its packaged path,
+computed without importing the package (pins load once at first import):
+
+```
+export GSJ_PINS_PATH="$(python -c "import importlib.util as u; \
+print(u.find_spec('gsj_rollout').submodule_search_locations[0] \
++ '/pins/thinking-on/pins.gsj.json')")"
+```
+
 ## What the badge covers
 
 The badge covers the fixture-driven half and nothing else: the root suite
@@ -116,8 +127,8 @@ Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-serv
 the vendored Polar is NVIDIA's, carries its own Apache-2.0 `LICENSE` file at
 `vendor/polar/LICENSE`, and stays there. The two never mix in a released
 artifact, because `vendor/` is in neither the wheel nor the sdist — the
-published package contains `gsj_rollout/` and one pins file, nothing else
-(asserted at build time, CP-19).
+published package contains `gsj_rollout/` and the two pins files, nothing
+else (asserted at build time, CP-19; the thinking-on set since CP-33).
 
 The plan, the scope laws, the assumption register, and the gap register
 this repo is judged by all live in [`docs/CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) —

@@ -1,7 +1,7 @@
 # gsj-harness-rollout-server — continuous integration (CP-18, M5a).
 #
 # WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
-#   * the root suite (150)                  — gsj_rollout/, fixtures, no estate
+#   * the root suite (159)                  — gsj_rollout/, fixtures, no estate
 #   * the corpus suite (58)                 — the pipeline over its file:// rail
 #   * the mcp-service suite (89)            — Chroma + the pinned MiniLM, localhost
 #   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
@@ -37,7 +37,7 @@ on:
 
 jobs:
   root:
-    name: root suite (150)
+    name: root suite (159)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

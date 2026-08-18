@@ -157,6 +157,7 @@ class FakeRollout:
     def __init__(self, statuses: list[dict], submit_status: int = 200):
         self.statuses = statuses
         self.polls = 0
+        self.submitted: list[dict] = []  # every POSTed TaskRequest, verbatim
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -171,7 +172,8 @@ class FakeRollout:
                 self.wfile.write(data)
 
             def do_POST(self):
-                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                fake.submitted.append(json.loads(raw))
                 self._reply({"task_id": "t-1", "status": "running"}, status=submit_status)
 
             def do_GET(self):

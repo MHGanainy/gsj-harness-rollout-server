@@ -511,6 +511,23 @@ placeholder). Consequences:
   aborts (`finish_reason == "abort"`) for free; **mid-chain** aborts are
   invisible on the wire at the pin and are guarded by carried patch P2,
   not by `checks.py` (D3);
+- **[added at CP-33]** the allowlist ADMITS tail `finish_reason ==
+  "length"` **deliberately, and nothing screens it** (ADR-0025): a
+  length-terminated episode is a real trajectory — engine-sampled ids,
+  exact mask, captured logprobs up to the cut — and rejecting it at the
+  receiver would quarantine correct evidence nothing downstream can
+  recover. Measured why this matters: CP-32's pooled thinking-on collect
+  hit 7/72 at the wall (max row 32,645/32,768), all qualifying silently.
+  Who surfaces it instead: `cli.py submit` and the examples' train.py
+  print `length-terminated: K/N` at every collection surface, and the
+  trainer bridges label such rows TRUNCATED (still trainable — CP-17
+  trained one live); training on them, or dropping them, is the
+  trainer's policy, made visible rather than made for them. The
+  **mid-chain** `length` case is unchanged: S7, a hard builder-subclass
+  failure — there the trace misrepresents the episode. A future
+  fail-closed screen would be a `CheckPolicy` knob: a `checks.py`
+  change, priced by ADR-0021's 528/528 tripwire, needing its own
+  allowance ADR;
 - **[added at CP-02]** re-vendor canary: a trace whose metadata carries a
   `reasoning_loss_mask` key with `masked_tokens > 0` fails — the
   reasoning-masking code is fork-only today (D4 refuted upstream), and

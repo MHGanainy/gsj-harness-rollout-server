@@ -927,6 +927,10 @@ def test_packaged_pins_serve_the_wheel_layout(tmp_path):
     (package / "pins").mkdir()
     shutil.copy(repo_root / "pins" / "pins.gsj.json",
                 package / "pins" / "pins.gsj.json")
+    # CP-33 (wishlist 28): the wheel layout carries the thinking-on set too.
+    (package / "pins" / "thinking-on").mkdir()
+    shutil.copy(repo_root / "pins" / "thinking-on" / "pins.gsj.json",
+                package / "pins" / "thinking-on" / "pins.gsj.json")
 
     body_path = repo_root / "docs" / "polar" / "h200-fidelity" / "callback_session_result.json"
     env = {key: value for key, value in os.environ.items() if key != "GSJ_PINS_PATH"}
@@ -942,6 +946,22 @@ def test_packaged_pins_serve_the_wheel_layout(tmp_path):
     assert str(package / "pins" / "pins.gsj.json") in result.stdout
     assert "findings: []" in result.stdout
 
+    # The packaged thinking-on path is the documented GSJ_PINS_PATH target
+    # for a pip-only thinking-on estate (ADR-0024: selection is explicit-env;
+    # the G6 approved set must be the 3-id on-tail, not the off default).
+    on_pins = package / "pins" / "thinking-on" / "pins.gsj.json"
+    env_on = {**env, "GSJ_PINS_PATH": str(on_pins)}
+    result_on = _resolver_subprocess(
+        "from gsj_rollout import checks; "
+        "print('resolved:', checks.PINS_PATH); "
+        "print('g6:', checks.approved_set('g6_expected_tail_ids'))",
+        env=env_on, cwd=tmp_path,
+    )
+    assert result_on.returncode == 0, result_on.stderr
+    assert str(on_pins) in result_on.stdout
+    assert "[151644, 77091, 198]" in result_on.stdout
+    assert "151667" not in result_on.stdout  # the off tail's think-block ids
+
 
 def test_the_wheel_ships_the_pins_by_config():
     """The force-include mapping is load-bearing: if it drifts, the packaged
@@ -953,6 +973,14 @@ def test_the_wheel_ships_the_pins_by_config():
     config = tomllib.loads(pyproject.read_text())
     include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert include["pins/pins.gsj.json"] == "gsj_rollout/pins/pins.gsj.json"
+    # CP-33 (wishlist 28): the thinking-on set rides beside it — a pip-only
+    # thinking-on estate needs a packaged file to point GSJ_PINS_PATH at.
+    assert (include["pins/thinking-on/pins.gsj.json"]
+            == "gsj_rollout/pins/thinking-on/pins.gsj.json")
+    # The sdist root set must carry it too: `python -m build` builds the
+    # wheel FROM the sdist, so omission there silently drops it (CP-19).
+    sdist = config["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
+    assert "pins/thinking-on/pins.gsj.json" in sdist
 
 
 # --- CP-30 (ADR-0024): the per-mode G6 pin — mode selection is pins data --

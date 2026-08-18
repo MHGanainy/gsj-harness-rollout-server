@@ -7,8 +7,9 @@ binding). `POST /callbacks/session_result` accepts a single
 manager's terminal `TaskResult` envelope (`results: [SessionResult…]` —
 the zero-patch live delivery via `TaskRequest.callback_url`); every
 result runs `checks.validate_session_result` and is persisted verbatim
-to `<traces_dir>/<session_id>.json` or quarantined with its findings to
-`<quarantine_dir>/<session_id>.json` — forensics beat counters. Both
+to `<traces_dir>/<session_id>.<pins-mode>.json` or quarantined with its
+findings to `<quarantine_dir>/<session_id>.<pins-mode>.json` — forensics
+beat counters, and the F-48 mode token keeps a mixed archive attributable. Both
 outcomes answer Polar 200 (`{"accepted": n, "rejected": m}`): rejection
 is our validation decision, not a delivery failure; malformed bodies get
 400; a pins-configuration fault is a 500 naming the key or path, and the
@@ -66,6 +67,15 @@ class Receiver:
     def __init__(self, host: str, port: int, traces_dir: str, quarantine_dir: str):
         self.traces_dir = traces_dir
         self.quarantine_dir = quarantine_dir
+        # F-48: the resolved pins document's declared mode (ADR-0024; no key =
+        # thinking-off), stamped so a restart-mixed archive stays attributable.
+        try:
+            with open(checks.PINS_PATH) as handle:
+                mode = json.load(handle).get("mode", "thinking-off")
+        except (OSError, ValueError):
+            mode = "pins-unresolved"  # ingest 500s before anything lands
+        self.pins_mode = mode if isinstance(mode, str) and re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}", mode) else "pins-unresolved"
         self.accepted = 0
         self.rejected = 0
         os.makedirs(traces_dir, exist_ok=True)
@@ -142,8 +152,9 @@ class Receiver:
             except Exception as exc:  # unserializable content is the caller's
                 raise ValueError(f"result {session_id} is not serializable: {exc!r}") from exc
             directory = self.quarantine_dir if findings else self.traces_dir
-            planned[session_id] = (os.path.join(directory, f"{session_id}.json"),
-                                   text, findings)
+            planned[session_id] = (
+                os.path.join(directory, f"{session_id}.{self.pins_mode}.json"),
+                text, findings)
 
         staged: list[tuple[str, str]] = []
         try:
