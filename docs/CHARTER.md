@@ -320,6 +320,18 @@ forward, ADR-0019-style**: one line of headroom means CP-34's likely
 `checks.py` rule needs a §1 budget decision alongside its ADR-0021
 allowance ADR — discovered now, not mid-checkpoint.
 
+**[CP-34] Budget status: unchanged, 1,999 / 2,000 — the CP that spent
+zero.** The handed-forward `checks.py` rule never came due: CP-34 was the
+estate bootstrap, not a rule CP, and its one library change is packaging
+only — `pyproject.toml` force-includes `corpus/ingest_corpus.py` into the
+wheel as `gsj_rollout/ingest_corpus.py` (the pins mechanism applied to a
+module, so a pip-install consumer reaches the contract's `validate` with
+no clone), released as 0.1.2. The file's home stays `corpus/` — a moved
+component this section has excluded since [CP-01]; copying it into the
+artifact at build time moves no line into `gsj_rollout/` and the count
+stands as CP-33 left it. Root suite 159 → 161 (+2, the mapping test and
+the wheel-layout PASS-table proof, both in `tests/`).
+
 **Deliberately dropped** (and whose problem each becomes):
 
 - the store — trainer's problem
@@ -362,6 +374,7 @@ it.
 | A-26 | the slime v0.3.0 `Sample` surface the vendored adapter constructs against (`group_index`/`index`/`prompt`/`tokens`/`response`/`response_length`/`group_id`/`reward`/`loss_mask`/`rollout_log_probs`/`status` incl. `Status.FAILED`/`remove_sample`/`session_id`/`metadata`) is the real installed surface — **RESOLVED at CP-17: HOLDS.** With real slime importable on-estate, `bridge.load_sample_type()` returned `slime.utils.types.Sample` and the first conversion of a real collected body constructed one with every field accepted: `tokens=5783 response_length=2818 mask1=233 status=Status.COMPLETED group_id=0 session_id='sk-polar-0692…' reward={'score': 0.0}`. The four fields examples-repo F-04 flagged as unverifiable off-estate — `session_id`, `group_id`, `remove_sample`, `Status.FAILED` — are all present on the installed dataclass. 35 conversions across two collections, zero TypeErrors, zero shape workarounds. The loop's rollout function additionally asserts `type(sample).__module__.startswith("slime.")` per sample, so the local double could not have stood in silently | the vendored `slime_bridge/adapter.py` constructs exactly this against slime v0.3.0 + the router-tokens patch (its own install recipe); unverifiable off-estate at CP-16 — slime was not importable there (examples-repo FINDINGS F-03/F-04), so the bridge mirrored the usage and tested on a local double. **CP-17 verified it against the installed surface** (`docs/reports/CP-17.md`) | n/a (resolved). The prediction held exactly: the check was cheap, loud, and trainer-side — and it passed |
 
 | A-27 | **RESOLVED — HOLDS (CP-21).** The verl surface the CP-20 bridge was written against — the padded classic-trainer batch contract (`prompts`/`responses`/`response_mask`+`loss_mask`/`input_ids`/`attention_mask`/`position_ids`/`rollout_log_probs`/`rm_scores`, uid-grouped advantages, all-zero-mask zero-gradient) at verl `1ae945592754cbeb1350cbe092fe6117070fd4c7` — IS the surface CP-21 trained with: every key was consumed by verl's own fit-loop path on a real batch of 110 (`extract_reward` read `rm_scores`; GRPO grouped by `uid`; `ppo_loss` trained under `response_mask`; the decoupled rollout correction consumed `rollout_log_probs` as sequence-TIS weights; `check_consistency` and the engine's own asserts all passed first try). The fit-loop consumption half — the one thing off-estate tests could not verify — is now measured (`docs/reports/CP-21.md` §4). Two surface findings landed in the external register, neither a batch-contract miss: F-12 (the v0 conversion helper hard-requires flash-attn) and F-13 (chunked entropy dead on the non-rmpad branch) | the SHA is uni-agent's own submodule pin (the pair the predecessor's path was built for), exported as `bridge.VERL_SHA`; the contract is read from verl's own agent-loop worker and executed in the bridge's tests against REAL verl code (`DataProto`, `compute_grpo_outcome_advantage`, `agg_loss` — no double, unlike slime's A-26 situation, so the constructor-surface half is already verified off-estate). What off-estate tests cannot verify: the fit-loop *consumption* of a bridge-fed batch on a GPU estate, and the trainer-generation fork (examples-repo F-11: the pin's DEFAULT trainer is the v1 TransferQueue pipeline, which cannot ingest external batches at all — the bridge targets the classic path) | CP-21's first step either consumes the batch or names the key it missed — loudly, since `check_consistency` and the fit loop's own asserts fail fast; if the classic path is removed at a newer verl, the pin holds until CP-21 chooses the fork deliberately (run book item 1) |
+| A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced |
 
 ## 5. What we are testing
 
@@ -1026,6 +1039,53 @@ regardless. (The CP's own push then EVIDENCED it — run `32126927920`,
 the wishlist-26 row records the details; the tolerance decision now
 waits only on an oracle that prints its numbers.) Row 24 untouched (`mcp-service/` frozen). F-52's durable
 cure: §8 rule 8. Release 0.1.1 cut (row 27 heals with it). Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-34] No row moves; M11a — the estate bootstrap (a NEW public repo,
+plus a packaging release here).** The demo repo exists:
+**github.com/MHGanainy/gsj-rollout-demo** — the demo a stranger uses to
+go from their own corpus to a running estate, and the third public
+artifact beside the library and `-examples`. The difference is the
+audience: `-examples` shows a TRAINER how to train against an estate
+that already exists; the demo shows someone with documents, a config,
+and an inference endpoint how to get an estate at all. Three inputs
+(corpus in the contract's shape; `config.yaml` carrying exactly the
+stranger's values — corpus path, endpoint URL, served-model name, plus
+three documented optionals that exist because endpoints differ; the
+endpoint itself), one command (`./bootstrap.py up`), and the estate
+stands with the corpus ingested and verified. How Polar runs is the
+demo's external ADR-0001, decided on measurement: a published container
+(`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.2` — the public repo's
+vendored patched Polar tree + the PyPI wheel in ONE interpreter, so
+`import_path` resolves with no PYTHONPATH; DockerRuntime drives sibling
+episode containers through the mounted socket; `GSJ_PINS_PATH` rides
+compose env on the gateway and receiver and the printed submit command),
+composed beside Forgejo and the published mcp-service image on a
+DNS-named network with NO host ports. The library change is Step 3's
+minimum: `pyproject.toml` force-includes `corpus/ingest_corpus.py` as
+`gsj_rollout/ingest_corpus.py` (the pins mechanism applied to a module),
+released as **0.1.2**, so `python -m gsj_rollout.ingest_corpus validate`
+reaches the PASS table from a bare pip install — proven from the built
+wheel in a scratch venv, and by two new root-suite tests (159 → 161).
+The bootstrap derives THIS estate's pins (G1 from the corpus's own
+cards; G2 by AGENTS.md byte-substitution on the reference capture,
+sha-tripwired) and stops loudly on an invalid tree before anything runs.
+The smoke, on the H200 as a clean box (fresh tree, PyPI install, GitHub
+clone, nothing side-loaded; the endpoint was the operator's H200 engine
+via the pinned serve.sh recipe — a stranger's endpoint may differ, a
+CP-35 hunt item): attempt 1 died at the first in-network probe — the
+Apple-Silicon-built image was arm64 on an amd64 box, cured by buildx
+multi-arch and now load-bearing in A-28 — and attempt 2 stood the whole
+estate in **33.5 s** (verify 13/13 PASS, engine check ok), after which
+**one episode was submitted and ACCEPTED end to end**: dispatch →
+sibling sandbox → in-sandbox clone → retrieval under the episode JWT →
+gateway proxy → receiver, `collected 1/1`, the trace archived with the
+F-48 mode stamp, quarantine empty (`finish_reason: length` on the 0.6B
+model, surfaced by the ADR-0025 line, screened by nothing). Wishlist
+rows **34–37 opened** (the GHCR visibility flip only the operator's UI
+can perform — until then a true stranger's pull fails; the foreign-model
+pins walk not yet one-command; the G2 capture as a demo-repo copy rather
+than wheel data; the serve printout's third install shape). Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
