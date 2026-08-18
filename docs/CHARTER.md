@@ -375,6 +375,7 @@ it.
 
 | A-27 | **RESOLVED — HOLDS (CP-21).** The verl surface the CP-20 bridge was written against — the padded classic-trainer batch contract (`prompts`/`responses`/`response_mask`+`loss_mask`/`input_ids`/`attention_mask`/`position_ids`/`rollout_log_probs`/`rm_scores`, uid-grouped advantages, all-zero-mask zero-gradient) at verl `1ae945592754cbeb1350cbe092fe6117070fd4c7` — IS the surface CP-21 trained with: every key was consumed by verl's own fit-loop path on a real batch of 110 (`extract_reward` read `rm_scores`; GRPO grouped by `uid`; `ppo_loss` trained under `response_mask`; the decoupled rollout correction consumed `rollout_log_probs` as sequence-TIS weights; `check_consistency` and the engine's own asserts all passed first try). The fit-loop consumption half — the one thing off-estate tests could not verify — is now measured (`docs/reports/CP-21.md` §4). Two surface findings landed in the external register, neither a batch-contract miss: F-12 (the v0 conversion helper hard-requires flash-attn) and F-13 (chunked entropy dead on the non-rmpad branch) | the SHA is uni-agent's own submodule pin (the pair the predecessor's path was built for), exported as `bridge.VERL_SHA`; the contract is read from verl's own agent-loop worker and executed in the bridge's tests against REAL verl code (`DataProto`, `compute_grpo_outcome_advantage`, `agg_loss` — no double, unlike slime's A-26 situation, so the constructor-surface half is already verified off-estate). What off-estate tests cannot verify: the fit-loop *consumption* of a bridge-fed batch on a GPU estate, and the trainer-generation fork (examples-repo F-11: the pin's DEFAULT trainer is the v1 TransferQueue pipeline, which cannot ingest external batches at all — the bridge targets the classic path) | CP-21's first step either consumes the batch or names the key it missed — loudly, since `check_consistency` and the fit loop's own asserts fail fast; if the classic path is removed at a newer verl, the pin holds until CP-21 chooses the fork deliberately (run book item 1) |
 | A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced |
+| A-29 | a trace's contiguous `loss_mask==1` runs correspond one-to-one, in order, with its `response_messages` assistant turns — added at CP-35, where the demo reader's thinking decode rests on it | measured, never assumed blind: runs == assistant-message count on every real body inspected (the CP-09 fidelity body, CP-34's 71-turn episode, CP-35's two, and the 153 CP-32 archives sampled), and it is how the prefix-merging builder works — one sampled span per completion, tool/glue spans masked. The REASON the demo needs it: message-side reasoning is LOST in the archive (vLLM's reasoning parser strips `<think>` from `content` into `reasoning_content`, which Polar's message capture does not map — its `reasoning` field is null in all 156 bodies measured), so thinking-on reasoning survives ONLY in the token arrays and rendering it means decoding the k-th mask-1 run as turn k | the demo's `read.py` REFUSES rather than guesses — a run/turn count mismatch decodes nothing and the transcript says the archive's own evidence is inconsistent; no library surface depends on this assumption (wishlist row 39 is the durable message-side fix) |
 
 ## 5. What we are testing
 
@@ -1087,6 +1088,52 @@ can perform — until then a true stranger's pull fails; the foreign-model
 pins walk not yet one-command; the G2 capture as a demo-repo copy rather
 than wheel data; the serve printout's third install shape). Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-35] No row moves; M11b — trajectories a person can read (external
+demo-repo work; `docs/**` only here).** The demo repo is now the whole
+stranger loop: stand the estate up (bootstrap), check the endpoint
+BEFORE spending episodes (preflight), submit, and READ what the agent
+did (read.py) — four surfaces, all derived from published artifacts and
+the receiver's archive, none of them a library change. What CP-32's
+stranger hand-counted is now two commands: `./read.py show` renders the
+archived body as a session transcript (task, checkout pages, every
+turn/call/result with retrieval hits page-checked against the timestep
+on the spot, thinking decoded and `|`-marked, truncation labelled twice,
+the deliverable or the honest statement that none was written, runs of
+byte-identical turns collapsed with a count), and `./read.py export`
+projects the body for programs (counts, boundaries, gates, census,
+per-turn calls; the arrays REFERENCED — they are ~95% of the bytes and
+the archive holds them verbatim). `./read.py quarantine` explains every
+finding code in `checks.py`'s vocabulary with what-to-do — the most
+actionable object in the system is no longer the least visible. The
+Step-1 finding that shaped all of it: **the archive's messages lose
+reasoning** (the vLLM parser seam; A-29) — thinking-on reasoning lives
+only in the token arrays, so the transcript decodes mask-1 runs
+(`tokenizers` + the served model's tokenizer; without them it says, per
+turn, what it could not render). The demo also grew the mode surface
+CP-34 lacked: `thinking: medium` in config.yaml re-derives pins from
+the wheel's per-mode documents and recreates the Polar services when
+the generated files changed since the last bring-up (`.polar-digest`),
+so the receiver's stamp follows the mode — proven live both directions,
+and the run-through archive now holds `.thinking-off` and `.thinking-on`
+episodes side by side, attributable (F-48's answer visible in `ls`).
+CP-34's hunt item 1 (the foreign-endpoint wild card) is now LEGIBLE
+though not closed: `./preflight.py` probes reachability, the served
+name, the stated window, the tool parser, and — via vLLM's `/tokenize`
+— the served tokenizer against THIS estate's pinned tail ids and EOT
+id, each mismatch named with its consequence; against the reference
+stack all six probes pass (the control), and what an API cannot see is
+said once, out loud (sampling defaults — wishlist row 38). The
+run-through: preflight control PASS; one episode per mode submitted and
+accepted (OFF: 41 turns, `finish_reason: length`, the 0.6B looping a
+decisions-search 36× — the transcript collapses it and says NO
+deliverable was written; ON: 2 turns, 1,200 think tokens of 1,285
+trainable, decoded and rendered). An adversarial review fan-out (18
+agents) confirmed and fixed eleven defects in the new surfaces before
+they shipped, including `latest` resolving to quarantined bodies, three
+crash shapes on malformed evidence, and the missing LP/TR/H41 finding
+explanations. Wishlist rows **38–39 opened**. Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
