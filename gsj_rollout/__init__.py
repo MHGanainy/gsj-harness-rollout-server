@@ -13,6 +13,6 @@ from . import checks
 from .client import RolloutClient, Trace
 from .config import RunConfig, load_config
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = ["RolloutClient", "Trace", "checks", "load_config", "RunConfig", "__version__"]

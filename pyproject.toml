@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gsj-harness-rollout-server"
-version = "0.1.1"
+version = "0.1.2"
 description = "Rollout server for the gsj corpus: task -> sandbox -> agent -> trace, built on NVIDIA Polar."
 readme = "README.md"
 # CP-19 (ADR-0020): Apache-2.0, the same licence the vendored Polar carries, so
@@ -89,6 +89,15 @@ packages = ["gsj_rollout"]
 # Selection stays explicit-env (ADR-0024) — default resolution still means
 # the thinking-off reference (ADR-0019); nothing in checks.py changed.
 "pins/thinking-on/pins.gsj.json" = "gsj_rollout/pins/thinking-on/pins.gsj.json"
+# CP-34 (Step 3): the corpus pipeline rides the wheel, so a pip-install
+# consumer can validate a corpus tree with NO repo clone:
+#   python -m gsj_rollout.ingest_corpus validate --corpus <root>
+# The file is a moved component (charter §3 excludes corpus/ from the size
+# law) and is fully standalone — stdlib + PyYAML unconditionally, pyarrow
+# lazily behind a named error (taskbank/verify only). Its home stays
+# corpus/ingest_corpus.py: single source, copied at build time exactly like
+# the pins files above; nothing in gsj_rollout/*.py changed to carry it.
+"corpus/ingest_corpus.py" = "gsj_rollout/ingest_corpus.py"
 
 # CP-19: the sdist root set is stated EXPLICITLY because the backend's default is
 # "every tracked path", measured here at 4.6 MB / 835 files including
@@ -114,6 +123,7 @@ only-include = [
     "gsj_rollout",
     "pins/pins.gsj.json",
     "pins/thinking-on/pins.gsj.json",
+    "corpus/ingest_corpus.py",
 ]
 
 # Bare `pytest` runs the repo's own suite only; the moved components' suites
