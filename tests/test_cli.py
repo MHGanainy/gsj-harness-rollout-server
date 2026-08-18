@@ -159,7 +159,11 @@ def test_serve_instructions_survive_a_pipe(tmp_path):
     lines: list[str] = []
     try:
         deadline = time.monotonic() + 15.0
-        while time.monotonic() < deadline and len(lines) < 5:
+        # collect until the serve block's last line arrives — the line COUNT
+        # varies by install shape (the F-45 NOTE prints when the Polar venv
+        # is absent, which is every hosted CI runner; measured CP-33)
+        while (time.monotonic() < deadline
+               and not any("receiver listening" in line for line in lines)):
             try:
                 lines.append(channel.get(timeout=0.2))
             except queue.Empty:

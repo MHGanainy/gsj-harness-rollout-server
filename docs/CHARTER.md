@@ -1022,7 +1022,9 @@ is the arm64 story; the last three CI runs are green), and by §4's own
 rule a reported defect stays UNVERIFIED until a checkpoint verifies it —
 weakening ADR-0016's named-hazard guard with `np.allclose` on unverified
 evidence would be backwards, and `mcp-service/tests` is frozen this CP
-regardless. Row 24 untouched (`mcp-service/` frozen). F-52's durable
+regardless. (The CP's own push then EVIDENCED it — run `32126927920`,
+the wishlist-26 row records the details; the tolerance decision now
+waits only on an oracle that prints its numbers.) Row 24 untouched (`mcp-service/` frozen). F-52's durable
 cure: §8 rule 8. Release 0.1.1 cut (row 27 heals with it). Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
