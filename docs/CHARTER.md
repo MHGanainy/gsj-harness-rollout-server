@@ -1135,6 +1135,43 @@ crash shapes on malformed evidence, and the missing LP/TR/H41 finding
 explanations. Wishlist rows **38–39 opened**. Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-36] No row moves; M11c — the stranger test, from nothing
+(external demo-repo work; `docs/**` only here).** The first ungated
+stranger run: a fresh directory and venv, `git clone` from the public
+URL, the wheel from PyPI (4.6 s), images from GHCR **anonymously** —
+the wishlist-34 flip verified live during a genuine cold `up`, row 34
+retired — with the README as the only input, on an Apple Silicon Mac
+(the H200 cannot play the stranger: dockerd egress still firewalled,
+re-measured). The deliverable is findings **F-54..F-68**. The one wall:
+**F-54** — `gsj-mcp-service` and `gsj-pi-harness` publish linux/amd64
+only, and an ARM docker REFUSES a manifest list with no matching
+platform rather than emulating, so `up` died at the mcp pull and again
+at the sandbox pull, the second message misdiagnosing the cause; cured
+demo-side (the bootstrap now detects ARM, pulls both explicitly
+`--platform linux/amd64`, and says so — the mcp embed ran 115 s under
+emulation, episodes unaffected), with the durable multi-arch publish
+opened as **wishlist row 40**. Everything else was friction, not walls,
+and the injected failures all diagnosed themselves (the /v1 trap, the
+unknown key, the page gap with its exact census row, bad/ambiguous ids,
+a SIGTERM mid-`up` healed by an 11.4 s idempotent re-run) — except the
+"missing prompts.yaml" injection, which the contract itself blesses
+(§4: absent prompts.yaml is legal; scored wrong-shape, F-67). The
+fresh-context readers' verdict on the trajectories is the P4 answer:
+"pipeline works, model is tiny — conditionally", the condition being
+that the transcript's honesty (the collapse, the NO-deliverable line,
+the labelled truncation) earned the separation — and their sharpest
+converged demand, that the OUTCOME live in the header rather than a
+footer parenthetical ("accepted, 95% trainable" one line above a
+buried no-write notice), landed as fixes (the `show` header
+`deliverable` line; export `deliverable`, `archive.sha256`, and a
+`conventions` block for the span/mask/logprob semantics a consumer had
+to guess). The honest answer, unhedged: amd64 + Docker + a
+reference-shaped endpoint → nothing-to-read-trajectory is real in ~5
+wall-minutes plus the endpoint; Apple Silicon needed this CP's fix;
+a non-Qwen endpoint remains the named, untested seam (wishlist 35,
+CP-37). Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER ·
+1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
