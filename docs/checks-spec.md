@@ -307,6 +307,26 @@ exception (the seam's contract survives hostile payloads).
   the CP-28 quarantined exemplar passes the full seam under the on-pins
   and reproduces its recorded quarantine findings byte-stable under the
   off-pins, and a real off trace fails the on-pins.
+  **[CP-37] What G6 means off the Qwen family — measured, not asserted.**
+  The pinned tail is whatever the served template appends for a new
+  assistant turn (the `add_generation_prompt` delta), and that is
+  derivable from a live vLLM endpoint (`/tokenize` renders messages under
+  the served template; the demo's bootstrap derives it at bring-up — the
+  derivation reproduced this spec's pinned values exactly against the
+  reference stack, both modes). On a family without Qwen's hybrid
+  thinking, the gate's subject **degrades to template integrity only**:
+  every turn opening is exactly the pinned opening (Llama-3.1 derives
+  `[128006, 78191, 128007, 271]` = `<|start_header_id|>assistant<|end_header_id|>\n\n`),
+  and the thinking-off/mode-asserting meanings do NOT transfer — both
+  modes derive the SAME tail there (measured: `enable_thinking` is unused
+  jinja context on Llama templates), so ADR-0024's two-direction mode
+  assertion vanishes with the mode. Two edge shapes, named: a template
+  that ignores `add_generation_prompt` admits **no tail at all** (seen on
+  a wild Llama mirror; the derivation refuses rather than pin an empty
+  tail G6 would treat as fail-closed), and a hybrid-reasoning family with
+  a *different* geometry than Qwen's empty-block-off signature needs its
+  own per-mode measurement before ADR-0024's reasoning is borrowed
+  (VERDICT row 42).
 - **H-41 — LANDED as a policy-gated check** (`check_toolless_roster`):
   a roster offered with zero parsed `tool_calls` anywhere in the message
   stream emits `H41:roster_offered_zero_tool_calls` **only when

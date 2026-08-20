@@ -376,6 +376,7 @@ it.
 | A-27 | **RESOLVED — HOLDS (CP-21).** The verl surface the CP-20 bridge was written against — the padded classic-trainer batch contract (`prompts`/`responses`/`response_mask`+`loss_mask`/`input_ids`/`attention_mask`/`position_ids`/`rollout_log_probs`/`rm_scores`, uid-grouped advantages, all-zero-mask zero-gradient) at verl `1ae945592754cbeb1350cbe092fe6117070fd4c7` — IS the surface CP-21 trained with: every key was consumed by verl's own fit-loop path on a real batch of 110 (`extract_reward` read `rm_scores`; GRPO grouped by `uid`; `ppo_loss` trained under `response_mask`; the decoupled rollout correction consumed `rollout_log_probs` as sequence-TIS weights; `check_consistency` and the engine's own asserts all passed first try). The fit-loop consumption half — the one thing off-estate tests could not verify — is now measured (`docs/reports/CP-21.md` §4). Two surface findings landed in the external register, neither a batch-contract miss: F-12 (the v0 conversion helper hard-requires flash-attn) and F-13 (chunked entropy dead on the non-rmpad branch) | the SHA is uni-agent's own submodule pin (the pair the predecessor's path was built for), exported as `bridge.VERL_SHA`; the contract is read from verl's own agent-loop worker and executed in the bridge's tests against REAL verl code (`DataProto`, `compute_grpo_outcome_advantage`, `agg_loss` — no double, unlike slime's A-26 situation, so the constructor-surface half is already verified off-estate). What off-estate tests cannot verify: the fit-loop *consumption* of a bridge-fed batch on a GPU estate, and the trainer-generation fork (examples-repo F-11: the pin's DEFAULT trainer is the v1 TransferQueue pipeline, which cannot ingest external batches at all — the bridge targets the classic path) | CP-21's first step either consumes the batch or names the key it missed — loudly, since `check_consistency` and the fit loop's own asserts fail fast; if the classic path is removed at a newer verl, the pin holds until CP-21 chooses the fork deliberately (run book item 1) |
 | A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced |
 | A-29 | a trace's contiguous `loss_mask==1` runs correspond one-to-one, in order, with its `response_messages` assistant turns — added at CP-35, where the demo reader's thinking decode rests on it | measured, never assumed blind: runs == assistant-message count on every real body inspected (the CP-09 fidelity body, CP-34's 71-turn episode, CP-35's two, and the 153 CP-32 archives sampled), and it is how the prefix-merging builder works — one sampled span per completion, tool/glue spans masked. The REASON the demo needs it: message-side reasoning is LOST in the archive (vLLM's reasoning parser strips `<think>` from `content` into `reasoning_content`, which Polar's message capture does not map — its `reasoning` field is null in all 156 bodies measured), so thinking-on reasoning survives ONLY in the token arrays and rendering it means decoding the k-th mask-1 run as turn k | the demo's `read.py` REFUSES rather than guesses — a run/turn count mismatch decodes nothing and the transcript says the archive's own evidence is inconsistent; no library surface depends on this assumption (wishlist row 39 is the durable message-side fix) |
+| A-30 | a chat template's turn terminator — the first non-whitespace token it emits after assistant content — is also the id the engine stops generation on, so deriving `builder.end_of_turn_token_id` from a template render is sound — added at CP-37, where the demo bootstrap derives it from a foreign endpoint's `/tokenize`+`/detokenize` | the derived id, on every family probed: Qwen3 `<|im_end|>`=151645 (the snapshot config.json's scalar `eos_token_id`, and a member of its generation_config.json's `[151645, 151643]`), Qwen2.5-Coder 151645, Llama-3.1 official template `<|eot_id|>`=128009 (a member of its config's `[128001, 128008, 128009]`), and a wild simplified Llama mirror (the first-non-whitespace rule survives its unconditional trailing generation prompt where last-non-whitespace does not — the CP-37 heuristic correction); the STOP half of the assumption is measured live on the reference stack only — elsewhere it rests on the eos-membership cross-checks above; the demo's preflight re-derives and FAILs loudly when the effective id disagrees | a family whose template closes turns with plain text, or an engine with custom stop ids, derives a wrong split id — reconstruction mis-splits every multi-turn episode; the named cure is the config override (`end_of_turn_token_id`, explicit-wins, disagreement WARNed at `up`) plus the snapshot's `generation_config.json` cross-check documented in the demo's MODEL-SURFACE page |
 
 ## 5. What we are testing
 
@@ -1171,6 +1172,54 @@ wall-minutes plus the endpoint; Apple Silicon needed this CP's fix;
 a non-Qwen endpoint remains the named, untested seam (wishlist 35,
 CP-37). Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER ·
 1 TBD**.
+
+**[CP-37] No row moves; M12a — the model-dependent surface (external
+demo-repo work + `docs/**` and A-30 here).** Everything the model
+decides is now enumerated, classified (endpoint-derivable /
+snapshot-derivable / estate-side / human decision), and — where an API
+can reach it — **derived instead of detected**: the demo bootstrap
+derives the G6 tail and `builder.end_of_turn_token_id` from the
+endpoint's own template render (vLLM `/tokenize`+`/detokenize`) at
+`up`, writes them where `GSJ_PINS_PATH` points, and leaves G4's byte
+hashes **empty, named, never defaulted** (no API exposes those bytes;
+the local-snapshot recipe is documented). The control: forced through
+the foreign-model branch against the reference stack, the derivation
+reproduced every pinned value exactly — off tail
+`[151644,77091,198,151667,271,151668,271]`, on tail `[151644,77091,198]`,
+EOT 151645, both modes, mode stamp intact. CP-04′'s hand-measured
+template proof is now a preflight probe (strict prefix-extension over
+`/tokenize`; it reproduces the CP-04′ divergence at n−4 on exactly the
+four think-block ids against the embedded template, and measures the
+reference stack prefix-extending live, 40→93 ids); on failure it prints
+the lost span and the cures in order (symmetric template / the
+now-config-reachable glue stitch `generation_prompt_glue_ids` / stop),
+because the alternative is every multi-turn episode quarantining at
+`G7:chains_total_ne_1` — caught, but only after each episode is spent.
+First non-Qwen evidence, tokenizer-only: **Llama-3.1's official
+template is prefix-extending** (TRUE, 59→99 ids) and derives tail
+`[128006,78191,128007,271]`, EOT `128009` — sane values; a wild mirror
+of the same model ships a simplified template that ignores
+`add_generation_prompt` (no tail exists; the derivation refuses) —
+template identity varies by *mirror*, not just family. G6's
+thinking-off/mode-asserting meanings are **Qwen-family-specific** —
+plainly said in the spec §G6 [CP-37]: elsewhere the gate asserts
+template integrity, and both modes derive the same tail (measured:
+`enable_thinking` is unused jinja context on Llama templates — a
+non-off `thinking` is a wire no-op there, while the archive still
+stamps thinking-on). One enumerated hazard DISSOLVED under the review's
+verification: an unslashed served name is safe — `config.py` prepends
+its own provider label (`estate.provider`, default `gsj/`) before the
+harness's `provider/model` split, so `pi_harness.py:104`'s raise is
+unreachable through the one YAML; a demo guard drafted on the wrong
+premise was deleted before commit. Wishlist **35 narrowed** (the
+endpoint-derivable half
+closed; the residual is G4's snapshot walk + endpoints without
+`/tokenize` + the first foreign episode), rows **41–42 opened**
+(the harness's Qwen-bound constants; non-Qwen hybrid-reasoning
+geometry), **A-30 registered** (the turn-terminator derivation
+assumption). The stranger-facing deliverable is the demo's
+`docs/MODEL-SURFACE.md`. Tally unchanged: **21 PARITY · 7 DROPPED ·
+2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
