@@ -87,8 +87,15 @@ jobs:
                          "spike/", "tests/", "docs/", "staging/", ".github/"):
               hits = [n for n in names if n.startswith(banned)]
               assert not hits, f"{banned} leaked into the wheel: {hits}"
+          # Every must-ship, asserted on the artifact — this is the tag path's
+          # only guard: the in-suite tests that watch the two later entries run
+          # on CI, which this workflow deliberately does not re-run (CP-39; the
+          # tuple sat two short after 0.1.1's thinking-on pins and 0.1.2's
+          # ingest_corpus.py, noted one short at CP-33).
           for required in ("gsj_rollout/checks.py", "gsj_rollout/client.py",
-                           "gsj_rollout/pins/pins.gsj.json"):
+                           "gsj_rollout/pins/pins.gsj.json",
+                           "gsj_rollout/pins/thinking-on/pins.gsj.json",
+                           "gsj_rollout/ingest_corpus.py"):
               assert required in names, f"{required} missing from the wheel"
           print("\n".join(sorted(names)))
           PY

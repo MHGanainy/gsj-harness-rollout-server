@@ -1261,6 +1261,46 @@ no library change was needed for this family — rows 41's constants
 still never bit (thinking-off by design). Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-39] No row moves; M13a — publish, and de-trap (freeze-lift:
+`CLAUDE.md`, `release.yml`, `staging/README.md`, `docs/**`, the demo
+repo, plus one continuation-pointer line in the examples register;
+`gsj_rollout/` untouched at 1,999).** The post-CP-38 three-repo audit
+(committed verbatim at `docs/AUDIT-2026-08-24.md` — the specification
+for CP-39/40/41) named the publish failure first: the library sat 3
+commits behind its public mirror, CP-36/37/38 unpushed, so the entire
+stranger-test record, the model-surface derivation, `serve-llama31.sh`
+and rows F-54–F-68 were invisible outside this machine (O1) — while §8
+rule 8, written at CP-33 for exactly this class, was ignored three CPs
+running (the finding under rule 8's own [CP-39] amendment: the demo
+repo, which "both repos" doesn't name, WAS pushed each time, and no
+report claimed the library pushed, so the evidence clause passed
+vacuously). Pushed; verified from outside by a fresh clone showing the
+three checkpoints and the second serve recipe; rule 8 widened and
+copied into CLAUDE.md's workflow section — the process file CP-39 also
+rewrote from its 26-CP-stale CP-08 stub (S1: serve/submit real since
+CP-09′, `builder.py` load-bearing, 161 tests, 0.1.2 exports,
+1,999/2,000 standing). F-54–F-68 got their register home (M1): a
+demo-repo `FINDINGS.md` carrying the fifteen rows, plus a pointer under
+the examples register's F-53 — the F-series is ONE register across both
+consumer repos, a new row takes the next id after the highest anywhere,
+next fresh id F-69 from either file. The two traps: `release.yml`'s
+required-entries tuple now asserts all five must-ships — the
+thinking-on pins (ships since 0.1.1) and `ingest_corpus.py` (since
+0.1.2) were unguarded on the tag path, which deliberately does not
+re-run CI (O2; wishlist row 28-adjacent, its [CP-39] note); and
+`staging/README.md`'s Megatron row (line 34 at HEAD, W1's citation) no
+longer instructs the checkout its own CP measured broken — `26.04-alpha.rc1` lacks
+`megatron.training.tokenizer` (F-06); the image's `/root/Megatron-LM @
+1dcf0dafa` is what actually ran, and the in-file erratum records that
+the contradiction and the report contradicting it shipped in the same
+commit (`a647359`, CP-17) (W1). The same file gains the CP-38
+second-family recipe it omitted (S9). Recorded as staying: `forgejo/`'s
+five mis-resolving predecessor citations remain under freeze until
+CP-41's conscious lift (W2); the consumer-surface refresh and the
+orphan re-owning are CP-40's; the namespace collisions, the ADR
+amendments and the `dist/` residue are CP-41's. Tally unchanged: **21
+PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
@@ -1325,7 +1365,20 @@ The seven scope laws as operating rules:
    report may state "pushed" only after `git status -sb` shows no ahead
    count in either repo. (Added at CP-33; the CLAUDE.md workflow section
    is outside this CP's freeze-lift, so the rule lives here — §8 is where
-   operating rules bind.)
+   operating rules bind.) **[CP-39] Ignored three CPs running, and
+   widened.** CP-36, CP-37 and CP-38 each ended with the library
+   unpushed — the mirror sat 3 commits behind while the stranger-test
+   record, the model-surface derivation, `serve-llama31.sh` and register
+   rows F-54–F-68 existed only locally (audit O1) — while the demo repo,
+   which "both repos" does not even name, WAS pushed each time. The
+   evidence clause above was satisfied vacuously: none of the three
+   reports *claimed* the library pushed, and silence passed. Amended:
+   the rule covers **every repo the CP touched** (three since CP-34);
+   the report must state the push outcome either way — silence is
+   non-compliance; and the rule now also lives in CLAUDE.md's workflow
+   section (CP-33's obstacle, CLAUDE.md being outside that lift, fell
+   with CP-39's), so every session reads it without opening this
+   charter.
 
 ## 9. What would make us abandon this
 

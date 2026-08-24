@@ -2,14 +2,14 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA. Predecessor: `gsj-envloader` @ v0.8.0 — **alive, frozen, not retired**; it is the fallback and the golden reference. The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.2** (wheel-only: `gsj_rollout/`, both pins sets, `ingest_corpus.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **alive, frozen, not retired**; it is the fallback and the golden reference. Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-68). The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`corpus/`, `mcp-service/`, `forgejo/`). A checkpoint that pushes past it must stop and justify.
+2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`corpus/`, `mcp-service/`, `forgejo/`). Standing at CP-39: **1,999/2,000, headroom 1** — a checkpoint that pushes past it must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
 3. **The predecessor is frozen.** No checkpoint here modifies `gsj-envloader`.
-4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe, expect to carry patches.
+4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe (`vendor/REVENDOR.md`), expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
 6. **`checks.py` runs on both sides** — the receiver drops bad traces at the source, the trainer verifies what arrived. Same code, no trust required across the wire.
 7. **Findings over features.** This is an evaluation. A checkpoint that discovers Polar cannot do something is as valuable as one that builds.
@@ -20,7 +20,7 @@
 
 ## Workflow
 
-Work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` (relocated from top-level `prompts/` after CP-01, operator request) and committed with the CP. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below, prints it, makes one commit `CP-XX: <summary>`, and leaves the tree clean. **Every CP updates the gap register in `docs/CHARTER.md` §7.** ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence.
+Work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` and committed with the CP. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below, prints it, makes one commit `CP-XX: <summary>`, and leaves the tree clean. **A CP ends at the remote, not the working tree: push every repo the CP touched before the report claims done (charter §8 rule 8 — written at CP-33 and then ignored three CPs running, CP-36–38, found at CP-39), and state the push outcome in the report either way — silence is non-compliance.** **Every CP updates the gap register in `docs/CHARTER.md` §7.** ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence.
 
 ```
 ### CP-XX REPORT
@@ -45,31 +45,45 @@ next: <advisory>
 ```
 .
 ├── CLAUDE.md
-├── README.md                    # short: what it is, status, pointer to CHARTER
-├── pyproject.toml
-├── .gitignore
+├── README.md                    # the two-role split: server side needs an estate; trainer side is the pip library
+├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
+├── pyproject.toml               # 0.1.2; wheel force-includes both pins sets + ingest_corpus.py
 ├── docs/
-│   ├── CHARTER.md               # the normative document
-│   ├── decisions/               # ADRs, one file per decision, append-only
+│   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
+│   ├── VERDICT.md               # the adoption verdict + the wishlist (the read-first document)
+│   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
+│   ├── corpus-contract.md       # the corpus tree contract
+│   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — CP-39/40/41's specification
+│   ├── decisions/               # ADRs (0001–0025), one file per decision, append-only
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md
-│   └── reports/                 # one report per checkpoint: CP-XX.md
-├── gsj_rollout/
-│   ├── __init__.py              # consumer surface (empty for now)
+│   ├── reports/                 # one report per checkpoint: CP-XX.md
+│   ├── golden/                  # golden-pair evidence (mac/ + h200/ + COMPARISON.md)
+│   └── polar/                   # real Polar run artifacts (fidelity, loop, thinking evidence)
+├── gsj_rollout/                 # 1,999 lines — the whole server
+│   ├── __init__.py              # consumer surface: RolloutClient/Trace, checks, load_config/RunConfig
 │   ├── pi_harness.py            # SERVER — our pi via Polar import_path
-│   ├── receiver.py              # SERVER — callback endpoint + validation
-│   ├── checks.py                # BOTH  — trace validators
+│   ├── builder.py               # SERVER — ValidatingPrefixMergingBuilder, loaded by import-path string
+│   ├── receiver.py              # SERVER — callback endpoint + validation + quarantine
+│   ├── checks.py                # BOTH  — trace validators (528 lines, ADR-0021 equality tripwire)
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
-│   └── cli.py                   # SERVER — gsj-rollout serve | submit
-└── tests/
-    └── test_scaffold.py         # imports the package, asserts version
+│   └── cli.py                   # SERVER — the console script, below
+├── tests/                       # root suite: 161 tests across 9 modules (CI adds corpus 58 + mcp-service 89)
+├── pins/                        # the approved sets (reference + thinking-on/) + derive scripts — single source for the wheel copies
+├── staging/                     # this repo's H200 estate recipe (deltas vs the predecessor's BRINGUP)
+├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
+├── corpus/  mcp-service/  forgejo/  # moved components, outside the size law (corpus pipeline, retrieval service, git host)
+└── spike/                       # frozen CP-06 spike evidence
 ```
 
 Commands:
 
 ```
 pip install -e ".[dev]"
-pytest -q
-gsj-rollout serve       # subcommand of the one console script — does nothing yet (CP-08)
-gsj-rollout submit      # subcommand of the one console script — does nothing yet (CP-08)
+pytest -q                                  # the root suite: 161
+gsj-rollout serve --config <yaml>          # renders topology.rendered.yaml, prints the two Polar
+                                           # commands (operator-run), then runs OUR receiver
+gsj-rollout submit --config <yaml> \
+  --case … --timestep … --prompt …         # or --from-bank <parquet> [--row N]
+                                           # submit + poll + collect; exit 0 all / 1 partial / 2 usage / 3 unreachable
 ```

@@ -24,6 +24,21 @@ a weight sync must not perturb what makes a trace comparable to CP-09′'s.
 Stop-then-start, not reload: vLLM at this pin has no in-place weight swap
 for a non-LoRA model, and the stop is also A-13's drain point.
 
+## serving/serve-llama31.sh + model-llama31-8b.env — the second family (CP-38)
+
+The estate's second model recipe: Llama-3.1-8B-Instruct (the unsloth
+mirror, revision pinned in `model-llama31-8b.env`) under the family's own
+four legs — `--tool-call-parser llama3_json` (not hermes), the snapshot's
+own EMBEDDED template (no `--chat-template` flag), no Qwen-only flags
+(`--reasoning-parser`, `--default-chat-template-kwargs`), and
+`--generation-config` byte-copied from the snapshot's own
+`generation_config.json` — each delta deliberate, enumerated in the script
+header, recorded in `docs/reports/CP-38.md`. Distinct state files
+throughout; refuses to start while the Qwen pidfile is alive (one engine,
+one port). (Added to this README at CP-39 — CP-38 committed the recipe
+without listing it here, which left the "reproducible from the committed
+tree" claim above two files short; audit S9.)
+
 ## The trainer side (CP-17) — what the estate did NOT already provide
 
 | need | how | delta vs the collection estate |
@@ -31,7 +46,15 @@ for a non-LoRA model, and the stop is also A-13's drain point.
 | slime v0.3.0 + Megatron + torch + Ray | the official `slimerl/slime:v0.3.0` image (24.4 GB pulled / ~55 GB on disk) | a second, entirely separate runtime; nothing in the estate's venvs is reused |
 | the image, on this box | **`docker pull` fails**: dockerd's registry egress runs as root and the uid-scoped firewall drops it (`lockdown.sh`). Cure: fetch as uid 1000 with a static `skopeo` (`skopeo copy docker://… docker-archive:…`, needs a `~/.config/containers/policy.json`), then `docker load -i` | the estate's own images predate the lockdown or were built locally; this is the first checkpoint that needed a NEW image from a public registry |
 | GPUs | serving on GPU 3, training on GPU 5 — **disjoint**, discovered free at run time | CP-09′ used one GPU; co-residency is answered by separation, not by sharing |
-| slime + Megatron checkouts | `git clone --branch v0.3.0` (slime) and `--branch 26.04-alpha.rc1` (Megatron-LM — Polar's stated slime-v0.3.0-compatible pin), plus Polar's `scripts/patch/patch_slime_router_tokens.sh` | mounted into the container; the image supplies the heavy stack, the checkouts supply the code |
+| slime checkout + Megatron | slime: `git clone --branch v0.3.0`, plus Polar's `scripts/patch/patch_slime_router_tokens.sh`, mounted into the container. Megatron: the IMAGE's own `/root/Megatron-LM` (`1dcf0dafa`, the Dockerfile's `MEGATRON_COMMIT`) — **NOT a separate checkout**: Polar's stated slime-v0.3.0-compatible pin `26.04-alpha.rc1` lacks `megatron.training.tokenizer` and dies at import (F-06; the recipe that ran is the examples repo's `slime_bridge/cp17_loop/train_one_step.sh`) | the image supplies the heavy stack AND the Megatron code; the slime checkout supplies the patched router |
+
+**[CP-39 erratum]** Until CP-39 the row above instructed
+`git clone --branch 26.04-alpha.rc1` (Megatron-LM) — the exact pin CP-17
+itself measured broken (F-06: `ModuleNotFoundError: No module named
+'megatron.training.tokenizer'`). The contradiction and the report
+contradicting it were written by the same commit (`a647359`, CP-17), and
+an estate restore from this table failed at import for as long as the row
+stood.
 
 ## serving/qwen3_training.jinja — the adopted symmetric template
 
