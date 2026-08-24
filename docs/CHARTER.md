@@ -1460,6 +1460,38 @@ park's wording — no consumer-repo sitting, no CI firing for wishlist
 row 26); thirteen ids remain open, owners unchanged. Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-43] No row moves; the demo, in brief (freeze-lift: the demo repo
++ `docs/**` here).** The demo repo's front door rewritten for its
+actual audience — someone with documents and an inference endpoint
+deciding whether this is worth an afternoon: the three-inputs →
+one-command → trajectory sequence drawn; CP-36's measured expectations
+moved up front under F-18's lesson (install in seconds, 6–7 GB of
+images, cold `up` ~2.5 min composed from the measured pieces, an
+episode ~20–40 s, the two platform facts — the ARM amd64 pull
+automatic, a non-Qwen endpoint derived automatically with the serve
+argv still the operator's — and a "normal, not broken" list); a real
+transcript excerpt (the stranger run's `case_orchard@t2` episode — the
+cutoff-holds line, the deliverable line, the trainable count —
+verbatim with one marked trim, machine-diffed against the reader's
+actual output); and the contract's tree drawn from the actual
+synthetic corpus, with `md/` named as the generated layout. The
+audit's demo-side remainder closed in the same sitting: W6 taken
+code-side (G4's hashes emptied for ANY non-reference model, success or
+failure — four derivation paths executed), W7, W9's demo half
+(~20–40 s, containing its own citations), C9, C10 (the four
+template-derived rows NAMED — class-counting re-embedded the
+off-by-one: the context-window row is [endpoint]-classed on vLLM too),
+C11 (the generated pins.gsj.json now tells the truth about its own
+provenance on every path — host/walk_status/G1-G2 blocks rewritten,
+derived_at narrating what the run derived, carried, emptied, or FAILED
+to derive, the thinking-on collective block rescoped), M2, and S4's
+four demo texts. An 11-agent adversarial workflow over the working
+tree (two stranger readers, eight id verifiers, one code review) plus
+a follow-up verifier reopened C10 once and C11 twice before the
+closures held. Demo commit `16810d3`, pushed. No new findings; the
+demo register stands at next fresh id F-70. Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
