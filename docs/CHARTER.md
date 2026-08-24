@@ -1492,6 +1492,22 @@ closures held. Demo commit `16810d3`, pushed. No new findings; the
 demo register stands at next fresh id F-70. Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-44] No row moves; the examples, in brief (freeze-lift: the
+examples repo + `docs/**` here).** The examples repo's front door
+rewritten for its actual audience — a trainer engineer deciding whether
+to train with this: what the bridges give (traces in, batches out, two
+trainers, the three assertions drawn on the path), the two bridges
+compared with ownership stated plainly (consumer code, not library code
+— ADR-0018), the measured costs (collection 13m35s ON / 4m36s OFF
+pooled at CP-32, the relaxed-vs-strict qualification split, reward
+1/27–1/112 and not a stable constant, the replay floor in both modes,
+the ~1-min sync downtime, the 94%-of-an-H200 GPU leg), and the
+seven-item not-solved list assembled from CP-17's and CP-21's "what a
+real training run would need". Every number carries its mode and source
+checkpoint — the F-18/F-42 discipline applied to the front door itself.
+No new findings; the F-register stands at next-fresh-id F-70. Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
