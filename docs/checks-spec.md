@@ -799,6 +799,22 @@ it. The fourth condition makes any filter drop loud; under A-12 a pi
 episode has no legitimate drops, so `completion_filter.excluded` must be
 empty.
 
+**[CP-38] What chain identity MEANS, measured on the first foreign
+family.** The merge that produces `chains_total` is
+canonical-vs-canonical: each completion's prompt render is matched
+against the PREVIOUS completion's prompt render, and the sampled bytes
+never enter the prefix comparison (`prefix_merging.py` — chain
+grouping over `prompt_ids` vs the chain tip's `prompt_ids`;
+`_slice_interstitial` locates the canonical close by
+`end_of_turn_token_id` inside the RENDER). Consequence, measured live on
+an accepted Llama-3.1 episode: a family whose sampled stop differs
+from its template's closer (`<|eom_id|>` sampled, `<|eot_id|>`
+re-rendered — every tool-call turn) still reconstructs as ONE chain,
+with the sampled stop at mask-1 and the canonical close at mask-0. G7's
+conjunction held green on the foreign family; the template
+prefix-extension probe (the demo preflight's `template` row) measures
+exactly the property this gate depends on.
+
 ## The silent-degradation catalogue (CP-05 source audit)
 
 The exact conditions under which the pin produces a degenerate trace that
