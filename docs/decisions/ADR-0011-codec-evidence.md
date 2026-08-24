@@ -87,3 +87,22 @@ so a snapshot swap after the walk is invisible to every trace-side check
 (row 22's estate-provenance finding; its cure is an estate provenance
 surface, out of this repo's scope by the scope law). CP-12 inherits both
 gates on the not-checked-here list with these pointers.
+
+---
+
+**[CP-41 — 2026-08-24] The tokenizer-at-pin-time premise moved at
+CP-37; the decision stands — recorded per audit S12.**
+Measure-at-serve, the ids-based G6 rule (landed at CP-23 exactly as
+designed — `check_thinking_tail`, ADR-0021), and the rejection of
+trust-provenance are all untouched. What moved is the Decision's
+operational premise that deriving `g6_expected_tail_ids` "needs the
+tokenizer at PIN time only, which is estate-side by construction":
+CP-37's bring-your-own-model bootstrap derived the same ids from the
+live endpoint alone — four HTTP calls against the engine's
+`/tokenize`/`/detokenize`, no transformers, no local tokenizer — and
+deliberately moved the derivation venue off the pins walk to estate
+bring-up, where a foreign model's ids are derived fresh instead of
+inherited. `pins/derive_pins.py` remains this repo's walk and still
+verifies the ids wherever transformers is importable; what this
+amendment records is that a tokenizer-less host is no longer the hard
+boundary the Context's fact 5 measured at CP-11b.

@@ -77,3 +77,21 @@ the repo state would not be the code that runs).
   breaks nothing.
 - A-14 (polar venv hosts gsj_rollout at CP-06; dep subset holds) enters
   the charter's assumption register.
+
+---
+
+**[CP-41 — 2026-08-24] Decision 5's `requires-python` clause was
+superseded at CP-19 — ADR-0020 §4; recorded per audit C8.** The
+decision above stands: the component venv, the Polar→us import
+direction, and the dependency-subset argument (A-14) are untouched.
+What moved is one clause — "root `requires-python` stays `>=3.11`" was
+narrowed to `>=3.12` at CP-19 (ADR-0020 decision 4: nothing ever ran
+3.11 — CI is 3.12, every deployment target is 3.12, the operator's
+workstation venv is 3.13 — and a floor that nothing tests is a
+promise, not a fact). ADR-0020 never named this ADR as what it
+superseded and this file carried no marker from CP-19 until now; both
+halves of the cross-reference exist as of CP-41 (ADR-0020's amendment
+names this ADR). One knowingly-stale echo
+remains: `ci.yml:23`'s header comment still quotes `>=3.11` —
+`.github/` is frozen at CP-41, recorded in the charter's §7 [CP-41]
+block for the next `.github` lift.

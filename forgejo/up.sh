@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent, headless staging-Forgejo bootstrap (the CP-02 up.sh recipe on
+# Idempotent, headless staging-Forgejo bootstrap (the predecessor's CP-02 up.sh recipe on
 # staging names/port): container up, health wait, admin user, API token.
 # No install wizard (INSTALL_LOCK via environment). Safe to re-run: every
 # step checks before it creates.

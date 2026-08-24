@@ -83,7 +83,7 @@
         "corpus/staging/skills/summarize/SKILL.md (616 bytes)",
         "corpus/staging/skills/analyze/SKILL.md (547 bytes)"
       ],
-      "notes": "G1. The corpus staging cards this repo owns (the ingest pipeline writes each case repo's skills/<name>/SKILL.md from these bytes — ingest_corpus.py:584-587); both reproduce the predecessor's two-entry set. Content-addressed; skill-row RESOLUTION stays taskbank-deferred (ADR-0003), so 'as resolved at rollout' == these bytes for every current row.",
+      "notes": "G1. The corpus staging cards this repo owns (the ingest pipeline writes each case repo's skills/<name>/SKILL.md from these bytes — ingest_corpus.py:584-587); both reproduce the predecessor's two-entry set. Content-addressed; skill-row resolution happens at BANK BUILD since CP-24 (ADR-0022 — the ADR-0003 deferral resolved there), and every current row's resolved card is these bytes; the approved values are untouched.",
       "mac_specific": false
     },
     "g6_expected_tail": {
@@ -99,7 +99,7 @@
       "artifacts": [
         "pins/g6_tail.captured.txt tokenized by the served tokenizer (Qwen/Qwen3-0.6B @ c1899de289a04d12100db370d81485cdf75e47ca tokenizer.json, git-blob 949e1ec8..., the H200 serving snapshot), add_special_tokens=false"
       ],
-      "notes": "Wishlist item 5, derived at CP-04' (ADR-0011: the tokenizer exists at PIN time only, estate-side; derive_pins.py re-verifies whenever transformers is importable). The ids decode <|im_start|>=151644, 'assistant'=77091, '\\n'=198, <think>=151667, '\\n\\n'=271, </think>=151668, '\\n\\n'=271. The G6 rule this pin feeds (CP-11c or later — checks.py frozen this CP, row 14): ids-endswith over (a) the suffix of prompt_ids (the turn-1 opening) and (b) the mask-0 interstitial span preceding EACH mask-1 span of response_ids (under the symmetric template every turn's opening rides the stream, history re-renders included); zero turns checked fails closed. Reads token ids only, never response_messages (the CP-11b design; finding (b) honored by construction).",
+      "notes": "Wishlist item 5, derived at CP-04' (ADR-0011: the tokenizer exists at PIN time only, estate-side; derive_pins.py re-verifies whenever transformers is importable). The ids decode <|im_start|>=151644, 'assistant'=77091, '\\n'=198, <think>=151667, '\\n\\n'=271, </think>=151668, '\\n\\n'=271. The G6 rule this pin feeds LANDED at CP-23 (checks.check_thinking_tail, ADR-0021; charter row 14 PARITY), exactly as designed: ids-endswith over (a) the suffix of prompt_ids (the turn-1 opening) and (b) the mask-0 interstitial span preceding EACH mask-1 span of response_ids (under the symmetric template every turn's opening rides the stream, history re-renders included); zero turns checked fails closed. Reads token ids only, never response_messages (the CP-11b design; finding (b) honored by construction).",
       "mac_specific": false
     }
   },

@@ -110,3 +110,21 @@ before anything is built if they disagree.
 
 Wishlist row 17 stays **OPEN** and records the two prerequisites, so the
 path is not mistaken for a completed publication.
+
+---
+
+**[CP-41 — 2026-08-24] The Consequence's standing risk closed at
+CP-29 — recorded per audit S12.** The decision stands, and is what
+closed it: the publishers were configured and the path this ADR built
+ran unmodified — v0.1.0 through `release.yml` (build, the exclusion
+asserts, `twine check`, the CP-16 install proof against the exact
+artifact, TestPyPI, then PyPI). `pip install
+gsj-harness-rollout-server` works, the name is claimed (the JSON-API
+oracle above now returns 200 for it), and wishlist row 17 is DONE
+(CP-29); the package has since shipped 0.1.1 (CP-33) and 0.1.2 (CP-34,
+the current release). Decision 5's "CP-19 does not publish" was that
+checkpoint's stopping point, not a standing posture. Also recorded
+here, the naming this ADR never did (audit C8): decision 4's
+`requires-python` narrowing superseded ADR-0005 decision 5's "root
+`requires-python` stays `>=3.11`" — ADR-0005 carries the matching
+dated amendment. Nothing else in this file moved.

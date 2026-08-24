@@ -190,3 +190,17 @@ hook is task-terminal, so the receiver sees results only when the whole
 task resolves — per-session immediacy would need the vendored callback
 patched, a finding for the register, not a blocker (the client's poll
 path is unaffected).
+
+---
+
+**[CP-41 — 2026-08-24] §2's archive filenames gained a mode stamp at
+CP-33 (F-48) — recorded per audit S13.** The four surfaces and the
+validation contract stand. Since CP-33 the receiver stamps the
+resolving pins document's declared mode into every archived filename —
+accepted traces land at `<traces_dir>/<session_id>.<pins-mode>.json`
+and quarantines at `<quarantine_dir>/<session_id>.<pins-mode>.json`
+(`receiver.py:156`; no `mode` key resolves to `thinking-off`,
+unresolvable pins to `pins-unresolved`) — so a mixed-mode archive
+stays attributable per file. The bare `<session_id>.json` forms above
+are the CP-08 shape, correct when written; gap rows 16 and 22 carry
+the same [CP-41] note.

@@ -1,4 +1,4 @@
-# Staging Forgejo — the frozen case dataset's git host (CP-29, M7a).
+# Staging Forgejo — the frozen case dataset's git host (the predecessor's CP-29, M7a).
 #
 # The predecessor's CP-02 recipe re-instantiated for staging on the H200:
 # same pinned image (16.0.2 — bump deliberately, never :latest), own
@@ -6,7 +6,7 @@
 # instance (workstation, 127.0.0.1:3939, container gsj-envloader-forgejo)
 # is never touched.
 #
-# H200 topology note (CP-29, measured): the host firewall scopes egress by
+# H200 topology note (the predecessor's CP-29, measured): the host firewall scopes egress by
 # uid — docker-proxy (root) cannot reach container subnets, so PUBLISHED
 # PORTS DO NOT WORK on this host (the proxy accepts and then hangs). The
 # instance therefore publishes nothing and lives at a STATIC container IP:

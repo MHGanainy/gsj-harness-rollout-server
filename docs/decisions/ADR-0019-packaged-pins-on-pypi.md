@@ -84,3 +84,18 @@ import of `gsj_rollout.checks` and never sees the warning. A consumer who
 ignores it gets loud per-gate rejections naming digests, which is the
 same fail-closed posture as every other pins fault — and now a sentence
 telling them why.
+
+---
+
+**[CP-41 — 2026-08-24] The Consequence's earmark arithmetic was
+short — ADR-0021 measured it; marked here per audit C7.** The decision
+stands (ship the packaged pins, warn once). The Consequence's account
+of ADR-0014's 23-line earmark — CP-16's 9 and CP-19's closing 2 —
+named only two of the three spenders: measured from `git show` at
+CP-23, CP-14's TR3 tripwire took the first 12 (497→509) before those
+9+2 (ADR-0021's 12+9+2). VERDICT wishlist row 18 has flagged this
+file's original text since CP-23; the marker the audit found missing
+now sits in the file itself. The handed-forward finding was right in
+substance either way: G6 could not land inside 520, and ADR-0021
+resolved it exactly as this Consequence asked — banking first, then
+the allowance raised to a machine-checked 528.

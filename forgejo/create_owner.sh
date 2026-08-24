@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Create a pipeline OWNER user on the staging Forgejo + issue its push token
-# (CP-33, ADR-0046(e)/ADR-0047). Idempotent: existing users are kept, a
+# (the predecessor's CP-33, ADR-0046(e)/ADR-0047). Idempotent: existing users are kept, a
 # still-valid token is kept. Run on the H200 after up.sh.
 #
 #   ./create_owner.sh gsj-staging     # the staging corpus owner
 #   ./create_owner.sh gsj-prod        # the prod owner (created empty at
-#                                     #   CP-33 — the switch is one value)
+#                                     #   the predecessor's CP-33 — the switch is one value)
 #
 # The token lands in .token-<owner> (gitignored, 0600). The pipeline reads
 # it from the env var the contract derives from the owner name:

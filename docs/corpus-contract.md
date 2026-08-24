@@ -1,4 +1,4 @@
-# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; v1: CP-33 / ADR-0046)
+# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; v1: the predecessor's CP-33 / ADR-0046)
 
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one

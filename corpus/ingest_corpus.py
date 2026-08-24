@@ -62,7 +62,7 @@ from pathlib import Path
 import yaml
 
 # --------------------------------------------------------------------------
-# Contract constants (docs/corpus-contract.md; ADR-0046)
+# Contract constants (docs/corpus-contract.md; the predecessor's ADR-0046)
 
 OWNERS = ("gsj-staging", "gsj-prod")
 CASE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")

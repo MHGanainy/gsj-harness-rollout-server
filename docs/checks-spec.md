@@ -1429,3 +1429,5 @@ policy) belongs to the estate bring-up — recorded in gap row 2.
 | `derive_g2.py` | the byte-substitution derivation (`--work-root` per-case mode; `--constant-path` docker-singleton mode) |
 | `pins.gsj.json` | **[CP-11] the approved sets** — this repo's first valid pins, one provenance block per key (episode, artifact, host, Mac-specific flag) |
 | `derive_pins.py` | **[CP-11] the reproducible walk** — re-derives every approved value from the provenance-named evidence, exits nonzero on divergence; CP-04′ reruns it (served template diverges there by design) |
+| `thinking-on/pins.gsj.json` | **[CP-30] the per-mode sibling (ADR-0024)** — a complete `gsj-pins/1` document for the thinking-ON estate mode, selected via `GSJ_PINS_PATH`; its six non-G6 approved sets are byte-equal to the primary's, drift-guarded by `derive_pins.py` (inventory row added CP-41 — audit S14) |
+| `thinking-on/g6_tail.captured.txt` | **[CP-30] the ON-mode G6 tail** — 22 bytes, the off tail's first line through its newline, ids its first three; the per-mode G6 evidence (inventory row added CP-41 — audit S14) |

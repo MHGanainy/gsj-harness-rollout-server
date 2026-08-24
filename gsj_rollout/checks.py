@@ -94,7 +94,7 @@ _PAGE_MEMBER = re.compile(r'"page"\s*:\s*(\d+)')
 _PAGE_FILE = re.compile(r"md/page_(\d{4})\.md")
 _TIMESTEP_MEMBER = re.compile(r'"timestep"\s*:\s*(\d+)')
 
-# Decisions and built-in reads are cutoff-exempt (spec §G5, ADR-0007(e)).
+# Decisions and built-in reads are cutoff-exempt (spec §G5, the predecessor's ADR-0007(e)).
 CUTOFF_SCOPED_TOOLS = frozenset({"mcp_gsj_search_case"})
 _CASE_STATUS_TOOL = "mcp_gsj_case_status"
 

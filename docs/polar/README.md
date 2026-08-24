@@ -11,6 +11,24 @@ pi 0.83.0 against the real corpus, real MCP service, cutoff live). `pi/`
 build-up: `pi/` for the wire dialect proved against a stub, CP-03 for the
 first smoke run and the S1 degeneration proof.
 
+Also here, sectioned below only by their reports (index added at CP-41
+— audit S14; the four predate it but were never indexed):
+
+- `h200-loop/` — the CP-17 slime OPD loop evidence: both collections'
+  asserts, `rollout_grades.json`, `sync_proof.txt`, the train metrics
+  of the one real optimizer step (`docs/reports/CP-17.md`).
+- `h200-verl-loop/` — the CP-21 verl loop evidence: the second
+  trainer's collect → train → sync proof through the unchanged
+  `serve-updated.sh` (`docs/reports/CP-21.md`).
+- `thinking/` — the CP-28 thinking A/B probe: both collections'
+  analysis, exemplar accepted/quarantined episodes, the G4 engine
+  evidence, the scratch configs — committed as evidence, never as
+  config (`docs/reports/CP-28.md`).
+- `thinking-on/` — the CP-30 per-mode re-pin deposit (ADR-0024): both
+  mode episodes' envelopes, the estate `derive_pins` transcript, the
+  CP-30 rollout configs, `verify.py`/`verify.txt`; it carries its own
+  README (`docs/reports/CP-30.md`).
+
 ## h200-stitch/ — the CP-04′ stitch retirement (glue ids unset, chains merge natively)
 
 Captured 2026-08-11 on the H200 estate (vLLM 0.26.0+cu129 serving

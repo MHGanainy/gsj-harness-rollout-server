@@ -53,7 +53,7 @@ and the comparison consequences).
 | harness image | `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3`, id `sha256:6d5f1dc6f18349b6ddf68962a0ef2fcb6fa723cade6f2cfbb8ba32479b4c48c0` — **linux/amd64, executed under Docker Desktop emulation** |
 | uni-agent | `73b0f41efa88b311fd69129c6f835c012e925e73` (git direct reference) |
 | tool parser | `hermes (sglang FunctionCallParser, sglang==0.5.10.post1)` — the H-41 guard passed at driver build |
-| collector env | python 3.12.7 arm64; `staging/collector/install_collector_env.sh` + the `--no-deps` line, verbatim, no CUDA extra index |
+| collector env | python 3.12.7 arm64; the predecessor's `staging/collector/install_collector_env.sh` + the `--no-deps` line, verbatim, no CUDA extra index |
 | estate | Forgejo `codeberg.org/forgejo/forgejo:16.0.2`; `gsj-mcp-service:0.2.0` built arm64 from this repo's `mcp-service/`; corpus scaffolded from this repo's `corpus/staging` (scratch copy, one-line `base_url` delta); MCP census 18/22/15/20, corpus verify PASS 25/25 |
 | hosted inputs | `taskbank.parquet` sha256 `9eb8e3c2d3760b9b74c4cda20394fd54bd12f95e78d397dbd40631f801eb19da`; `pins.staging.json` sha256 `bfa66b262765c57f5c662d9845860d003c7b0cf72e596b47a6005a537e12598b` — **both byte-identical to the frozen H200 contract**; the pin values were additionally regenerated on this Mac with `gsj-pin` and matched value-for-value (only `provenance.artifacts` path strings differ in the committed file — they predate the predecessor's devharness→staging relocation) |
 
@@ -66,7 +66,7 @@ and the comparison consequences).
 | G3 `tool_roster_hash` | the 11-tool wire array | `a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56` |
 | G4 `tokenizer_hash` | git-blob OID of tokenizer.json | `949e1ec83f61520a25c75426edc4a43acc36f29a` |
 | G4 `chat_template_hash` | sha256 of the template string | `a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8` |
-| G6 `g6_expected_tail` | 41-byte verbatim tail (`staging/pins/g6_tail.captured.txt`) | matched (gates green) |
+| G6 `g6_expected_tail` | 41-byte verbatim tail (the predecessor's `staging/pins/g6_tail.captured.txt`; this repo carries it at `pins/g6_tail.captured.txt`) | matched (gates green) |
 | G7 `settings_hash` | canonical-JSON of settings | `dae8948524be8253e04c4174632477e0333adc0323e791a6e54ace3b31004d20` |
 
 ## Frozen files
