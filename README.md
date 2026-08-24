@@ -2,138 +2,196 @@
 
 [![CI](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml)
 
-A **rollout server for our corpus**: given a task `(case, timestep, prompt)`
-it runs our agent in an isolated sandbox with temporally-scoped retrieval and
-emits a training-ready trajectory. Trainer-agnostic, algorithm-agnostic,
-parameterization-agnostic. Episode execution and trajectory reconstruction
-are NVIDIA Polar's, vendored by SHA.
+Given a task `(case, timestep, prompt)`, this server runs a pinned coding
+agent in an isolated sandbox in which everything the agent can see — the
+git checkout, the retrieval service — is truncated at `timestep`, captures
+every token and logprob the model produced, and emits one validated,
+training-ready trajectory. That is the whole job: **task → sandbox →
+agent → trace**. It deliberately does nothing else: it does not store
+trajectories, schedule work, compute rewards, manage weights, version
+policies, or train — those belong to the trainer that calls it. Episode
+execution and trajectory reconstruction come from NVIDIA's Polar, vendored
+by SHA with three carried patches (`vendor/`, `POLAR_SHA`); our code is
+the thin shell that points Polar at our corpus, our retrieval service, our
+pinned agent (pi 0.83.0), and our checks.
 
-It has **two roles**, and the split is the thing to understand first. The
-**server** side (`pi_harness`, `receiver`, `config`, `cli`) needs an estate —
-a served engine, a Forgejo git host, the MCP retrieval service — and is not
-useful without one. The **trainer** side (`client`, `checks`) is a small pure
-library a training loop imports to submit tasks and to verify the traces that
-come back. **The published package is for the trainer side**; the server side
-is here because it is the same repo, not because `pip install` makes it run.
+This repo is the record of an evaluation: could Polar own the episode
+layer our predecessor owned? The verdict is **ADOPT** — provisional at
+CP-12, converted at CP-17 with both converting conditions met on
+production hardware. [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md)
+is the standalone statement, with the conditions that would reverse it.
 
-This repository is an **evaluation**, run as numbered checkpoints (`CP-NN`,
-each with a prompt in `docs/prompts/` and a report in `docs/reports/`). It
-asks whether Polar can own the episode-execution layer our predecessor
-`gsj-envloader` owns today. The answer, and the conditions that would reverse
-it, are in [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) — **the document to read
-first.**
-
-## Install
+## The shape
 
 ```
-pip install gsj-harness-rollout-server
+ your training loop ── submits (case, timestep, prompt) ── collects traces
+      │  client.submit                                      ▲  client.collect
+      │                                                     │  (re-validated by
+══════╪═ HTTP ══ the server side below needs an estate ═════╪═ checks.py) ═════
+      ▼                                                     │
+ ┌─ POLAR — NVIDIA's, vendored by SHA ──────────────────────┴──────┐
+ │ task API · scheduling · sandbox lifecycle · capture proxy ·     │
+ │ trajectory reconstruction (our builder.py plugged into it)      │
+ │   ┌─ sandbox ────────────────────────────┐                      │
+ │   │ pi, the pinned agent                 │   the estate,        │
+ │   │  git checkout @ branch timestep-T ◀──┼── Forgejo git host   │
+ │   │  search clamped to page ≤ T ◀────────┼── MCP retrieval svc  │
+ │   │  model calls → capture proxy ◀───────┼── inference engine   │
+ │   └──────────────────────────────────────┘   (all operator-run) │
+ └─────────────────┬───────────────────────────────────────────────┘
+                   │ callback: one JSON body per session
+                   ▼
+      receiver.py + checks.py (ours): the gates → accept | quarantine
 ```
 
-Gives you `gsj_rollout.client` (submit + collect) and `gsj_rollout.checks`
-(the trace validators). Requires Python ≥ 3.12. Published at CP-29
-(`v0.1.0`, wheel-only — ADR-0020); a checkout still builds the identical
-wheel (`python -m build --wheel`) if you want to run ahead of a release.
+Ours is the shell around Polar: harness, builder, receiver, config, CLI,
+checks — **1,999 lines** against the ~14,200-line Polar layer they drive
+(`docs/VERDICT.md` §1). The same `checks.py` runs on both sides of the
+wire — the receiver drops bad traces at the source, the trainer re-runs
+the identical validators on everything it collects — so no trust is
+required across the wire.
 
-**To actually run a training loop**, start from the examples repo
-([`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples))
-and its `example_project/` (CP-25): a commented `config.yaml`
-a stranger can fill in (six required
-values), the committed taskbank, a readable `train.py`, one install
-command, and `RUNBOOK.md` — the start-to-finish document, including what
-an estate is and what collection costs. There are deliberately no
-`[verl]`/`[slime]` extras on this package (ADR-0023): verl installs
-`--no-deps` from git at a pinned SHA, slime is a container image — each
-bridge's install is one documented command over there.
+## The cutoff
 
-### The approved sets that ship with it are ours, not defaults
-
-`checks` validates traces against pinned hashes — approved tool rosters,
-system prompts, skill cards, settings. Those pins are **this estate's**, and
-the wheel ships them so the trainer leg works on install without a checkout
-(ADR-0017). They are a working reference, **not meaningful defaults**: on any
-other estate every hash gate will fail `*_not_approved`, loudly and by
-design, because approval is set membership and your hashes are not in our
-set. The library says so once, at import, when it falls back to them.
-
-If you have your own estate, point `GSJ_PINS_PATH` at your own pins file
-before the first import of `gsj_rollout.checks` (they load once per process):
+The property this server exists for: `timestep` becomes a boundary the
+agent cannot cross, enforced twice and audited once.
 
 ```
-export GSJ_PINS_PATH=/path/to/your/pins.gsj.json
+ timestep T arrives with the task
+   │
+   ├─ the filesystem wall: the sandbox clone is branch timestep-T,
+   │    --depth 1, remote removed, reflogs scrubbed — git history
+   │    cannot reach a page past T even offline (CP-11)
+   │
+   └─ the retrieval wall: the harness mints an HS256 token, host-side,
+        claims {case_id, timestep, episode_id, exp}; the signing secret
+        never enters the sandbox. The token rides the MCP URL.
+          │
+          ▼
+        the MCP service verifies the signature, then filters to
+        page ≤ T BEFORE ranking — T from verified claims only.
+        Tampered claims (timestep 12→18, original signature) → HTTP 401.
+
+ the audit, after the fact — checks.py, from the trace alone (gate G5):
+   every retrieved page ≤ T · checkout shallow, zero remotes,
+   branch == timestep-T · checkout pages contiguous 1..T
 ```
 
-A wrong or absent path raises `PinsConfigurationError` naming it — it never
-falls through to ours. Resolution order is `GSJ_PINS_PATH` → a repo checkout →
-the packaged copy; the format is specified in
-[`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).
+The agent may read its own token — it must, it is in its own working
+directory — but cannot widen its timestep, because the cutoff is decided
+server-side from verified claims and any mutation invalidates the
+signature. That design was attacked, not assumed: see the table below.
 
-**Thinking-on estates** (gate G6 is per-mode pins data, ADR-0024): the wheel
-also carries the reference thinking-on set, so a pip-only estate has a file
-to point at — default resolution still means thinking-off. Its packaged path,
-computed without importing the package (pins load once at first import):
+## The two roles
 
-```
-export GSJ_PINS_PATH="$(python -c "import importlib.util as u; \
-print(u.find_spec('gsj_rollout').submodule_search_locations[0] \
-+ '/pins/thinking-on/pins.gsj.json')")"
-```
-
-## What the badge covers
-
-The badge covers the fixture-driven half and nothing else: the root suite
-(136), the corpus suite (58), the mcp-service suite (89), and the wheel
-build with the packaged-pins install proof. It does not cover — and a
-hosted runner cannot — the golden pairs, fidelity, the loop, or any episode
-at all: an episode needs an estate (a served engine, Forgejo, the MCP
-service), and the numbers that govern need the H200 and cluster time.
-**Green means the fixtures still pass. It is not evidence that the harness
-runs.**
-
-## Status
-
-**ADOPT** — the CP-12 provisional verdict converted at CP-17, both
-converting conditions met (the standalone verdict, with its reversing
-conditions, is
-[`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md)). The evaluation ran thirteen
-checkpoints end to end: Polar vendored by SHA with three carried patches
-(`vendor/`), real corpus episodes collected through our pi harness under
-Polar on the Mac estate, and the collected trace verified against the
-predecessor's golden reference (CP-09: masks exact, sampling-independent
-tokens byte-identical, logprob capture agreeing at mean |Δ| = 0.000114).
-Both converting conditions have since closed on the H200: the golden pair
-and fidelity on production numerics (CP-04′/CP-09′) and one training loop
-end to end (CP-17).
-
-`gsj_rollout/` is the working server, not a scaffold: `pi_harness.py`
-(our pi under Polar, per-episode cutoff tokens, the settings echo),
-`builder.py` (the validating reconstruction subclass), `checks.py` (both
-law-6 legs: admission, the logprob discipline, gates G1/G2/G3/G5/G7
-against `pins/pins.gsj.json`), `receiver.py` (callback endpoint +
-quarantine), `config.py` (the one YAML), `client.py` (the trainer's leg),
-`cli.py` (`gsj-rollout serve | submit`). Beside it: `corpus/`,
-`mcp-service/`, `forgejo/`, `pins/` — the moved Polar-independent
-components (ADR-0002). None of those four ship in the package.
-
-Run the tests:
+Someone confuses these on first contact every time.
 
 ```
-pip install -e ".[dev]"
-pytest -q
+ SERVER role — needs an estate           TRAINER role — pip install, no estate
+ ─────────────────────────────           ─────────────────────────────────────
+ a machine you operate, running:         any Python ≥ 3.12, anywhere:
+   an inference engine (vLLM)              pip install gsj-harness-rollout-server
+   a Forgejo git host                      gsj_rollout.client — submit + collect
+   the MCP retrieval service               gsj_rollout.checks — re-verify traces
+   the ingested corpus                     installs light: pydantic + httpx
+ plus this repo checked out:
+   gsj-rollout serve --config …          the wheel alone runs no episodes —
+   + two Polar processes (printed        it talks to a server somebody
+     by serve, run by the operator)      operates on the left
 ```
+
+The published package (PyPI: `gsj-harness-rollout-server` 0.1.2,
+wheel-only) is for the trainer role. To run a training loop against an
+existing server, start from
+[`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples)
+and its `RUNBOOK.md`. To bring up your own estate from nothing, start
+from [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo).
+
+One trap worth naming at the door: `checks` validates traces against
+pinned approved sets (tool rosters, system prompts, skill cards,
+settings), and the wheel ships **this estate's** pins so the trainer leg
+works on install. On any other estate every hash gate fails
+`*_not_approved` — loudly, by design. Point `GSJ_PINS_PATH` at your own
+pins file before the first import of `gsj_rollout.checks` (resolution:
+`GSJ_PINS_PATH` → repo checkout → packaged copy; a wrong path raises
+rather than falling through to ours). The wheel also carries the
+thinking-on reference set at `gsj_rollout/pins/thinking-on/pins.gsj.json`
+in site-packages — gate G6 is per-mode pins data (ADR-0024). Format and
+reasoning: [`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).
+
+## What has been proven
+
+Measured as of **2026-08-24** (the audit re-executed every suite and
+census that day; per-checkpoint figures carry their report's date).
+
+| claim | measured | evidence |
+| --- | --- | --- |
+| traces match the predecessor's golden reference | `loss_mask` exact at zero tolerance, `prompt_ids` byte-identical (2965/2965), on the Mac pair and again on the H200 pair | CP-09, CP-09′; `docs/golden/COMPARISON.md` |
+| the logprobs are real captures | H200 replay-vs-replay bit-deterministic (0.000000); capture-vs-replay floor mean ≈ 0.005–0.007 on both traces symmetrically (classified platform, per the contract); Mac identical-context agreement mean \|Δ\| = 0.000114 | CP-09′, CP-09 |
+| the cutoff holds under a forged claim | tampered token (timestep 12→18, original signature) rejected HTTP 401 from inside the sandbox; valid token 200; live episode retrieved pages [1, 5, 7, 9, 11], all ≤ 12 | CP-07 |
+| two trainers, two loops, zero server changes | slime: 27 qualifying traces → one optimizer step → weight sync proven (logprobs moved at 5623/5782 positions) → 8/8 re-collect. verl: 110 qualifying → one step → sync (310/310 tensors, exactly one AdamW step) → 8/8. `gsj_rollout/` untouched both times | CP-17, CP-21 |
+| two model families, no code change | Qwen3-0.6B (both golden pairs); Llama-3.1-8B: 8 completions merged into one full chain, quarantine empty, gates green | CP-04′/CP-09′, CP-38 |
+| a stranger can run it from nothing | fresh machine, demo README the only input: clone → pip → estate up → first episode accepted, ≈ 5 minutes wall plus the model endpoint; two manual image pulls needed (amd64-only images on an ARM host — registered, wishlist row 40) | CP-36 |
+| the shell stays thin | ours 1,999/2,000 lines vs Polar's ~14,200 driven; the predecessor spent ~1,800 lines on episode execution alone | audit 2026-08-24; VERDICT §1 |
+| the fixture suites | root 161 + corpus 58 + mcp-service 89, all green by execution | audit 2026-08-24 |
+
+What the badge does **not** cover: the golden pairs, fidelity, the
+loops, or any episode at all — an episode needs an estate, and the
+numbers that govern needed GPU time. Green means the fixtures still
+pass; it is not evidence that the harness runs.
+
+## What it does not do
+
+- **It never trained anything, and says so.** Each loop above is exactly
+  one optimizer step bracketed by two collections; CP-21 reads its own
+  post-sync 8/8 reward as the onset of mode collapse, not competence.
+  Concurrent collection-and-training and weight sync at cadence have
+  zero data points (charter A-13).
+- **The trainer's problems stay the trainer's**: storage, retention,
+  mixing, staleness, collation, reward — every callback carries
+  `reward: null` — and weight sync. Dropped deliberately at CP-00
+  (charter §7 rows 16–21).
+- **Sampling and codec provenance are the estate's, not the trace's.**
+  pi sends no sampling parameters, so the engine's configuration *is*
+  the sampling policy — an unpinned engine silently samples at neutral
+  defaults (measured, CP-09 finding F1). Codec identity is verified at
+  bring-up by the pins walk, not per-trace (ADR-0011).
+- **The two open gaps**, of a 32-row capability register (21 parity,
+  7 dropped by decision, 1 better, 1 TBD): row 12 — G4 codec evidence
+  never rides the callback, GAP receiver-side by decision (ADR-0011);
+  row 22 — per-episode binding of traces to engine identity (serve
+  argv, generation config, codec), owned by the first production
+  bring-up (decided CP-40). Same owner, same moment: the evaluation
+  estates serve anonymous git read; the credentialed-clone/egress
+  decision is also the first production bring-up's (CP-40).
+- **Model-agnostic in mechanism, Qwen-fitted in defaults** — CP-38's
+  own words after the Llama run. One foreign family is one data point;
+  a different reasoning geometry is the wall. Thinking-on requires the
+  symmetric served template (charter A-22).
+
+## Where the record lives
+
+Every number above traces to a committed document. The map:
+
+- [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) — the adoption verdict, its reversing conditions, and the wishlist. Standalone; read this first.
+- [`docs/CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) — the normative document: scope laws, the assumption register (§4), the capability/gap register (§7), the standing rules (§8).
+- `docs/reports/` — one report per checkpoint, CP-00 through the present; every claim's primary evidence. `docs/prompts/` holds each checkpoint's instructions verbatim.
+- [`docs/AUDIT-2026-08-24.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/AUDIT-2026-08-24.md) — a 24-agent adversarial audit of the whole record against the working trees, executed suites, and the published artifacts. Its verdict: the center held (no live gate, pin value, or code path wrong; zero of 91 findings refuted), the periphery had drifted — and the drift is itemized with owners.
+- `docs/decisions/` — 25 ADRs, append-only, one decision each.
+- [`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md) — why each validator rule exists: gates G1/G2/G3/G5/G6/G7 as landed in `checks.py` (G4 estate-side by decision), admission, the logprob discipline.
+- `docs/golden/`, `docs/polar/` — the raw artifacts: golden-pair manifests and comparisons, real run bodies, the adversarial probe transcript.
+
+Nobody deciding whether to trust this needs to read forty reports; the
+audit read all of them adversarially, and this page plus the verdict is
+the summary that survived it.
 
 ## Licence
 
-Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). **`vendor/polar/` is not covered by it**:
-the vendored Polar is NVIDIA's, carries its own Apache-2.0 `LICENSE` file at
-`vendor/polar/LICENSE`, and stays there. The two never mix in a released
-artifact, because `vendor/` is in neither the wheel nor the sdist — the
-published package contains `gsj_rollout/` and the two pins files, nothing
-else (asserted at build time, CP-19; the thinking-on set since CP-33).
-
-The plan, the scope laws, the assumption register, and the gap register
-this repo is judged by all live in [`docs/CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) —
-the normative document. Rule reasoning lives in `docs/checks-spec.md`;
-per-checkpoint reports in `docs/reports/`; decisions in `docs/decisions/`.
+Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE).
+`vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and
+ships in no released artifact: the published wheel contains
+`gsj_rollout/`, the two pins sets, and `ingest_corpus.py` — nothing else
+(asserted at build time: CP-19; `ingest_corpus.py` since CP-34).
 
 Predecessor: `gsj-envloader` @ v0.8.0 — alive, frozen, not retired; the
 fallback and the golden reference.

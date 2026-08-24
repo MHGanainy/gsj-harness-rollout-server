@@ -1444,6 +1444,22 @@ S10, C9, C10, C11, M2, M3, M4 — are enumerated with owners in the
 CP-41 report.
 Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-42] No row moves; S7 closed — the README lift the CP-41 ledger
+named.** `README.md` rewritten as the front door (CP-42: one paragraph,
+three diagrams — the shape, the cutoff, the two roles — the proven
+table with per-row sources under a measured-as-of date, the not-done
+list, the record map). The S7 trio corrected in the rewrite: the badge
+paragraph's root-suite count now 161 (was 136), the gate roster now
+G1/G2/G3/G5/G6/G7 with G4's estate-side posture stated (G6 was
+omitted), and the wheel-contents claim now `gsj_rollout/` + both pins
+sets + `ingest_corpus.py` (the "nothing else" wording predated CP-34).
+The §8 rule 9 scan over the CP-41 open-ids ledger: none of the
+remaining parks' named events fired this CP (no VERDICT register pass,
+no charter §4 register pass — see the CP-42 report's questions on that
+park's wording — no consumer-repo sitting, no CI firing for wishlist
+row 26); thirteen ids remain open, owners unchanged. Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
