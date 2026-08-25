@@ -1538,6 +1538,31 @@ exactly the readability archiving preserves); no wishlist row moves
 (row 9's `task.py:878-885` citation stays checkable at the tag). Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-46] No row moves; the repository framed in place — nothing
+moved (operator-confirmed at the Step-4 wall).** The shape question
+measured out against its own premises: GitHub's language bar already
+reads 94.4% Python by linguist defaults (`vendor/` vendored, `docs/`
+documentation, Markdown prose — no attribute needed; the 541,579
+counted Python bytes are exactly the non-vendor, non-docs Python), a
+clone is 5,926 KB with the record ~21% of compressed content against
+vendor's ~57%, and the record's paths are load-bearing in code — 740
+breaking citations across the three repos (725 here, incl. 7
+pathlib-joined test constants the substring census cannot see),
+CI/release's `docs/polar/h200-fidelity/` fixture, `derive_pins.py`'s
+runtime reads of `docs/polar/*/trace.json` and
+`corpus/staging/skills/*/SKILL.md`, and the shipped wheel's
+`pins.gsj.json` provenance strings, which PyPI immutability puts
+beyond repair. So: `docs/README.md` and `spike/README.md` added
+(indexes — the `docs/polar/README.md` mechanism of CP-41/S14, one
+level up), the GitHub description set (was null) and seven topics
+added (were empty), `.gitattributes` declined (the bar was already
+truthful; `spike/` is first-party evidence, not vendored code), and
+`corpus/staging/` kept (the freeze record the lock's SHAs, both
+golden manifests, the mcp bares, and the wheel's `skill_card_hash`
+pins hang off — its collector is archived, so byte-identical
+regeneration is unprovable in principle). Tally unchanged: **21
+PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
