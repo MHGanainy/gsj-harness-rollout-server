@@ -1563,6 +1563,30 @@ pins hang off — its collector is archived, so byte-identical
 regeneration is unprovable in principle). Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-47] No row moves; every tracked file classified, read-only
+(the operator's consumer-repo question).** The two-axis census
+(audience × coupling) is `docs/CLASSIFICATION.md`: 701 tracked files
+— CONSUMER 20 · OPERATOR 416 · CONTRIBUTOR 58 · INTERNAL 207 on
+audience; RUNTIME 458 · DERIVED-FROM 6 · CITED 237 · **FREE 0** on
+coupling. The zero is the deciding measurement: nothing tracked is
+free to leave — every evidence shelf is cited by path from something
+that must keep resolving. Seventeen INTERNAL files are live
+dependencies (the contradiction list: seven `docs/polar/` bodies
+read by the suite/CI/release gate/pins walk, `docs/golden/mac/
+tokens.npz` plus its two transcription sources, the six pins
+captures, `CLAUDE.md` via the session harness), and `corpus/staging/`
+(OPERATOR, 163) stays the densest coupling in the repo (six runtime
+readers, five derivation chains — the CP-46 keep, re-verified). One
+accidental coupling found: the root suite fails if `vendor/polar/`
+is absent as a directory (test_cli.py:232 monkeypatches `exists`
+but not cli.py:51's `isdir`) — a few-line edit at the next test
+freeze-lift. The strict CONSUMER+FREE repository is 20 files and
+does not build; three options priced against the counts (split /
+untrack / frame harder) and (c) recommended — the decision is the
+operator's, nothing acted on. Rule-9 pass: no parked row's named
+event fired in this CP's read-only scope. Tally unchanged: **21
+PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
