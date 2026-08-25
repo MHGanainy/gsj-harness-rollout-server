@@ -9,6 +9,26 @@ file is the shelf map: what each shelf is, who needs it, and what to
 read first. Added at CP-46; the mechanism is `polar/README.md`'s
 (CP-41), one level up.
 
+> **Since CP-48 most of this directory is maintained privately.** The
+> operator removed the development record from tracking: `reports/`,
+> `prompts/` (through CP-48's own prompt, the last one tracked),
+> `decisions/`, `AUDIT-2026-08-24.md`, the CP-47 classification, the
+> shelf README under `polar/`, and every `golden/` and `polar/` file
+> except the ten that CI, the release gate, the test suites, and the
+> pins walk read (the "Load-bearing paths" below — those stay, by
+> proof). The record still exists, unchanged, in the operator's working
+> tree; the shelf map below is kept as written and describes **that**
+> copy, not what a clone of this repository contains. Reading this from
+> a clone: the `reports/`, `prompts/` and `decisions/` shelves are
+> gone, and every `CP-NN` and ADR citation in the surviving documents —
+> this repo's, the charter's, the spec's, the consumer repos', and the
+> two report paths inside the wheel-shipped `pins.gsj.json` provenance
+> — is a footnote you cannot follow: it resolves only in the operator's
+> private record. That is the cost of this decision, recorded here
+> rather than papered over: the evaluation's product was a checkable
+> record, and from a clone the checkable part now ends at the code, the
+> suites, and the evidence bodies they execute against.
+
 ## Read this first
 
 1. [`VERDICT.md`](VERDICT.md) — the adoption verdict, its reversing

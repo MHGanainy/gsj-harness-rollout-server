@@ -1587,6 +1587,39 @@ operator's, nothing acted on. Rule-9 pass: no parked row's named
 event fired in this CP's read-only scope. Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-48] No row moves; the development record untracked (the
+operator's decision on CP-47's classification — the census's option
+(b), taken with the priced costs accepted).** 197 files left `HEAD`
+and stay on disk, byte-untouched: `docs/prompts/` (52), `docs/reports/`
+(52), `docs/decisions/` (26), the audit, the classification, and the
+`golden/`/`polar/` evidence not on the keep list (8 + 57). What stays
+tracked under `docs/` is 15 files plus the CP-48 prompt (the last
+tracked one): the four normative documents (PyPI-published URLs),
+`docs/README.md` (carries the disclosure), and the ten load-bearing
+evidence files — re-verified before removal, every reader confirmed at
+its line (conftest.py:19-22, test_checks.py:707/720-721/935/1007/1018,
+ci.yml:150, release.yml:133, derive_pins.py:76). The six `pins/`
+captures and `CLAUDE.md` stay tracked (the captures are outside
+`docs/`; CLAUDE.md is the workflow's instruction file, not record —
+every session reads it). One reader CP-47's §4 missed, found by this
+CP's re-sweep: `corpus/tests/test_taskbank.py:255-258` opens BOTH real
+callback bodies (rows 1/3) in the CI corpus job — the keep list
+survives, its proof list grows. The consumer repos and the archived
+predecessor read nothing under this repo's `docs/` (four-repo sweep,
+grep-verified, code-readers zero). The cost is disclosed rather than
+rewritten (README and docs/README each carry one paragraph): every
+CP/ADR citation in the surviving documents dangles publicly, including
+the two report paths in the wheel-shipped pins provenance — immutable
+on PyPI; the record is checkable by the operator only from here. After
+the removal, everything green with the removals staged and again from
+a fresh clone: root 161, corpus 58, mcp-service 89, the pins walk
+reproduced, the wheel's 16 entries. From CP-49 the record writes to
+the same paths, ignored, never committed (CLAUDE.md §Workflow states
+the practice; this §7 append is the one per-CP artifact that still
+reaches the remote). Rule-9 pass: no parked row's named event fired —
+this CP touched tracking metadata, prose, and `.gitignore` only.
+Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

@@ -20,7 +20,7 @@
 
 ## Workflow
 
-Work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` and committed with the CP. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below, prints it, makes one commit `CP-XX: <summary>`, and leaves the tree clean. **A CP ends at the remote, not the working tree: push every repo the CP touched before the report claims done (charter §8 rule 8 — written at CP-33 and then ignored three CPs running, CP-36–38, found at CP-39), and state the push outcome in the report either way — silence is non-compliance.** **Every CP updates the gap register in `docs/CHARTER.md` §7.** ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence.
+**The development record is untracked since CP-48** (the operator's decision, taken on CP-47's classification): `docs/prompts/`, `docs/reports/`, `docs/decisions/`, the audit, the classification, and the non-load-bearing `golden/`/`polar/` evidence are `.gitignore`d — `docs/prompts/CP-48.md` is the last tracked prompt. The practice otherwise continues unchanged: work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` — on disk, ignored, never committed. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below and prints it — printing is now the report's only publication; the file stays on disk, untracked. Each CP makes one commit `CP-XX: <summary>` covering tracked material only and leaves the tree clean — since CP-48 `git status --porcelain` comes back empty because the record paths are *ignored*, not because the record was committed: an empty porcelain no longer certifies the record is anywhere but this disk. The record has no remote; the operator's working tree (and whatever backup the operator keeps) is the only copy — do not delete record files, ever. **A CP ends at the remote, not the working tree: push every repo the CP touched before the report claims done (charter §8 rule 8 — written at CP-33 and then ignored three CPs running, CP-36–38, found at CP-39), and state the push outcome in the report either way — silence is non-compliance.** **Every CP updates the gap register in `docs/CHARTER.md` §7** — the charter stays tracked, so the §7 append is the one part of each CP's record that still reaches the remote. ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence — untracked like the rest of the record since CP-48.
 
 ```
 ### CP-XX REPORT
@@ -53,12 +53,12 @@ next: <advisory>
 │   ├── VERDICT.md               # the adoption verdict + the wishlist (the read-first document)
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
 │   ├── corpus-contract.md       # the corpus tree contract
-│   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — CP-39/40/41's specification
-│   ├── decisions/               # ADRs (0001–0025), one file per decision, append-only
-│   ├── prompts/                 # every CP prompt verbatim: CP-XX.md
-│   ├── reports/                 # one report per checkpoint: CP-XX.md
-│   ├── golden/                  # golden-pair evidence (mac/ + h200/ + COMPARISON.md)
-│   └── polar/                   # real Polar run artifacts (fidelity, loop, thinking evidence)
+│   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — UNTRACKED since CP-48
+│   ├── decisions/               # ADRs (0001–0026), one file per decision, append-only — UNTRACKED since CP-48
+│   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — UNTRACKED since CP-48 (CP-48.md is the last tracked one)
+│   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
+│   ├── golden/                  # golden-pair evidence — only mac/{tokens.npz,MANIFEST.md,record.json} tracked since CP-48
+│   └── polar/                   # real Polar run artifacts — only the 7 suite/CI/walk-read bodies tracked since CP-48
 ├── gsj_rollout/                 # 1,999 lines — the whole server
 │   ├── __init__.py              # consumer surface: RolloutClient/Trace, checks, load_config/RunConfig
 │   ├── pi_harness.py            # SERVER — our pi via Polar import_path

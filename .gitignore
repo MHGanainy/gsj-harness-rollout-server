@@ -18,3 +18,39 @@ spike/pi-local/workspace/
 # (endpoint.env, tunnel.pid) — regenerated every bring-up, never evidence
 # (wishlist 12, opened at CP-17 and closed at CP-18)
 staging/serving/run/
+# CP-48: the development record is untracked (the operator's decision on
+# CP-47's classification). The files stay on disk — the operator's copy is
+# the only one. The `!` rows ARE the keep list: every negated path is read
+# by CI, the release gate, a test suite, or the pins walk (CLASSIFICATION
+# §4 rows 1-8, 16-17, re-verified at CP-48), plus CP-48.md — the last
+# tracked prompt, the one that records this decision.
+docs/prompts/*
+!docs/prompts/CP-48.md
+docs/reports/
+docs/decisions/
+docs/AUDIT-2026-08-24.md
+docs/CLASSIFICATION.md
+docs/golden/*
+!docs/golden/mac/
+docs/golden/mac/*
+!docs/golden/mac/tokens.npz
+!docs/golden/mac/MANIFEST.md
+!docs/golden/mac/record.json
+docs/polar/*
+!docs/polar/pi-corpus/
+docs/polar/pi-corpus/*
+!docs/polar/pi-corpus/callback_session_result.json
+!docs/polar/pi-corpus/trace.json
+!docs/polar/fidelity/
+docs/polar/fidelity/*
+!docs/polar/fidelity/callback_session_result.json
+!docs/polar/fidelity/trace.json
+!docs/polar/h200-fidelity/
+docs/polar/h200-fidelity/*
+!docs/polar/h200-fidelity/callback_session_result.json
+!docs/polar/h200-stitch/
+docs/polar/h200-stitch/*
+!docs/polar/h200-stitch/attempt5.accepted.json
+!docs/polar/thinking/
+docs/polar/thinking/*
+!docs/polar/thinking/episode-on.quarantined.json

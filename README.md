@@ -171,7 +171,30 @@ pass; it is not evidence that the harness runs.
 
 ## Where the record lives
 
-Every number above traces to a committed document. The map:
+> **Since CP-48 the development record is maintained privately.** The
+> operator, with CP-47's file-by-file classification in hand, removed
+> the record from tracking: the per-checkpoint reports and prompts, the
+> 26 ADRs, the 2026-08-24 audit, and every file under `docs/golden/`
+> and `docs/polar/` except the ten that CI, the release gate, the test
+> suites, and the pins walk actually read. Those files still exist,
+> unchanged, in the operator's working tree — but not in this
+> repository. What that costs you, the reader, stated plainly: the map
+> below and the evidence column of the table above cite `CP-NN`
+> reports, ADR ids, and audit sections that no longer resolve here —
+> including two report paths named inside the `pins.gsj.json`
+> provenance that ships in every published wheel. The citations were
+> left as written rather than rewritten (they are true of the private
+> record, and rewriting frozen documents is what this project does not
+> do), so from here on they are footnotes you cannot follow. For anyone
+> but the operator, the claims above reduce from "checkable at the
+> cited path" to "asserted" — what remains checkable from a clone is
+> the code, the three suites, the pins walk, the wheel assertions, and
+> the evidence bodies they execute against. `CP-NN` references resolve
+> in the operator's private record.
+
+Every number above traces to a document of the record — committed
+through CP-47, maintained privately since CP-48. The map, kept as
+written; the record it describes is the operator's copy:
 
 - [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) — the adoption verdict, its reversing conditions, and the wishlist. Standalone; read this first.
 - [`docs/CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) — the normative document: scope laws, the assumption register (§4), the capability/gap register (§7), the standing rules (§8).
