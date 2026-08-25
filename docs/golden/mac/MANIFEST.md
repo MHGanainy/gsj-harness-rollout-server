@@ -8,6 +8,12 @@ down here. The H200 pair (CP-04′/CP-09′) re-establishes the production
 numbers later; **nothing mixes across `docs/golden/mac/` and
 `docs/golden/h200/`.**
 
+**[CP-45] The collecting stack is archived** — `gsj-envloader` at
+v0.8.0 (the checkout SHA in the stack table below IS the v0.8.0 tag
+commit), one README-header commit on top, GitHub read-only (ADR-0026).
+The golden trace is what it is regardless: its bytes, hashes, and this
+manifest live here.
+
 ## The episode
 
 | | |

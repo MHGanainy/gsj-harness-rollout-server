@@ -1,8 +1,10 @@
 # CHARTER — gsj-harness-rollout-server
 
 The normative document. `CLAUDE.md` governs process; this file governs
-content. Predecessor: `gsj-envloader` @ v0.8.0 — alive, frozen, not
-retired; the fallback and the golden reference.
+content. Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45**
+(2026-08-25, ADR-0026): still the golden reference, no longer the
+fallback (that term expired at the conversion — CP-17, 2026-08-11);
+§8 rule 3 records what the freeze protected and how it is enforced now.
 
 **The M3 adoption verdict lives in `docs/VERDICT.md` (CP-12): ADOPT
 PROVISIONALLY, with the converting and reversing conditions named there.**
@@ -40,7 +42,9 @@ silently load-bearing parser dependency (sglang, H-41) once produced
 gates-green but tool-free episodes; and dismantling the dev harness around
 it took two dedicated checkpoints. This repo tests whether Polar can own
 that layer. **We are not migrating; the predecessor stays alive.** If the
-answer is no, we say so and stop (§9).
+answer is no, we say so and stop (§9). (Written at CP-00; the answer
+was yes — the verdict converted at CP-17 — and CP-45 archived the
+predecessor, its evidence role intact.)
 
 ## 3. What we start with
 
@@ -350,7 +354,7 @@ it.
 
 | # | assumption | basis | if false |
 | --- | --- | --- | --- |
-| A-1 | Polar's `prefix_merging` reconstructs multi-turn token streams correctly | **RESOLVED — empirically on BOTH pairs; the H200 (the governing platform, A-16) at CP-09′.** [CP-09′] Against `docs/golden/h200/` on the same triple with the golden's own instruction bytes: `loss_mask` semantics exact on both traces (zero tolerance satisfied — 2 sampled spans == 2 assistant turns each, opens at r=0, closes at stream end), `prompt_ids` byte-identical (2965/2965), decode-fidelity EXACT-BYTES at mask==1 on both traces, glue framing constants byte-identical across traces with the pinned G6 tail, and the logprob replay run **as written** through the serving engine — bit-deterministic (rerun Δ exactly 0.000000), with the sole finding the platform's capture-path numerics floor (present identically on the predecessor's Polar-free capture); **nothing attributable to Polar** (`docs/reports/CP-09prime.md`, verdict PASS WITH FINDINGS). **At CP-09 — empirically, Mac pair** (the behavioral half; CP-05 verified the structural half): against `docs/golden/mac/` on the same triple, `loss_mask` semantics matched exactly (2 sampled spans == 2 assistant turns, boundaries aligned, per-span decode-fidelity exact on both traces), `prompt_ids` byte-identical to the golden's `prompts` (2965/2965 — the A-1 retokenization class is empirically clean), glue template constants identical across stacks, and logprob capture agreed with the predecessor's capture at mean&nbsp;|Δ|&nbsp;=&nbsp;0.000114 on identical-context positions (comparison table + findings: `docs/reports/CP-09.md`; the H200 pair CP-04′/CP-09′ re-confirms on production numerics). **LINE-VERIFIED at CP-05** (algorithm; token fidelity was CP-09's question): the retokenization guarantee holds in code — assistant tokens come only from engine-sampled ids, never from a prompt re-rendering (`record_utils.py:82-107`, `prefix_merging.py:337-353`; no tokenizer anywhere in the builder); grouping is a strict token-id prefix test (`prefix_merging.py:399`); the interstitial split implements the paper's §3.4.2 exactly (`prefix_merging.py:326-334`). Adversarially re-verified (6-agent pass, 17/18 claims confirmed, 1 scope-corrected). **But every discovered failure mode degrades silently to `status=COMPLETED`** — truncation, chain degeneration, EOT misdetection, filter amputation, `choices[0]`-only capture, discard-and-reprompt — catalogued in `docs/checks-spec.md` §silent-degradation; verdict: **GO WITH CONDITIONS** (CP-05 report) | CP-09 fidelity fails against the golden reference with no fix in our code → abandon (§9) |
+| A-1 | Polar's `prefix_merging` reconstructs multi-turn token streams correctly | **RESOLVED — empirically on BOTH pairs; the H200 (the governing platform, A-16) at CP-09′.** [CP-09′] Against `docs/golden/h200/` on the same triple with the golden's own instruction bytes: `loss_mask` semantics exact on both traces (zero tolerance satisfied — 2 sampled spans == 2 assistant turns each, opens at r=0, closes at stream end), `prompt_ids` byte-identical (2965/2965), decode-fidelity EXACT-BYTES at mask==1 on both traces, glue framing constants byte-identical across traces with the pinned G6 tail, and the logprob replay run **as written** through the serving engine — bit-deterministic (rerun Δ exactly 0.000000), with the sole finding the platform's capture-path numerics floor (present identically on the predecessor's Polar-free capture); **nothing attributable to Polar** (`docs/reports/CP-09prime.md`, verdict PASS WITH FINDINGS). **At CP-09 — empirically, Mac pair** (the behavioral half; CP-05 verified the structural half): against `docs/golden/mac/` on the same triple, `loss_mask` semantics matched exactly (2 sampled spans == 2 assistant turns, boundaries aligned, per-span decode-fidelity exact on both traces), `prompt_ids` byte-identical to the golden's `prompts` (2965/2965 — the A-1 retokenization class is empirically clean), glue template constants identical across stacks, and logprob capture agreed with the predecessor's capture at mean&nbsp;|Δ|&nbsp;=&nbsp;0.000114 on identical-context positions (comparison table + findings: `docs/reports/CP-09.md`; the H200 pair CP-04′/CP-09′ re-confirms on production numerics). **LINE-VERIFIED at CP-05** (algorithm; token fidelity was CP-09's question): the retokenization guarantee holds in code — assistant tokens come only from engine-sampled ids, never from a prompt re-rendering (`record_utils.py:82-107`, `prefix_merging.py:337-353`; no tokenizer anywhere in the builder); grouping is a strict token-id prefix test (`prefix_merging.py:399`); the interstitial split implements the paper's §3.4.2 exactly (`prefix_merging.py:326-334`). Adversarially re-verified (6-agent pass, 17/18 claims confirmed, 1 scope-corrected). **But every discovered failure mode degrades silently to `status=COMPLETED`** — truncation, chain degeneration, EOT misdetection, filter amputation, `choices[0]`-only capture, discard-and-reprompt — catalogued in `docs/checks-spec.md` §silent-degradation; verdict: **GO WITH CONDITIONS** (CP-05 report). **[CP-45] The evidence's collecting stack (`gsj-envloader` @ v0.8.0, both golden dirs) is ARCHIVED — one README-header commit past the v0.8.0 tag, GitHub read-only (ADR-0026); the golden bytes, hashes, and this row's resolution are unchanged, and the citation names an archived stack by design** | CP-09 fidelity fails against the golden reference with no fix in our code → abandon (§9) |
 | A-2 | Polar's proxy handles pi 0.83.0's traffic unmodified: **RESOLVED — CONFIRMED at CP-06** (stub backend, no GPU; engine-side fidelity stays CP-09's); **CP-07 adds a real-engine caveat**: pi sends `tool_choice: auto`, which vLLM/vllm-metal reject with HTTP 400 unless the engine is served with `--enable-auto-tool-choice --tool-call-parser hermes` — not a proxy translation failure (the proxy forwards `tool_choice` untouched), an engine-config requirement the harness cannot set; the first CP-07 submit ERRORed "no completions" until the engine was restarted with those flags (echoes the predecessor's H-41 sglang-parser dependency from the vLLM side) | CP-06 live: pi 0.83.0 (predecessor pins, ADR-0008 argv) through the gateway completed a 2-turn episode, `chains_total == 1`, zero translation errors. Measured facts: (a) pi **always sends `stream: true`** — the gateway forwards non-streaming (`proxy.py:121-122`) and replays the backend response to pi as ONE synthetic SSE delta chunk (`server.py:736,771-810`); pi 0.83.0's parser accepts that shape (verified twice: direct against the stub speaking the same shape, and through the proxy); (b) the transformer's only mutation on pi traffic is `max_tokens` added as a copy of `max_completion_tokens` (original key retained, `openai_chat.py:15-16`) — the system-message fold is a no-op because pi sends exactly one top-of-list system string; `messages`/`tools` byte-identical across original → transformed → wire (three-way diff, `spike/wire_diff.py`); (c) engine-prepare deltas are additive capture params only (`+logprobs`, `+return_token_ids`, `+top_logprobs: 0`, `stream→false`, `−stream_options`); (d) the capture keying works because our harness substitutes `$OPENAI_API_KEY` (= the session id) into pi's `models.json` `apiKey` — a harness with a static apiKey would fragment capture into per-request orphan sessions (builder then ERRORs "no trainable completions" — loud) | n/a (resolved); a translation failure on a real engine dialect at CP-09 would reopen it |
 | A-3 | pi package identity: **RESOLVED** — same tool; `@mariozechner` deprecated → `@earendil-works`; Polar's preset pins 0.67.68, we run 0.83.0 | npm deprecation trail traced | n/a (resolved); if the rename hid a fork, the CP-05 source audit catches it |
 | A-4 | the per-episode cutoff token is injectable via `run_steps()` — **RESOLVED at CP-07**: minted host-side in `run_steps()` (stdlib HS256, claims `{case_id, timestep, episode_id, exp}`, `episode_id` = the Polar session id), rendered into `.pi/mcp.json` as `<mcp_base>/mcp/<token>`, enforced server-side by the MCP service from **verified claims only** | Polar's episode API takes per-episode parameters; **CP-07 live**: the CP-04 triple ran end to end, every `mcp_gsj_*` call authorized under its own token's `timestep: 12` (`docs/polar/pi-corpus/mcp_authority_log.jsonl`), every `search_case` result page ≤ 12, and the adversarial probe (mutate `timestep` 12→18 keeping the signature, call the service from inside the sandbox) was rejected HTTP 401 `token invalid: Signature verification failed` (`docs/polar/pi-corpus/adversarial_probe.txt`) — the agent can read the token but cannot forge its scope | n/a (resolved); the cutoff rode `run_steps()` exactly as assumed, no fallback channel needed |
@@ -1508,6 +1512,32 @@ checkpoint — the F-18/F-42 discipline applied to the front door itself.
 No new findings; the F-register stands at next-fresh-id F-70. Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-45] No row moves; the predecessor archived (freeze-lift: `docs/**`
++ `gsj-envloader` itself — the one CP permitted to write there).** The
+Step-1 sweep (six read-only enumerators) found nothing archiving breaks:
+every past frozen-assertion (CP-00–CP-24 scope_drift lines, CP-41's
+tag-anchored audit) is time-stamped and survives; the goldens'
+provenance is content-addressed (wheel sha256 `a6921de6…`, checkout
+`4037bc2` = the v0.8.0 tag commit) and stays checkable on an archived
+repo; the H200's predecessor state (`.venv-cp04prime`, the checkout,
+the `gsj-envloader-staging` compose project) is local disk the platform
+action cannot reach; no documented procedure pushes to the GitHub repo.
+What archived means (ADR-0026): the fallback role RETIRED (the
+frozen-alive term was a term of the provisional adopt and expired at
+the conversion — CP-17, 2026-08-11), the evidence role CONTINUES (the
+goldens' collecting stack, readable at v0.8.0), law 3 HISTORICAL
+(bound CP-00–CP-44, did its job — the predecessor reached the archive
+byte-untouched; the freeze is platform-enforced from here). The
+predecessor's diff against v0.8.0 is one file, its README (the archive
+header); the GitHub repo set to archived via `gh repo archive`. Law 3's
+out-of-lift statement sites (CLAUDE.md, README.md) amended in the same
+commit — declared scope_drift, §8 rule 8's CP-33/CP-39 history being
+the recorded cost of amending one site and leaving another stale.
+Audit M5 adjacent only (the manifests' predecessor-path citations need
+exactly the readability archiving preserves); no wishlist row moves
+(row 9's `task.py:878-885` citation stays checkable at the tag). Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
@@ -1551,8 +1581,19 @@ The seven scope laws as operating rules:
    storing, scheduling, scoring, weighting, versioning, or training.
 2. Count our own lines every checkpoint; crossing 2,000 (ADR-0012; 1,500
    until CP-12) stops the work until justified in an ADR.
-3. Never touch `gsj-envloader` — read it, compare against it, fall back to
-   it, but no checkpoint modifies it.
+3. Never touch `gsj-envloader` — read it, compare against it, but no
+   checkpoint modifies it. **Historical since CP-45 (2026-08-25,
+   ADR-0026).** The rule bound CP-00–CP-44 and did its job: the
+   predecessor reached the archive byte-untouched (every porcelain
+   check empty; v0.8.0 is the archive commit's parent). What it
+   protected — the goldens' collecting stack staying exactly the
+   artifact the goldens were collected on — is protected archivally
+   rather than operationally from here: CP-45 made the single permitted
+   write (the README archive header) and set the GitHub repo to
+   archived, so the platform enforces read-only. The "fall back to it"
+   half of the old wording is retired with the fallback role (the
+   VERDICT's frozen-alive term, expired at CP-17's conversion); the
+   read/compare half stands.
 4. Vendor Polar by pinned SHA with a recorded re-vendor recipe; carry
    patches as first-class, documented artifacts.
 5. Keep `gsj_rollout/` runtime-agnostic: the runtime is a config value and

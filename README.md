@@ -193,5 +193,7 @@ ships in no released artifact: the published wheel contains
 `gsj_rollout/`, the two pins sets, and `ingest_corpus.py` — nothing else
 (asserted at build time: CP-19; `ingest_corpus.py` since CP-34).
 
-Predecessor: `gsj-envloader` @ v0.8.0 — alive, frozen, not retired; the
-fallback and the golden reference.
+Predecessor: `gsj-envloader` @ v0.8.0 — archived at CP-45 (2026-08-25,
+ADR-0026): the golden reference (the goldens' collecting stack, readable
+at v0.8.0), no longer the fallback — that term expired at the verdict's
+conversion (CP-17, 2026-08-11).

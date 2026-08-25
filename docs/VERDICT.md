@@ -2,7 +2,9 @@
 
 Date: 2026-08-09. Status at CP-12: **ADOPT PROVISIONALLY**.
 **Status now (2026-08-11, CP-17): ADOPT — both converting conditions are
-met.** The two dated sections at the end of this document record how each
+met.** (2026-08-25, CP-45: the predecessor is archived; its frozen-alive
+fallback term had already expired at that conversion — the last dated
+section below.) The two dated sections at the end of this document record how each
 condition closed; §5's body is preserved as written so the conversion can
 be audited against the conditions as they were stated in advance, not as
 they might be remembered. This document is standalone: it cites the
@@ -11,7 +13,8 @@ require reading them.
 
 ## What was tested
 
-`gsj-envloader` (the predecessor — alive, frozen, the fallback) runs our
+`gsj-envloader` (the predecessor — frozen; the fallback while the adopt
+was provisional, archived since CP-45) runs our
 corpus episodes with ~1,800 lines of its own episode execution and
 capture: a checkout→run→harvest→reset lifecycle with docker bolted
 inside, per-episode gateway sessions, and a finalize pipeline. That layer
@@ -259,6 +262,13 @@ as decisions, not hopes:
 - **While provisional:** the predecessor stays alive and frozen as the
   fallback (law 3); no production collection on the Mac pair (A-16);
   the wishlist's items 1–4 land before or with M4 (landed at CP-13).
+  [CP-45, 2026-08-25: this frozen-alive fallback condition was a term
+  of the *provisional* adopt and EXPIRED with the conversion on
+  2026-08-11 (CP-17 — converting condition 2's dated entry below). It
+  did not survive into the full ADOPT as an obligation; it survived as
+  unrecorded fact until CP-45 retired the fallback role and archived
+  the predecessor (ADR-0026). The evidence role — the goldens'
+  collecting stack — continues, archived.]
 
 Not full ADOPT, because adopting a rollout server that has never fed a
 training step would be inflation. Not DO NOT ADOPT, because no stated
@@ -461,6 +471,21 @@ bytes did not (the §3.1 nesting dropped by decision) — the lock records
 `ae9e0bbd…`. Wishlist row 6 closes; row 9 (sandbox-side hashing) is
 restated, narrower but real: binding G1 to the bytes the episode
 actually saw.
+
+### 2026-08-25 — CP-45: the predecessor archived; the frozen-alive term expired at conversion
+
+Housekeeping on the verdict's own terms; no condition moves. The
+"while provisional" clause in §5 kept the predecessor frozen-alive as
+the fallback; that term was scoped to the provisional adopt and expired
+when the verdict converted — 2026-08-11, CP-17 — though no entry said
+so until now. CP-45 retires the fallback role explicitly and archives
+`gsj-envloader`: one README-header commit on top of the v0.8.0 tag (the
+only write any checkpoint ever made there — law 3's single permitted
+exception, ADR-0026), and the GitHub repo set to archived, read-only.
+The evidence role continues: it is the collecting stack for both golden
+references (`docs/golden/mac/`, `docs/golden/h200/`), cited by A-1's
+resolution — v0.8.0 stays readable, cloneable, and platform-frozen. The
+traces are what they are regardless.
 
 ---
 
