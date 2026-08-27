@@ -22,10 +22,10 @@ staging/serving/run/
 # CP-47's classification). The files stay on disk — the operator's copy is
 # the only one. The `!` rows ARE the keep list: every negated path is read
 # by CI, the release gate, a test suite, or the pins walk (CLASSIFICATION
-# §4 rows 1-8, 16-17, re-verified at CP-48), plus CP-48.md — the last
-# tracked prompt, the one that records this decision.
-docs/prompts/*
-!docs/prompts/CP-48.md
+# §4 rows 1-8, 16-17, re-verified at CP-48). CP-48.md, the last
+# tracked prompt, came out at CP-49a (the operator's direction) —
+# no prompt is tracked now.
+docs/prompts/
 docs/reports/
 docs/decisions/
 docs/AUDIT-2026-08-24.md

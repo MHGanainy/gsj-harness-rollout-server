@@ -1653,6 +1653,21 @@ Rule-9 pass: no parked row's named event fired — one path constant,
 tracking metadata, and prose only. Tally unchanged: **21 PARITY · 7
 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-49a] No row moves; the last tracked prompt untracked (the
+operator's direction, post-CP-49).** `docs/prompts/CP-48.md` — kept
+at CP-48 as the prompt that records the untracking decision — leaves
+the index by the same pattern (`git rm --cached`, disk untouched),
+and `docs/prompts/` now ignores whole, like `docs/reports/` and
+`docs/golden/`. Tracked under `docs/` from here: **12 files** — the
+four normative documents, `docs/README.md`, and the seven polar
+bodies. No code reads any prompt (CP-48's sweep held); root suite
+green after the removal. The "last tracked prompt" statements
+amended where they were current-state claims (CLAUDE.md §Workflow
+and layout, docs/README.md's disclosure parenthetical, the
+`.gitignore` comment); the §7 [CP-48] paragraph stays as written —
+the historical statement of what CP-48 kept. Tally unchanged: **21
+PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

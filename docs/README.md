@@ -13,7 +13,8 @@ read first. Added at CP-46; the mechanism is `polar/README.md`'s
 
 > **Since CP-48 most of this directory is maintained privately.** The
 > operator removed the development record from tracking: `reports/`,
-> `prompts/` (through CP-48's own prompt, the last one tracked),
+> `prompts/` (all of them since CP-49a; CP-48's own prompt was the
+> last one tracked),
 > `decisions/`, `AUDIT-2026-08-24.md`, the CP-47 classification, the
 > shelf README under `polar/`, and every `golden/` and `polar/` file
 > except the ten that CI, the release gate, the test suites, and the
