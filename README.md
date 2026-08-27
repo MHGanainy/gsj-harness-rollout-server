@@ -176,7 +176,10 @@ pass; it is not evidence that the harness runs.
 > the record from tracking: the per-checkpoint reports and prompts, the
 > 26 ADRs, the 2026-08-24 audit, and every file under `docs/golden/`
 > and `docs/polar/` except the ten that CI, the release gate, the test
-> suites, and the pins walk actually read. Those files still exist,
+> suites, and the pins walk actually read — seven since CP-49, which
+> moved the three Mac-golden fixtures (`tokens.npz` and its two
+> provenance documents) to `tests/fixtures/golden-mac/`, still tracked,
+> leaving `docs/golden/` entirely untracked. Those files still exist,
 > unchanged, in the operator's working tree — but not in this
 > repository. What that costs you, the reader, stated plainly: the map
 > below and the evidence column of the table above cite `CP-NN`

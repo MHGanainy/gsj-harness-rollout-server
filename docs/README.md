@@ -3,8 +3,10 @@
 This directory is the evaluation record, not the product. The product
 is [`../gsj_rollout/`](../gsj_rollout/) — 1,999 lines, eight files;
 `pip install gsj-harness-rollout-server` for the trainer role. Nothing
-here is required to *run* the server, but two shelves are runtime
-inputs (see "Load-bearing paths" below), so nothing here moves. This
+here is required to *run* the server, but one shelf (`polar/`) is a
+runtime input (see "Load-bearing paths" below), so it stays put — two
+shelves, until CP-49 moved the Mac fixtures to
+`../tests/fixtures/golden-mac/`. This
 file is the shelf map: what each shelf is, who needs it, and what to
 read first. Added at CP-46; the mechanism is `polar/README.md`'s
 (CP-41), one level up.
@@ -16,7 +18,9 @@ read first. Added at CP-46; the mechanism is `polar/README.md`'s
 > shelf README under `polar/`, and every `golden/` and `polar/` file
 > except the ten that CI, the release gate, the test suites, and the
 > pins walk read (the "Load-bearing paths" below — those stay, by
-> proof). The record still exists, unchanged, in the operator's working
+> proof; seven since CP-49, when the three Mac-golden files moved,
+> still tracked, to `../tests/fixtures/golden-mac/` and `golden/`
+> became entirely untracked). The record still exists, unchanged, in the operator's working
 > tree; the shelf map below is kept as written and describes **that**
 > copy, not what a clone of this repository contains. Reading this from
 > a clone: the `reports/`, `prompts/` and `decisions/` shelves are
@@ -82,8 +86,9 @@ moving them breaks the build:
   `pins/derive_pins.py`, which re-derives every approved value from
   the evidence named in its provenance blocks; the wheel-shipped
   `pins.gsj.json` names these paths.
-- `golden/mac/tokens.npz` and the golden manifests — the A-1
-  provenance chain.
+- the Mac golden fixtures — `tokens.npz` and its manifests, the A-1
+  provenance chain — lived here until CP-49; they are tracked at
+  `../tests/fixtures/golden-mac/` now.
 
 Nothing in this directory is dead: `AUDIT-2026-08-24.md` §RESIDUE
 catalogued every suspicion and disproved each one. This index shelves;

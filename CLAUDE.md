@@ -57,7 +57,7 @@ next: <advisory>
 │   ├── decisions/               # ADRs (0001–0026), one file per decision, append-only — UNTRACKED since CP-48
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — UNTRACKED since CP-48 (CP-48.md is the last tracked one)
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
-│   ├── golden/                  # golden-pair evidence — only mac/{tokens.npz,MANIFEST.md,record.json} tracked since CP-48
+│   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
 │   └── polar/                   # real Polar run artifacts — only the 7 suite/CI/walk-read bodies tracked since CP-48
 ├── gsj_rollout/                 # 1,999 lines — the whole server
 │   ├── __init__.py              # consumer surface: RolloutClient/Trace, checks, load_config/RunConfig

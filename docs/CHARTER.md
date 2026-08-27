@@ -1620,6 +1620,39 @@ reaches the remote). Rule-9 pass: no parked row's named event fired —
 this CP touched tracking metadata, prose, and `.gitignore` only.
 Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-49] No row moves; the Mac-golden fixtures re-homed (the
+operator's follow-through on CP-48: fixtures out of `docs/`).** The
+three files CP-48 kept tracked under `docs/golden/mac/` because the
+suite reads them — `tokens.npz` (conftest.py:22, opened :117 by the
+stdlib `_read_npz`) and its two transcription sources `MANIFEST.md` /
+`record.json` (DERIVED-FROM only: `timestep: 12`, `finish_reason:
+"stop"` from `env.steps[*].stop_reason`, both re-verified against the
+bytes) — moved by `git mv` to `tests/fixtures/golden-mac/`, the
+provenance travelling with the fixture (the CP's one judgment: a
+fixture whose provenance is a comment is a fixture nobody can
+re-derive, and untracking the sources would split the A-1 chain
+across the public/private boundary). The five-agent four-repo
+re-sweep confirmed CP-48's census with no missed reader this time:
+the sole code reader is conftest.py:22, `MANIFEST.md`/`record.json`
+are opened by no code anywhere, CI and the release gate touch only
+`docs/polar/h200-fidelity/`, the pins walk reads only `docs/polar/`
+trace bodies, both consumer repos read none of the three, and the
+archived predecessor's one mention is its frozen CP-45 header
+(platform read-only, left as written). release.yml:87 additionally
+asserts the wheel excludes both `docs/` and `tests/`, so the
+destination ships in no artifact — the wheel's 16-file entry list is
+byte-identical before and after. `docs/golden/` now has zero tracked
+content and ignores whole (the CP-48 negations collapsed to one
+`.gitignore` row; `transcript.txt` and `artifact/` stay on disk,
+untouched, the operator's copy — 5 entries before the move, 2
+after). The `docs/` keep list is seven — the polar bodies — and both
+disclosures state the corrected arithmetic (ten at CP-48, seven
+since CP-49, `docs/golden/` entirely untracked). Green after the
+move: root 161, corpus 58, mcp-service 89, the pins walk reproduced.
+Rule-9 pass: no parked row's named event fired — one path constant,
+tracking metadata, and prose only. Tally unchanged: **21 PARITY · 7
+DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

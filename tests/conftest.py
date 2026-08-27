@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CALLBACK_FIXTURE = REPO_ROOT / "docs" / "polar" / "pi-corpus" / "callback_session_result.json"
 FIDELITY_CALLBACK = REPO_ROOT / "docs" / "polar" / "fidelity" / "callback_session_result.json"
 FIDELITY_TRACE = REPO_ROOT / "docs" / "polar" / "fidelity" / "trace.json"
-GOLDEN_TOKENS = REPO_ROOT / "docs" / "golden" / "mac" / "tokens.npz"
+GOLDEN_TOKENS = REPO_ROOT / "tests" / "fixtures" / "golden-mac" / "tokens.npz"
 RENDERED_SETTINGS = REPO_ROOT / "pins" / "settings.rendered.json"
 
 
@@ -104,7 +104,7 @@ def trace13(fidelity_trace) -> dict:
 
 @pytest.fixture(scope="session")
 def golden_trace() -> dict:
-    """`docs/golden/mac/tokens.npz` under COMPARISON.md's structural
+    """`tests/fixtures/golden-mac/tokens.npz` under COMPARISON.md's structural
     mapping — `prompts↔prompt_ids`, `responses↔response_ids`,
     `loss_mask↔loss_mask`, `rollout_log_probs↔response_logprobs`. The two
     non-token fields come from the golden's own record: the episode is

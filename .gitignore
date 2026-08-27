@@ -30,12 +30,11 @@ docs/reports/
 docs/decisions/
 docs/AUDIT-2026-08-24.md
 docs/CLASSIFICATION.md
-docs/golden/*
-!docs/golden/mac/
-docs/golden/mac/*
-!docs/golden/mac/tokens.npz
-!docs/golden/mac/MANIFEST.md
-!docs/golden/mac/record.json
+# CP-49: the three Mac-golden fixtures left this list — re-homed to
+# tests/fixtures/golden-mac/ (tracked, plain; §4 rows 8, 16-17) — so
+# docs/golden/ ignores whole and the negated rows below are the seven
+# polar bodies (§4 rows 1-7).
+docs/golden/
 docs/polar/*
 !docs/polar/pi-corpus/
 docs/polar/pi-corpus/*
