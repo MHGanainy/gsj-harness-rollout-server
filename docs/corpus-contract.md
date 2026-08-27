@@ -3,7 +3,7 @@
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one
 directory tree in the shape below; the ingestion pipeline
-(`corpus/ingest_corpus.py`) turns it into git case repositories, a search
+(`estate/corpus/ingest_corpus.py`) turns it into git case repositories, a search
 index, and a task table. You never edit the pipeline, and the pipeline
 never edits your tree.
 
@@ -240,8 +240,8 @@ The pipeline also writes, into `<corpus-root>`:
 ## Running the pipeline
 
 ```bash
-python corpus/ingest_corpus.py validate --corpus <corpus-root>   # check the tree
-python corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
+python estate/corpus/ingest_corpus.py validate --corpus <corpus-root>   # check the tree
+python estate/corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
 ```
 
 `all` runs the five phases in order and stops at the first failure:
@@ -251,7 +251,7 @@ python corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
 | `validate` | checks this contract against your tree | nothing is uploaded unless the whole tree passes |
 | `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` (incl. each case's split) |
 | `ingest` | tells the retrieval service to (re)index; waits for ready | search serves exactly the pushed corpus |
-| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory (via the lock — a case moved between splits must be re-scaffolded first); needs `pyarrow` (`corpus/requirements.txt`) |
+| `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory (via the lock — a case moved between splits must be re-scaffolded first); needs `pyarrow` (`estate/corpus/requirements.txt`) |
 | `verify` | clones everything **back from the git host**, re-reads the parquet **row by row**, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split, and the task table's rows: counts, every triple exactly once and set-equal to your tree, split/text/image columns re-derived from the tree |
 
 `validate` checks the input; `verify` checks reality — the second half is

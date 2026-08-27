@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# staging/serving/serve-llama31.sh — CP-38: the estate's SECOND model family.
+# estate/serving/serve-llama31.sh — CP-38: the estate's SECOND model family.
 # Serves Llama-3.1-8B-Instruct (unsloth mirror, pinned revision) on the H200
 # under the family's own four legs. This is serve.sh's shape with the legs
 # re-decided for Llama — each delta deliberate, recorded in

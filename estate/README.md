@@ -1,4 +1,11 @@
-# staging/ — this repo's H200 estate recipe (CP-04′)
+# estate/ — this repo's H200 estate (CP-04′; grouped here at CP-50)
+
+Everything in this directory exists to stand a test environment up —
+production brings its own counterpart to each piece. `estate.sh` is the
+front door (`./estate.sh --help`); the recipes below are the substance,
+and the scripts it calls live where they always did. Until CP-50 this
+file was `staging/README.md` and the components sat at the repo root
+(`forgejo/`, `mcp-service/`, `corpus/`, `staging/`).
 
 Created at CP-04′. The authoritative one-pass estate restore is the
 predecessor's `gsj-envloader/staging/BRINGUP.md` (accurate as written —
@@ -9,9 +16,9 @@ committed tree:
 | component | recipe | delta vs BRINGUP |
 |---|---|---|
 | Forgejo | BRINGUP §1 verbatim (`gsj-envloader/staging/forgejo/up.sh`) | none — same instance, same data dir |
-| corpus | `python3 corpus/ingest_corpus.py scaffold --corpus corpus/staging` from THIS repo's checkout on the H200 (`~/gsj-harness-rollout-server`) | the split-shaped v2 tree (CP-14) — SHAs converge to the frozen estate byte-identically |
-| MCP service | `mcp-service/compose.yml` from THIS repo's checkout (image `gsj-mcp-service:0.3.0`, the CP-15 ChromaDB backend; ship per `mcp-service/README.md`) | 0.3.0 replaces 0.2.0; `/health` gains the `backend` block; cold start re-indexes (INDEX_FORMAT 2) |
-| vLLM | `staging/serving/serve.sh` (this directory) | the CP-04′ deltas, enumerated in the script header: the symmetric chat template (`qwen3_training.jinja`), the explicit `--generation-config` pin, GPU default 3, no LoRA flags; venv + snapshot provisioning stays BRINGUP §3's |
+| corpus | `python3 estate/corpus/ingest_corpus.py scaffold --corpus estate/corpus/staging` from THIS repo's checkout on the H200 (`~/gsj-harness-rollout-server`) | the split-shaped v2 tree (CP-14) — SHAs converge to the frozen estate byte-identically |
+| MCP service | `estate/mcp-service/compose.yml` from THIS repo's checkout (image `gsj-mcp-service:0.3.0`, the CP-15 ChromaDB backend; ship per `estate/mcp-service/README.md`) | 0.3.0 replaces 0.2.0; `/health` gains the `backend` block; cold start re-indexes (INDEX_FORMAT 2) |
+| vLLM | `estate/serving/serve.sh` (this directory's `serving/`) | the CP-04′ deltas, enumerated in the script header: the symmetric chat template (`qwen3_training.jinja`), the explicit `--generation-config` pin, GPU default 3, no LoRA flags; venv + snapshot provisioning stays BRINGUP §3's |
 | self-forwards | BRINGUP §4 as needed by the consumer (the predecessor's collector needs the bridge-IP forward; this repo's Polar gateway reads the engine host-locally and needs none) | — |
 
 ## serving/serve-updated.sh — serving a trainer checkpoint (CP-17)
@@ -72,3 +79,26 @@ vLLM 0.26.0's renderer) are in `docs/reports/CP-04prime.md` Step 2.
 
 Served via `--chat-template` (the file, not a per-request override);
 `pins/pins.gsj.json` `chat_template_hash` pins its sha256.
+
+## Migrating a live checkout past CP-50 (H200: read BEFORE the next bring-up)
+
+CP-50 moved this tree from the repo root to `estate/`. `git pull` moves
+the **tracked** files only — the gitignored instance data stays behind at
+the old paths, and a `docker compose up` from the new location would
+mount an empty `./data` and start a **blank Forgejo**: it reads as data
+loss and is only a wrong mount. Before the first bring-up after pulling
+CP-50, from the checkout root (`~/gsj-harness-rollout-server`):
+
+```bash
+mv forgejo/forgejo-data   estate/forgejo/forgejo-data   # the live instance
+mv forgejo/.token*        estate/forgejo/               # API tokens, if present
+mv mcp-service/data       estate/mcp-service/data       # clone cache + index
+mv staging/serving/run    estate/serving/run            # endpoint.env, tunnel.pid
+rmdir forgejo mcp-service staging/serving staging 2>/dev/null || true
+```
+
+Move anything else untracked you keep in the old directories (venvs,
+caches) the same way. Compose project identities survive the move —
+compose names projects by directory basename, and `forgejo` and
+`mcp-service` keep theirs — so the running containers are not renamed
+out from under you; only the `./data` bind mounts needed the `mv`.

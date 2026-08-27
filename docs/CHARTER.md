@@ -25,7 +25,8 @@ or trains — it's out."
 
 **Size budget**: our own code stays under **2,000 lines** (raised from
 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved
-components (`corpus/`, `mcp-service/`, `forgejo/`). A checkpoint that
+components (`estate/corpus/`, `estate/mcp-service/`, `estate/forgejo/` —
+under `estate/` since CP-50). A checkpoint that
 pushes past it must stop and justify.
 
 ## 2. Why this repo exists
@@ -1667,6 +1668,74 @@ and layout, docs/README.md's disclosure parenthetical, the
 `.gitignore` comment); the §7 [CP-48] paragraph stays as written —
 the historical statement of what CP-48 kept. Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-50] No row moves; the estate grouped under one roof (the
+operator's decision on a counted proposal, four answers).** CP-47
+classified by audience and got 416 OPERATOR files — true, unhelpful;
+CP-50 reclassified the 507 tracked files by *role* (product ·
+extension point · estate · scaffolding · evidence) and found the
+estate — everything that exists to stand the H200 test environment up,
+production bringing its own counterpart — spread over four top-level
+directories, 213 files (42%). Three directories split on that axis:
+`corpus/` (`ingest_corpus.py` is product — it rides every wheel as
+`gsj_rollout.ingest_corpus`; `tests/` is scaffolding; `staging/` is 163
+frozen fixture files), `pins/` (the approved sets ship; the derive
+scripts are the walk; the captures are evidence — stays at the root as
+a unit, three suites and the build anchor to it), and `staging/`
+(`serving/` is scripts, the YAML a config example, the README *the*
+estate recipe). The coupling was counted before anything moved — an
+eight-agent four-repo sweep, 507 path references, and an adversarial
+verifier that caught two readers all seven finders missed
+(`corpus/tests/test_taskbank.py:26` climbing `parents[2]` to
+`docs/polar/`; `mcp-service/tests/test_roster_pin.py:28-29` reading
+root `pins/` through the helpers' one-level climb) — the CP's own
+prediction, true a third time. Must-edit counts per move: `forgejo/`
+9, `mcp-service/` 6, `staging/` 14, `corpus/` ~24; the joint move of
+`mcp-service/` and `corpus/` is what made it cheap — the mcp helpers
+find `corpus/staging` via `SERVICE_DIR.parent`, so moving both under
+`estate/` preserved every corpus coupling with a one-line re-anchor
+(`ESTATE_DIR`). The three named questions, answered by the operator:
+`mcp-service/` goes under `estate/` (its sibling-product traits — own
+suite, GHCR image — are real, but the role axis decides: it stands the
+test estate up and the demo proves production brings its own
+retrieval); `ingest_corpus.py` stays with the pipeline at
+`estate/corpus/` (moving it into `gsj_rollout/` would put ~1,400 lines
+inside the size law at headroom 1, break the mcp suite's `import
+ingest_corpus` rail, and reverse CP-34's single-source decision for
+zero consumer-visible gain — the force-include's *source key* changed,
+the wheel's 16-entry list and every entry's CRC did not, no release
+forced); and the entry point is one thin `estate/estate.sh` (nine
+verbs, each `exec`-ing the existing script in place, every failure
+saying what to do; no `scripts/` collection, because the scripts read
+their siblings — `serve.sh` sources `model-*.env` and ships its own
+jinja). Executed by `git mv` (history follows; 213 renames, 7 with
+content edits), every executable reference fixed in the same commit:
+this repo 45 edit groups (CI ×6, release tuple, `.gitignore` ×3,
+pyproject force-include + sdist key, the derive scripts ×4, root tests
+×7, the mcp helpers' re-anchor + `test_admin` + `test_taskbank`'s
+`parents[3]`, the scripts' own echoed hints); the examples repo 16
+literals (`rebuild_taskbank.sh` ×5, `train.py:527`, both loop READMEs,
+the RUNBOOK ×4, README); the demo 2 comment lines. Left stale by
+design, each covered by the disclosures' footnote clause: the
+wheel-shipped comments (`checks.py:92`, `pi_harness.py:7/:78` — wheel
+bytes, unchanged by law), the `pins.gsj.json` provenance strings
+(PyPI-immutable), the freeze-record bytes (`corpus.lock.json:3`, the
+`corpus.yaml` headers), this register's history and §3's CP-01 table,
+VERDICT's wishlist rows, and the examples' FINDINGS/ADR rows. Green
+after the move: root 161, corpus 58, mcp-service 89 (one resume-seam
+NameError fixed — `test_admin.py`'s import), the pins walk reproduced,
+the fresh-clone check passed. The honest residual: the clone is the
+same size, `vendor/` is still 215 files, `spike/` still sits at the
+root; the top level went 16 → 12 entries and the `staging/` vs
+`corpus/staging/` double name is gone — **legibility, not
+simplicity**, CP-46's distinction, which held. One operational cost:
+on the H200 `git pull` moves tracked files only — `forgejo-data/`,
+`.token*`, `mcp-service/data/`, `serving/run/` stay at the old paths
+and a compose `up` from `estate/` would start a *blank Forgejo*;
+`estate/README.md` carries the four `mv` commands to run before the
+next bring-up. Rule-9 pass: no parked row's named event fired —
+paths, tracking metadata, a thin wrapper, and prose only. Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |

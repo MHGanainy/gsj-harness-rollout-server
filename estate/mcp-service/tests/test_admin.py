@@ -14,7 +14,7 @@ import jwt
 import pytest
 
 from helpers import (
-    REPO_ROOT,
+    ESTATE_DIR,
     SECRET,
     WRONG_SECRET,
     free_port,
@@ -133,7 +133,7 @@ def test_reindex_roundtrip_health_transitions(admin_server):
 def test_pipeline_stdlib_mint_verifies(admin_server):
     """The pipeline mints its admin JWT with stdlib HMAC (no PyJWT on the
     corpus side) — cross-verify it against the real service."""
-    corpus_dir = REPO_ROOT / "corpus"
+    corpus_dir = ESTATE_DIR / "corpus"
     sys.path.insert(0, str(corpus_dir))
     try:
         from ingest_corpus import mint_admin_token

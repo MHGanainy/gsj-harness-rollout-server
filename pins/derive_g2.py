@@ -56,7 +56,7 @@ REPO = PINS_DIR.parent          # pins/ sits at the repo root since CP-01
 CAPTURED = PINS_DIR / "system_prompt.captured.txt"
 # Case ids come from the corpus pipeline's freeze record (CP-34, ADR-0048;
 # was the fixture builder's cases_manifest.json until the M8b purge).
-CASES_MANIFEST = REPO / "corpus" / "staging" / "corpus.lock.json"
+CASES_MANIFEST = REPO / "estate" / "corpus" / "staging" / "corpus.lock.json"
 CAPTURED_CASE_ID = "case_0001"  # the CP-05 capture's case
 
 
@@ -111,7 +111,7 @@ def main() -> int:
     parser.add_argument(
         "--cases-manifest", type=Path, default=CASES_MANIFEST,
         help="case ids: a JSON file with a 'cases' mapping "
-             "(corpus/staging/corpus.lock.json)",
+             "(estate/corpus/staging/corpus.lock.json)",
     )
     parser.add_argument("--out-dir", type=Path, default=PINS_DIR)
     args = parser.parse_args()

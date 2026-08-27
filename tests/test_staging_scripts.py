@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "staging" / "serving" / "serve-updated.sh"
+SCRIPT = Path(__file__).resolve().parent.parent / "estate" / "serving" / "serve-updated.sh"
 
 
 def test_health_gate_rides_bash_s_not_bash_c():

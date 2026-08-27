@@ -54,4 +54,4 @@ else
   echo "created access token ${TOKEN_NAME}"
 fi
 
-echo "Forgejo ready at ${HOST} (admin: ${ADMIN_USER}, token: forgejo/${TOKEN_FILE})"
+echo "Forgejo ready at ${HOST} (admin: ${ADMIN_USER}, token: estate/forgejo/${TOKEN_FILE})"

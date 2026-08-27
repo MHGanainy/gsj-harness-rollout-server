@@ -23,8 +23,8 @@ from pathlib import Path
 import ingest_corpus as ic
 from conftest import SKILL_MD
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-STAGING = REPO_ROOT / "corpus" / "staging"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STAGING = REPO_ROOT / "estate" / "corpus" / "staging"
 FREE_TEXT = "Which parties are named so far? Cite pages."
 
 # The smallest RunConfig the render surface accepts — inline, so this

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Idempotent teardown. Instance data persists in forgejo/forgejo-data/
+# Idempotent teardown. Instance data persists in estate/forgejo/forgejo-data/
 # (gitignored) so up.sh restores the same state; pass --wipe to also delete
 # the data directory and the API token. Wiping and re-pushing reproduces the
 # identical frozen dataset (deterministic bares — the corpus pipeline
-# re-scaffolds them; corpus/staging/corpus.lock.json is the freeze record).
+# re-scaffolds them; estate/corpus/staging/corpus.lock.json is the freeze record).
 set -euo pipefail
 cd "$(dirname "$0")"
 

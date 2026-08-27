@@ -24,7 +24,8 @@ import yaml
 
 TESTS_DIR = Path(__file__).resolve().parent
 SERVICE_DIR = TESTS_DIR.parent
-REPO_ROOT = SERVICE_DIR.parent
+ESTATE_DIR = SERVICE_DIR.parent
+REPO_ROOT = ESTATE_DIR.parent
 PYTHON = SERVICE_DIR / ".venv" / "bin" / "python"
 
 # The suite's git source is the corpus source tree (CP-34, ADR-0048): the
@@ -33,7 +34,7 @@ PYTHON = SERVICE_DIR / ".venv" / "bin" / "python"
 # file:// rail — same deterministic recipe, same commit SHAs (the CP-33
 # parity proof). Built once per corpus.lock.json fingerprint and cached in a
 # gitignored dir; the facts ground truth is read straight off the pages.
-CORPUS_ROOT = REPO_ROOT / "corpus" / "staging"
+CORPUS_ROOT = ESTATE_DIR / "corpus" / "staging"
 BARES_DIR = TESTS_DIR / ".corpus-bares"
 FACT_RE = re.compile(r"^FACT-(?P<case>[a-z0-9_]+)-(?P<page>\d{4})-(?P<k>\d+): .*$")
 
@@ -74,8 +75,8 @@ SERIAL_RE = re.compile(r"SN-\d+")
 
 def _load_corpus():
     """The parsed, contract-validated corpus source tree (pipeline API)."""
-    if str(REPO_ROOT / "corpus") not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT / "corpus"))
+    if str(ESTATE_DIR / "corpus") not in sys.path:
+        sys.path.insert(0, str(ESTATE_DIR / "corpus"))
     import ingest_corpus as pipeline
 
     corpus = pipeline.phase_validate(CORPUS_ROOT, quiet=True)

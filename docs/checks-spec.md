@@ -15,7 +15,7 @@ this document's own sections, with the one fragment that was not (TR3's
 presence-based clause) migrated in place and the G3 caveat's framing
 corrected (it read "stands in the docstring"; the spec is the home now). Normative sources: the predecessor's
 `gsj/envloader/gates.py` and `gsj/envloader/pin.py` @ v0.8.0 (frozen — read
-them, never modify them, law 3), its README §6, `mcp-service/README.md`
+them, never modify them, law 3), its README §6, `estate/mcp-service/README.md`
 (the G3/G5 surface), and CP-00's report notes. `checks.py` runs on **both
 sides of the wire** (law 6): the receiver drops bad traces at the source,
 the trainer re-verifies what arrived — same code, no trust required.
@@ -617,7 +617,7 @@ episodes 34/237 (14.3%) and 2119/8506 (24.9% — a repetitive-loop episode
 that came within 0.1pp of the allowance). The strict-`0.0` policy
 rejected a clean episode live (fail-closed and loud — the receiver seam
 worked exactly as designed) before the estate config moved to the 0.25
-default (`staging/rollout.h200.yaml`). Standing guidance: the default
+default (`estate/rollout.h200.yaml`). Standing guidance: the default
 0.25 is the right posture on BOTH platforms measured so far; the
 zero-rate is a platform property to be measured per estate, and the
 repetitive-loop data point shows the allowance is doing real
@@ -1071,13 +1071,13 @@ from the request pi actually made, canonical JSON. It does *not* hash the
 `tools_allowlist` config field: matching the pin requires reproducing the
 key order, whitespace-free canonical encoding, and schema shape of the
 wire encoding (the SDK generates tool schemas from the declarations in
-`mcp-service/gsj_mcp_service/tools.py`; the `mcp==2.0.0` pin is part of
+`estate/mcp-service/gsj_mcp_service/tools.py`; the `mcp==2.0.0` pin is part of
 the G3 surface — bumping it risks schema-serialization drift and a re-pin
 walk). Two register consequences: gap row 11 (wire-roster capture must
 exist under Polar's proxy) and gap row 31 (the roster must stay a pinned
 config field rendered to the wire, or G3 has no pinned input).
 **[CP-15] The pin is now also asserted at the source**: the service's own
-suite (`mcp-service/tests/test_roster_pin.py`) hashes the captured wire
+suite (`estate/mcp-service/tests/test_roster_pin.py`) hashes the captured wire
 array against `tool_roster_hash` (convention 2, reproducing `a7a7956b…`)
 and checks the LIVE `tools/list` declarations against the captured
 `mcp_gsj_*` entries under pi 0.83.0's measured rendering — so a
@@ -1101,7 +1101,7 @@ md/page_(\d{4})\.md         # the file path of a hit
 (the predecessor's `gates.extract_case_search_pages`, inlined at CP-01
 into `mcp-service/tests/helpers.py`; `checks.py` reimplements it at
 CP-11). A backend that renames the key or reformats the path blinds the
-gate — `mcp-service/README.md` §Compatibility requirements is binding. If
+gate — `estate/mcp-service/README.md` §Compatibility requirements is binding. If
 the page census is unreconstructable from what Polar captures, that is an
 abandonment trigger (§9). **[CP-15] The first backend swap behind the
 contract executed (ChromaDB, ADR-0016)**: the result shape is assembled
@@ -1167,7 +1167,7 @@ from what Polar captures. Mechanics as built:
 - **The census's known blind spots**, enumerated so a shape change is
   recognized rather than rediscovered: the two regexes are quote-anchored
   and decimal (`"page": "18"` as a string does not match — the binding
-  compatibility contract, `mcp-service/README.md`); a tool result whose
+  compatibility contract, `estate/mcp-service/README.md`); a tool result whose
   `tool_call_id` resolves to no scanned call is dropped from the census
   (its pages go uncounted) while T may still resolve; and duplicate
   `tool_call_id`s resolve last-write-wins, so a search call shadowed by a
@@ -1362,7 +1362,7 @@ here because it is exactly the class §7 of `CLAUDE.md` calls a deliverable:
 **the page cutoff is bypassable inside the sandbox through git history,
 and neither the server-side clamp nor G5's backstop can see it.**
 
-The mechanism, each step verified: `corpus/ingest_corpus.py:601-612` builds
+The mechanism, each step verified: `estate/corpus/ingest_corpus.py:601-612` builds
 every `timestep-{T}` branch as ONE truncation commit on top of `main`'s
 full-document commit, so the branch tip's parent contains every page;
 `pi_harness.py:127` clones `--branch timestep-{T} --single-branch` with no

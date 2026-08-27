@@ -26,7 +26,7 @@ RENDERED_SETTINGS = REPO_ROOT / "pins" / "settings.rendered.json"
 # What the CP-07/CP-09 episodes' sandbox actually contained: `case_0001`
 # cloned at `timestep-12` with the CP-11 flags. Pages 1–12 because every
 # `timestep-{T}` branch is one truncation commit holding pages 1..T
-# (`corpus/ingest_corpus.py:601-612`); shallow with no remote because that
+# (`estate/corpus/ingest_corpus.py:601-612`); shallow with no remote because that
 # is what the harness's clone step renders (asserted in test_pi_harness).
 WORKSPACE_ECHO = {
     "clone_url": "http://host.docker.internal:3000/gsj-staging/case_0001.git",

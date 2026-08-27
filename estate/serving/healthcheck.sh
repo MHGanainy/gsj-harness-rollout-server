@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# staging/serving/healthcheck.sh — CP-04' serving health check, the
+# estate/serving/healthcheck.sh — CP-04' serving health check, the
 # predecessor's staging/serving/healthcheck.sh adapted to this directory's
 # defaults (model-0.6b.env; run/ layout identical). Verifies, against the
 # serve.sh endpoint: (1) /health, (2) the pinned model listed by /v1/models,

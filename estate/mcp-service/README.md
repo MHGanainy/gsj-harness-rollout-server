@@ -8,8 +8,8 @@ numbers in this file are the predecessor's, `gsj-envloader` @ v0.8.0 —
 maintained here since this repo's CP-01, ADR-0002) with one
 long-running process. It
 ingests the frozen case dataset from staging Forgejo (the estate scaffolded
-from `corpus/staging` by `corpus/ingest_corpus.py`; freeze record
-`corpus/staging/corpus.lock.json`), embeds it with a pinned MiniLM, stores
+from `estate/corpus/staging` by `estate/corpus/ingest_corpus.py`; freeze record
+`estate/corpus/staging/corpus.lock.json`), embeds it with a pinned MiniLM, stores
 the vectors in **ChromaDB** (CP-15, ADR-0016 — one collection per case,
 cutoff as a metadata pre-filter), and answers
 token-scoped queries — the page cutoff enforced server-side from verified
@@ -46,7 +46,7 @@ daemon cannot pull, same recipe as the sandbox image, the predecessor's
 
 ```bash
 # workstation
-DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 mcp-service/
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 estate/mcp-service/
 docker save gsj-mcp-service:0.3.0 | ssh h200-admin docker load
 # H200
 cd mcp-service && GSJ_MCP_TOKEN_SECRET=<secret> docker compose up -d
@@ -77,7 +77,7 @@ and runs fully offline (`HF_HUB_OFFLINE=1`).
 | `/mcp/<token>` | POST | per-episode JWT in the path | the MCP endpoint |
 
 **`POST /admin/reindex`** — the corpus pipeline's ingest trigger
-(`corpus/ingest_corpus.py ingest`). Auth is a JWT signed with the SAME
+(`estate/corpus/ingest_corpus.py ingest`). Auth is a JWT signed with the SAME
 secret (`auth.token_secret_env`) but the admin claim set `{"admin":
 "reindex", "exp": …}` — an episode token never authorizes admin (no
 `admin` claim) and an admin token never authorizes tool calls (no
@@ -181,7 +181,7 @@ config.py`.
 | field | type | default | meaning |
 |---|---|---|---|
 | `base_url` | `str` | **required** | Forgejo base URL (trailing slash stripped) — deployment topology, the A-08 "git host = CONFIG" posture |
-| `owner` | `str \| None` | `"gsj-admin"` | owner segment of clone URLs; `None` for ownerless URL trees (`file://` bares). The shipped `config.yaml` sets `gsj-staging` since CP-33 — the service ingests the pipeline-scaffolded estate (`corpus/`, ADR-0047); the schema default is unchanged |
+| `owner` | `str \| None` | `"gsj-admin"` | owner segment of clone URLs; `None` for ownerless URL trees (`file://` bares). The shipped `config.yaml` sets `gsj-staging` since CP-33 — the service ingests the pipeline-scaffolded estate (`estate/corpus/`, ADR-0047); the schema default is unchanged |
 | `repos` | `list[str]` | **required** (≥ 1) | explicit case-repo list — the dataset is frozen, there is no discovery |
 | `ref_main` | `str` | `"main"` | the full-document ref pages are read from |
 | `ref_pattern` | `str` | `"timestep-{T}"` | discovery pattern for the recorded timestep refs; must contain the literal `{T}` |
@@ -291,7 +291,7 @@ and errors under `never`, never fails silently). Policy:
 | `always` | rebuild on every start |
 | `never` | a missing or stale index is a startup **error** — for frozen prod deployments |
 
-With the dataset frozen (`corpus/staging/corpus.lock.json` — the pipeline's
+With the dataset frozen (`estate/corpus/staging/corpus.lock.json` — the pipeline's
 freeze record), a fingerprint
 mismatch should only ever happen on a deliberate re-pin (a model-revision,
 chunking-param, or **chromadb-pin** change) — the re-index trigger is the

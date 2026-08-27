@@ -151,7 +151,7 @@ def test_skill_prompt_source_states_the_card_bytes_hash():
 
     cfg = load_config(FIXTURE)
     card = (Path(__file__).parent.parent
-            / "corpus" / "staging" / "skills" / "summarize" / "SKILL.md").read_text()
+            / "estate" / "corpus" / "staging" / "skills" / "summarize" / "SKILL.md").read_text()
     rendered = render_task_request(
         cfg, task_id="t", instruction=card, case_id="case_0001", timestep=12,
         prompt_source="skill:summarize", skill_card_text=card)

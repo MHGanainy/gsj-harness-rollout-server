@@ -11,7 +11,7 @@
 #
 # WHAT IT DELIBERATELY DOES NOT DO — it does not re-run CI. No corpus suite, no
 # mcp-service suite, no matrix. Those guard components that are not in the
-# artifact (`corpus/`, `mcp-service/` ship in neither the wheel nor the sdist),
+# artifact (the `estate/` components ship in neither the wheel nor the sdist),
 # and re-running them here would buy a slower tag and the same answer CI already
 # gave on `main`. What this workflow re-runs is the wheel job ONLY — build,
 # exclusions, install proof — because that is the job whose subject IS the thing
@@ -83,8 +83,8 @@ jobs:
           python - <<'PY'
           import glob, zipfile
           names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
-          for banned in ("vendor/", "corpus/", "mcp-service/", "forgejo/",
-                         "spike/", "tests/", "docs/", "staging/", ".github/"):
+          for banned in ("vendor/", "estate/", "spike/", "tests/", "docs/",
+                         ".github/"):
               hits = [n for n in names if n.startswith(banned)]
               assert not hits, f"{banned} leaked into the wheel: {hits}"
           # Every must-ship, asserted on the artifact — this is the tag path's

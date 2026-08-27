@@ -1,4 +1,4 @@
-# staging/rollout.h200.yaml — the one YAML for the H200 estate (CP-04′).
+# estate/rollout.h200.yaml — the one YAML for the H200 estate (CP-04′).
 # Host-bound VALUES for this estate (the predecessor's delta law: swap
 # values, never code). The Polar processes, the receiver, and submission
 # all run ON the H200 host as uid 1000.

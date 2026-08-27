@@ -67,8 +67,8 @@ read first. Added at CP-46; the mechanism is `polar/README.md`'s
   all the reports adversarially so you don't have to.
 - **Training against a server** (the pip consumer): `checks-spec.md`
   is the only file here you will open.
-- **Operating an estate**: nothing here — `../staging/`, `../corpus/`,
-  `../mcp-service/`, `../forgejo/`, `../pins/` are the operator's
+- **Operating an estate**: nothing here — `../estate/` (its README is
+  the recipe; `estate.sh` the front door) and `../pins/` are the operator's
   directories.
 - **Changing the library**: `decisions/` and `CHARTER.md` bind you;
   `../CLAUDE.md` is the process contract.

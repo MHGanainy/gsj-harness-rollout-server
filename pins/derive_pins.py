@@ -8,7 +8,7 @@ CP-04' addition: the engine now serves an EXPLICIT template file
 (`--chat-template`, the Direction-A flip), so the template the engine
 actually renders with is the file, not a snapshot's embedded
 `chat_template` field. Point GSJ_SERVED_TEMPLATE at that file (default:
-staging/serving/qwen3_training.jinja); every snapshot-embedded template is
+estate/serving/qwen3_training.jinja); every snapshot-embedded template is
 then recorded-not-approved. `g6_expected_tail_ids` is verified against the
 served tokenizer when transformers is importable (estate-side, where the
 tokenizer exists at pin time — ADR-0011); on a tokenizer-less host that
@@ -38,7 +38,7 @@ SERVED = Path(os.environ.get(
     "GSJ_SERVED_SNAPSHOT",
     HF / "models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"))
 SERVED_TEMPLATE = Path(os.environ.get(
-    "GSJ_SERVED_TEMPLATE", REPO / "staging/serving/qwen3_training.jinja"))
+    "GSJ_SERVED_TEMPLATE", REPO / "estate/serving/qwen3_training.jinja"))
 
 
 def canonical_json(obj) -> str:  # the predecessor's convention, byte-exact
@@ -91,8 +91,8 @@ def main() -> int:
            "pi_harness settings_json constant")
     for skill in ("summarize", "analyze"):
         expect("skill_card_hash",
-               sha256_bytes((REPO / f"corpus/staging/skills/{skill}/SKILL.md").read_bytes()),
-               f"corpus/staging/skills/{skill}/SKILL.md")
+               sha256_bytes((REPO / f"estate/corpus/staging/skills/{skill}/SKILL.md").read_bytes()),
+               f"estate/corpus/staging/skills/{skill}/SKILL.md")
     for label, snap in (("codec", CODEC), ("served", SERVED)):
         if not snap.exists():
             print(f"skip {label} snapshot (absent): {snap}")

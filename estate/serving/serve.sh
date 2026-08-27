@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# staging/serving/serve.sh — CP-04' bring-up of vLLM serving Qwen/Qwen3-0.6B
+# estate/serving/serve.sh — CP-04' bring-up of vLLM serving Qwen/Qwen3-0.6B
 # on the H200, UNDER THE SYMMETRIC CHAT TEMPLATE (Direction A, ADR-0007).
 #
 # Adapted from the predecessor's staging/serving/serve.sh (gsj-envloader,

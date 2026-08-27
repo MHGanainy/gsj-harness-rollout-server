@@ -4,10 +4,10 @@
 # unknown keys and type errors are startup failures with named fields.
 
 source:
-  # Staging Forgejo (static container IP — see forgejo/): since CP-33 the
+  # Staging Forgejo (static container IP — see estate/forgejo/): since CP-33 the
   # service ingests the PIPELINE-scaffolded estate under the gsj-staging
-  # owner (corpus/staging + corpus/ingest_corpus.py, ADR-0047; the corpus
-  # freeze record is corpus/staging/corpus.lock.json). The CP-29 gsj-admin
+  # owner (estate/corpus/staging + estate/corpus/ingest_corpus.py, ADR-0047; the
+  # corpus freeze record is estate/corpus/staging/corpus.lock.json). The CP-29 gsj-admin
   # repos remain live and byte-identical (the predecessor's
   # staging/dataset.frozen.json) but are no longer this service's source.
   # Anonymous read; auth_token_env names an env var only if the deployment

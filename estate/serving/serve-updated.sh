@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# staging/serving/serve-updated.sh — CP-17 weight-sync half: serve a LOCAL
+# estate/serving/serve-updated.sh — CP-17 weight-sync half: serve a LOCAL
 # checkpoint directory (trainer output) instead of the pinned HF snapshot,
 # under the SAME four legs and the SAME served model name.
 #

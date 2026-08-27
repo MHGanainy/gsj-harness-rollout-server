@@ -7,7 +7,7 @@
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`corpus/`, `mcp-service/`, `forgejo/`). Standing at CP-39: **1,999/2,000, headroom 1** — a checkpoint that pushes past it must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
+2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`estate/corpus/`, `estate/mcp-service/`, `estate/forgejo/` — under `estate/` since CP-50). Standing at CP-39: **1,999/2,000, headroom 1** — a checkpoint that pushes past it must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
 3. **The predecessor is frozen — historical since CP-45.** No checkpoint CP-00–CP-44 modified `gsj-envloader`, and it reached the archive byte-untouched; CP-45 made the single permitted write (the README archive header, one commit past v0.8.0, ADR-0026) and set the GitHub repo to archived, so the freeze is platform-enforced from here. Read it and compare against it freely — it must stay readable as the goldens' collecting stack.
 4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe (`vendor/REVENDOR.md`), expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
@@ -70,9 +70,15 @@ next: <advisory>
 │   └── cli.py                   # SERVER — the console script, below
 ├── tests/                       # root suite: 161 tests across 9 modules (CI adds corpus 58 + mcp-service 89)
 ├── pins/                        # the approved sets (reference + thinking-on/) + derive scripts — single source for the wheel copies
-├── staging/                     # this repo's H200 estate recipe (deltas vs the predecessor's BRINGUP)
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
-├── corpus/  mcp-service/  forgejo/  # moved components, outside the size law (corpus pipeline, retrieval service, git host)
+├── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
+│   ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
+│   ├── estate.sh                #   the thin front door: up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
+│   ├── rollout.h200.yaml        #   the one YAML for the H200 estate
+│   ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
+│   ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
+│   ├── mcp-service/             #   the retrieval service — own suite (89), venv, Dockerfile, GHCR image
+│   └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (58) + staging/ (163 frozen fixture files)
 └── spike/                       # frozen CP-06 spike evidence
 ```
 
@@ -86,4 +92,5 @@ gsj-rollout serve --config <yaml>          # renders topology.rendered.yaml, pri
 gsj-rollout submit --config <yaml> \
   --case … --timestep … --prompt …         # or --from-bank <parquet> [--row N]
                                            # submit + poll + collect; exit 0 all / 1 partial / 2 usage / 3 unreachable
+estate/estate.sh --help                    # the estate front door (server side): each verb execs an existing script
 ```

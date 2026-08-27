@@ -44,7 +44,7 @@ else
     | tr -d '[:space:]' > "${TOKEN_FILE}"
   chmod 600 "${TOKEN_FILE}"
   token_ok || { echo "token creation failed" >&2; exit 1; }
-  echo "created access token ${TOKEN_NAME} -> forgejo/${TOKEN_FILE}"
+  echo "created access token ${TOKEN_NAME} -> estate/forgejo/${TOKEN_FILE}"
 fi
 
-echo "owner ${OWNER} ready; export GSJ_FORGEJO_TOKEN_$(echo "${OWNER}" | tr 'a-z-' 'A-Z_')=\$(cat forgejo/${TOKEN_FILE})"
+echo "owner ${OWNER} ready; export GSJ_FORGEJO_TOKEN_$(echo "${OWNER}" | tr 'a-z-' 'A-Z_')=\$(cat estate/forgejo/${TOKEN_FILE})"
