@@ -39,6 +39,19 @@ services:
       FORGEJO__server__ROOT_URL: http://172.28.9.10:3000/
       FORGEJO__server__DISABLE_SSH: "true"
       FORGEJO__service__DISABLE_REGISTRATION: "true"
+      # CP-56 — close the corpus read (gap row 2). Uncomment to require sign-in
+      # for ALL read: anonymous clone/refs then return 401, so a sandbox agent
+      # that guesses http://172.28.9.10:3000/gsj-staging/<case>.git can no longer
+      # re-clone past its cutoff. The rollout side is ready: create_owner.sh mints
+      # a read-scoped token, rollout.h200.yaml's clone_credential_env splices it
+      # into the sandbox clone URL. TWO H200 consumers are NOT (frozen this CP):
+      # the MCP index build (estate/mcp-service/config.yaml auth_token_env: null)
+      # and the pipeline's verify re-clone (estate/corpus/ingest_corpus.py) both
+      # read anonymously — flip this only after building the corpus + MCP index
+      # (bring-up-time, not episode-time), or lift those two to present the read
+      # token. The demo estate (all consumers lifted) proves the closed config
+      # end-to-end; see estate/README.md "Closing anonymous read (CP-56)".
+      # FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
       FORGEJO__mailer__ENABLED: "false"
       FORGEJO__log__LEVEL: Warn
     networks:

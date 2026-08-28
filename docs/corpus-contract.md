@@ -182,9 +182,16 @@ credential in the environment. That is the whole point of the switch.**
 The env var name is derived from the owner: `GSJ_FORGEJO_TOKEN_` + the
 owner uppercased with `-` → `_`. Credentials are **never** written into
 `corpus.yaml` or any other file — the pipeline reads the named environment
-variable at push time and refuses to run scaffold without it. Anonymous
-*read* access to the pushed repos is expected (episodes clone without
-credentials); the token authorizes *pushes* only.
+variable at push time and refuses to run scaffold without it. The push
+token authorizes *pushes*; anonymous *read* of the pushed repos is the
+pipeline's default (scaffold's convergence check, the MCP index build, and
+`verify`'s re-clone all read without credentials). **[CP-56] An estate may
+close anonymous read** (Forgejo `REQUIRE_SIGNIN_VIEW`) to stop a sandbox
+agent re-cloning past its cutoff; the rollout side then needs a read-scoped
+token (`estate.clone_credential_env`). Note the frozen coupling: this
+pipeline's own reads are anonymous, so a sign-in estate must build the
+corpus and index *before* the flip, or run a pipeline lifted to present the
+read token — see gap row 2.
 
 If `mcp.url_base` is set, re-indexing additionally requires
 `GSJ_MCP_TOKEN_SECRET` in the environment (the retrieval service's shared

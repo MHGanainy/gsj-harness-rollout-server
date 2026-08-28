@@ -16,8 +16,10 @@ estate.sh — front door to the H200 estate scripts (see estate/README.md)
 
   up                    start Forgejo (forgejo/up.sh: compose up, health
                         wait, admin user, API token). Needs: docker.
-  owner <name>          create a Forgejo owner + token (forgejo/create_owner.sh).
-                        Needs: Forgejo up.
+  owner <name>          create a Forgejo owner + a push token AND a read-scoped
+                        clone token (forgejo/create_owner.sh; CP-56). Prints the
+                        two export lines; the read token feeds rollout.h200.yaml's
+                        clone_credential_env. Needs: Forgejo up.
   down [--wipe]         stop Forgejo (forgejo/down.sh). --wipe also deletes
                         instance data + token — the README's caveats apply.
   mcp-up                start the MCP service (mcp-service/compose.yml).

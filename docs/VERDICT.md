@@ -588,7 +588,10 @@ remaining delta from the predecessor's instrument.
   re-derive G4, retire the glue ids leaving the stitch dormant; rerun
   `pins/derive_pins.py` (G4's measure-at-serve) and pin
   `g6_expected_tail_ids`; cure the estate residuals (credentialed clone
-  URLs or egress policy — row 2; the generation-config pin + request
+  URLs or egress policy — row 2, **built at CP-56**: `clone_credential_env`
+  + `REQUIRE_SIGNIN_VIEW`, proven refusable, closed live on the demo estate
+  and mechanism-complete on the H200 pending its frozen MCP/corpus
+  consumers' read-auth lift; the generation-config pin + request
   log — F1; an estate provenance surface binding each episode to the
   bring-up measurement — row 22). *Proves:* the numbers that govern
   (A-16). *Unnecessary
@@ -659,8 +662,10 @@ remaining delta from the predecessor's instrument.
   trainer-agnostic claim is **measured, not argued** (the dated M6
   section below).
 - **Production.** Gated on artifacts only the operator can supply: H200
-  cluster access and estate bring-up (with the credentialed-clone/egress
-  posture), the corpus beyond the staging cases, secret management for
+  cluster access and estate bring-up (with the credentialed-clone posture —
+  the mechanism now exists, CP-56; the H200 flip completes once its frozen
+  MCP/corpus consumers authenticate their reads), the corpus beyond the
+  staging cases, secret management for
   the MCP token, and the trainer integration of record. *What it would
   take:* both pairs green, M4 done, the wishlist's items 1–4 landed
   (done at CP-13).

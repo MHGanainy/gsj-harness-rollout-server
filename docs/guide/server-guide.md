@@ -87,6 +87,7 @@ Full reference — every key, type, default (unknown keys are rejected everywher
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `estate.clone_url_for` | str | **required** | clone URL with `{case_id}`; the harness runs `git clone --depth 1 --branch timestep-<T>` **inside** the sandbox |
+| `estate.clone_credential_env` | str \| None | `None` | env-var **name** of a read-scoped Forgejo token (CP-56). Set it when the estate requires sign-in for read: render splices the value into `clone_url_for`'s userinfo, and `_strip_credentials` keeps it out of the trace. Fail-closed — if set, the var **must** be exported or `submit` errors. Unset = anonymous clone |
 | `estate.mcp_url_base` | str | **required** | retrieval-service root; harness appends `/mcp/<token>` |
 | `estate.mcp_token_secret_env` | str | `"GSJ_MCP_TOKEN_SECRET"` | env-var **name** of the HMAC secret, read in the gateway process; must equal the service's secret |
 | `estate.serving_base_url` | str | **required** | engine root the gateway proxies to; `/v1` suffix rejected at load |
@@ -230,7 +231,9 @@ python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
 ```
 
 The three networking traps:
-- **The clone happens inside the sandbox.** `clone_url_for` must resolve from the episode container; with `runtime.network` unset or wrong, every episode dies at its `git` setup step with `PiHarness setup failed` after consuming the attempt. The cure is `runtime.network: gsj-staging-net`.
+- **The clone happens inside the sandbox.** `clone_url_for` must resolve from the episode container; with `runtime.network` unset or wrong, every episode dies at its `git` setup step with `PiHarness setup failed` after consuming the attempt. The cure is `runtime.network: gsj-staging-net`. If the estate requires sign-in for read (below) and `clone_credential_env` is unset or its token wrong, the same setup step dies with a `git ... Authentication failed`.
+
+**Closing anonymous read (CP-56).** By default the estate serves anonymous git read, so a sandbox agent that guesses `…/gsj-staging/<case>.git` can re-clone past its cutoff. To close it: mint the read token (`estate.sh owner gsj-staging` now prints a `GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING` export beside the push one), export it, uncomment both `estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW` line and `rollout.h200.yaml`'s `clone_credential_env` key, and `estate.sh up`. **Order matters:** the pipeline's scaffold/verify and a cold MCP index all read anonymously (frozen this CP), so scaffold and build the index *first*, then flip sign-in on. The two re-clone channels then return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`).
 - **`host.docker.internal` never resolves in an episode** — Polar's Docker runtime passes only `--network`, never `--add-host`. Address host-bound services by the compose network's gateway IP, `172.28.9.1` (not `172.17.0.1`).
 - **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`.
 

@@ -7,6 +7,7 @@ server renders the receiver + Polar's `topology.yaml`, the trainer renders
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, get_origin
 from urllib.parse import urlsplit
@@ -46,6 +47,11 @@ class EstateConfig(_Section):
     clone_url_for: str  # Forgejo clone URL pattern with {case_id}; episode
     # containers clone it THEMSELVES (CP-11), so it must resolve from inside
     # the sandbox network, not just from the host
+    clone_credential_env: str | None = None  # env var NAME holding a
+    # read-scoped Forgejo token; set it when the estate requires sign-in for
+    # read (CP-56) and render splices the token into clone_url_for's userinfo.
+    # Value never in this file (the mcp_token_secret_env pattern); pi_harness
+    # strips userinfo from the echoed URL, so it never reaches a trace.
     mcp_url_base: str  # the MCP retrieval service, again sandbox-reachable
     mcp_token_secret_env: str = "GSJ_MCP_TOKEN_SECRET"  # env var holding the
     # HMAC secret; must equal the mcp-service's own secret
@@ -53,10 +59,9 @@ class EstateConfig(_Section):
     # (Polar's proxy appends /v1/chat/completions itself; CP-04′)
     provider: str = "gsj"  # pi provider key; model_name = "<provider>/<model>"
     model: str  # must equal the engine's --served-model-name byte-for-byte
-    model_revision: str | None = None  # optional in-band pin: the engine's
-    # served snapshot revision (the HF commit sha) — the server never reads
-    # it; a trainer's `--snapshot` can verify against it BEFORE the GPU
-    # instead of matching the engine by luck (CP-26 F-23, wishlist 23)
+    model_revision: str | None = None  # optional in-band pin: the served
+    # snapshot's HF commit sha — the server never reads it; a trainer's
+    # `--snapshot` can verify against it before the GPU (CP-26 F-23, wishlist 23)
 
     @field_validator("serving_base_url")
     @classmethod
@@ -73,35 +78,31 @@ class EstateConfig(_Section):
 
 class RuntimeConfig(_Section):
     backend: str = "docker"
-    # The published pinned harness image (node + git + pi 0.83.0, CP-06);
-    # an estate that builds its own overrides — the default is the image
-    # every measured episode ran.
+    # The published pinned harness image (node + git + pi 0.83.0, CP-06); an
+    # estate that builds its own overrides — this is the image every episode ran.
     image: str = "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
     network: str = "bridge"  # CP-07's proven Mac leg; the estate's compose
-    # network wherever services are addressed container-to-container (CP-04′)
+    # network wherever services are addressed container-to-container
 
 
 class HarnessConfig(_Section):
     import_path: str = "gsj_rollout.pi_harness:PiHarness"
     # The G3-pinned roster (row 31): the wire `tools` array hashes into the
-    # shipped approved set, so any OTHER roster fails
-    # `G3:tool_roster_hash_not_approved` until the estate re-pins.
+    # shipped approved set, so any OTHER roster fails G3 until the estate re-pins.
     tools_allowlist: list[str] = Field(
         default=["read", "ls", "grep", "find", "write", "edit", "bash",
                  "mcp_gsj_search_case", "mcp_gsj_search_decisions",
                  "mcp_gsj_case_status", "mcp_gsj_decision_stats"],
         min_length=1)
-    artifacts_dir: str = "/tmp/gsj-artifacts"  # host-side, written by the
-    # gateway process; the reward grader reads deliverables here — point it
-    # somewhere durable for real runs (/tmp is ephemeral, honestly so)
+    artifacts_dir: str = "/tmp/gsj-artifacts"  # host-side; the reward grader
+    # reads deliverables here — point it somewhere durable (/tmp is ephemeral)
     workdir: str = "/workspace"  # in-image; G2's approved hash is the
     # /workspace singleton — changing it means a re-pin walk
     context_window: int = 32768
     max_tokens: int = 8192
     thinking: str = "off"  # a validated knob (ADR-0024): pi's levels only. A
-    # non-off level needs the thinking-on pins via GSJ_PINS_PATH on BOTH
-    # law-6 legs (packaged at gsj_rollout/pins/thinking-on/ since CP-33),
-    # or G6 fails every episode — loudly, by design.
+    # non-off level needs the thinking-on pins via GSJ_PINS_PATH on BOTH law-6
+    # legs (gsj_rollout/pins/thinking-on/ since CP-33), or G6 fails every episode.
     pi_entry: str | None = None
     pi_mcp_extension: str | None = None
     mcp_token_ttl_s: int = 3600
@@ -109,8 +110,8 @@ class HarnessConfig(_Section):
     @field_validator("thinking", mode="before")
     @classmethod
     def _yaml11_bool_spellings(cls, value: Any) -> Any:
-        # YAML 1.1: bare `off`/`on` reach pydantic as BOOLEANS — `off` must
-        # keep meaning off; a truthy bool is the clamp typo, rejected by name.
+        # YAML 1.1: bare `off`/`on` reach pydantic as BOOLEANS — keep `off`
+        # meaning off; a truthy bool is the clamp typo, rejected by name.
         if isinstance(value, bool):
             return "off" if value is False else "on"
         return value
@@ -133,11 +134,9 @@ class HarnessConfig(_Section):
 
 class BuilderConfig(_Section):
     strategy: str = "gsj_rollout.builder:ValidatingPrefixMergingBuilder"
-    # Pinned, never auto-detected (A-15) — a default is still an explicit pin
-    # on every rendered TaskRequest, and 151645 is <|im_end|> under the Qwen3
-    # tokenizer the default model serves. Re-derive when `estate.model`
-    # changes: tokenizer.convert_tokens_to_ids("<|im_end|>") — or your
-    # template's end-of-turn token — against the SERVED tokenizer.
+    # Pinned, never auto-detected (A-15); 151645 is <|im_end|> under the Qwen3
+    # tokenizer the default model serves. Re-derive when `estate.model` changes:
+    # convert_tokens_to_ids("<|im_end|>") against the SERVED tokenizer.
     end_of_turn_token_id: int = 151645
     generation_prompt_glue_ids: list[int] | None = None  # template-specific
     # (A-21); dormant since CP-04′ — set only under an asymmetric template
@@ -167,9 +166,9 @@ class GatewayNodeConfig(_Section):
     id: str = "gsj-node-01"
     host: str = "0.0.0.0"
     port: int = 8100
-    public_url: str  # required: ONE URL reachable from host dispatch AND
-    # from inside episode containers (CP-03 finding 2) — a LAN IP or the
-    # estate network's gateway IP, never localhost
+    public_url: str  # required: ONE URL reachable from host dispatch AND from
+    # inside episode containers (CP-03 finding 2) — a LAN/estate-gateway IP,
+    # never localhost
     engine: str = "vllm"
     max_init_workers: int = 4
     max_run_workers: int = 2
@@ -178,13 +177,11 @@ class GatewayNodeConfig(_Section):
     @model_validator(mode="after")
     def _port_agrees_with_public_url(self) -> "GatewayNodeConfig":
         # Wishlist 21(a): one fact, two keys — a mismatch dispatches to a URL
-        # nothing listens on (CP-26). Reject rather than derive: silently
-        # rewriting either key would hide the typo the validator exists for.
+        # nothing listens on (CP-26). Reject rather than derive.
         parsed = urlsplit(self.public_url)
         if parsed.scheme not in ("http", "https"):
-            # A scheme-less "IP:8100" parses as path (or host-as-scheme), so
-            # the port check below would misread it as "port 80" and suggest
-            # a fix that validates yet stays undialable. Name the real gap.
+            # A scheme-less "IP:8100" parses as path, so the port check below
+            # would misread it as "port 80" — name the real gap instead.
             raise ValueError(
                 f"public_url {self.public_url!r} needs an explicit http:// or "
                 f"https:// scheme — without one the URL cannot be dialed and "
@@ -211,9 +208,8 @@ class ReceiverConfig(_Section):
     host: str = "127.0.0.1"
     port: int = 8300
     public_url: str | None = None
-    traces_dir: str  # required, no default on purpose: this is where the
-    # training data lands, and a /tmp default would lose it silently (the
-    # CP-19 honest-defaults rule) — choose durable storage
+    traces_dir: str  # required, no default: this is where the training data
+    # lands, and a /tmp default would lose it silently (CP-19) — pick durable
     quarantine_dir: str | None = None  # default: <traces_dir>/quarantine
 
     @property
@@ -228,8 +224,7 @@ class ReceiverConfig(_Section):
 class RunConfig(_Section):
     estate: EstateConfig
     # runtime/harness/builder/checks may be omitted wholesale (CP-25): every
-    # field of theirs has a working default, so absence means "the measured
-    # reference values", stated per-field at each default.
+    # field has a working default, so absence means the measured reference values.
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     harness: HarnessConfig = Field(default_factory=HarnessConfig)
     builder: BuilderConfig = Field(default_factory=BuilderConfig)
@@ -247,7 +242,7 @@ def _null_sections_to_empty(data: dict[str, Any], model: type[BaseModel]) -> Non
     """F-25 (wishlist 23): a section gutted to comments parses as YAML null
     and pydantic names no field. Normalize null → {} wherever the model
     expects a section (dict-typed `user:` included), so the field-level
-    message fires: 'polar.gateway.public_url: Field required'. Model-driven."""
+    message fires instead. Model-driven."""
     for name, field in model.model_fields.items():
         sub = field.annotation
         if name not in data:
@@ -334,12 +329,11 @@ def render_task_request(
     `callback_url` is the zero-patch push channel (ADR-0008 §2).
 
     `prompt_source` states the task's origin for G1: `free` | `skill:<name>`
-    (ADR-0022). Passing the resolved card text states its bytes-hash
-    (convention 1) at `metadata.skill_card_hash`; omitting it leaves G1
-    fail-closed to whoever reads the card — the taskbank keeps the choice.
-    `split` (ADR-0015) states train/eval placement, a render parameter never
-    a lock lookup; None omits the key — absent means UNSTATED, never
-    `train`. Carried and visible, not enforced (spec §TR3)."""
+    (ADR-0022). Passing the resolved card text states its bytes-hash at
+    `metadata.skill_card_hash`; omitting it leaves G1 fail-closed to whoever
+    reads the card. `split` (ADR-0015) states train/eval placement, a render
+    parameter never a lock lookup; None omits the key (UNSTATED, never
+    `train`). Carried and visible, not enforced (spec §TR3)."""
     skill_card_hash = None
     if not isinstance(prompt_source, str):
         raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
@@ -350,9 +344,7 @@ def render_task_request(
         if skill_card_text is not None:
             if not isinstance(skill_card_text, str) or not skill_card_text:
                 raise ValueError("skill_card_text must be non-empty text")
-            # UTF-8 bytes, the pins convention: read the card with
-            # `read_bytes().decode('utf-8')`, never `read_text()` (locale
-            # + universal-newline translation would change the hash).
+            # UTF-8 bytes, the pins convention (read_bytes().decode, not read_text).
             skill_card_hash = checks._sha256_text(skill_card_text)
             if skill_card_hash is None:
                 raise ValueError("skill_card_text is not UTF-8-encodable")
@@ -360,10 +352,20 @@ def render_task_request(
         raise ValueError(f"prompt_source must be 'free' or 'skill:<name>', got {prompt_source!r}")
     if split is not None and split not in ("train", "eval"):
         raise ValueError(f"split must be 'train' or 'eval' (ADR-0015), got {split!r}")
+    clone_url_for = cfg.estate.clone_url_for
+    if cfg.estate.clone_credential_env:  # CP-56: sign-in-required estate
+        token = os.environ.get(cfg.estate.clone_credential_env)
+        if not token:
+            raise ValueError(
+                f"estate.clone_credential_env names {cfg.estate.clone_credential_env!r} "
+                f"but that variable is unset or empty in the submitting process")
+        scheme, sep, rest = clone_url_for.partition("://")
+        if sep and "@" not in rest.split("/", 1)[0]:  # don't double-credential
+            clone_url_for = f"{scheme}://{token}@{rest}"
     settings: dict[str, Any] = {
         "case_id": case_id,
         "timestep": int(timestep),
-        "clone_url_for": cfg.estate.clone_url_for,
+        "clone_url_for": clone_url_for,
         "mcp_url_base": cfg.estate.mcp_url_base,
         "mcp_token_secret_env": cfg.estate.mcp_token_secret_env,
         "mcp_token_ttl_s": cfg.harness.mcp_token_ttl_s,
@@ -393,10 +395,9 @@ def render_task_request(
         "instruction": instruction,
         "num_samples": int(episodes),
         "timeout_seconds": float(timeout_seconds),
-        # G5's structural timestep (CP-11) + G1's prompt_source (CP-13):
-        # hoisted into every trace's top-level metadata
-        # (`prefix_merging.py:371-375`). Polar's reserved keys
-        # (`session_id`/`task_id`/`evaluation`/`policy_version`) never here.
+        # G5's structural timestep (CP-11) + G1's prompt_source (CP-13),
+        # hoisted into every trace's top-level metadata (prefix_merging.py:371).
+        # Polar's reserved keys (session_id/task_id/evaluation/…) never here.
         "metadata": metadata,
         "runtime": {
             "backend": cfg.runtime.backend,

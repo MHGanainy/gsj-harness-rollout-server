@@ -28,6 +28,15 @@
 
 estate:
   clone_url_for: "http://172.28.9.10:3000/gsj-staging/{case_id}.git"
+  # CP-56 (gap row 2): to close anonymous read, uncomment BOTH the forgejo
+  # compose's REQUIRE_SIGNIN_VIEW line AND the key below, and export the token
+  # estate.sh owner gsj-staging minted (estate/forgejo/.token-gsj-staging-read):
+  #   export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING=$(cat estate/forgejo/.token-gsj-staging-read)
+  # Render then splices it into clone_url_for's userinfo (never into this file
+  # or a trace — pi_harness strips it from the echo). Fail-closed like
+  # mcp_token_secret_env: with the key set the var MUST be exported, or submit
+  # raises. Left commented, the clone stays anonymous — the eval-estate default.
+  # clone_credential_env: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING
   mcp_url_base: "http://172.28.9.1:8790"
   mcp_token_secret_env: GSJ_MCP_TOKEN_SECRET
   # NO /v1 suffix: Polar's proxy appends /v1/chat/completions itself

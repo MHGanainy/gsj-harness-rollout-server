@@ -51,6 +51,26 @@ All three serve scripts run on the workstation and drive the serving host over a
 - `serve-updated.sh <dir>` — `serve.sh` with exactly two deltas: the model is a **local HF-format directory** on the serving host (the trainer's export; no `--revision`; refuses a directory without `config.json`), and `--served-model-name Qwen/Qwen3-0.6B` keeps the wire identity constant across the sync; the four legs — template, generation-config pin, parsers, context length — stay byte-identical, so a post-sync trace compares to a pre-sync one. Stop-then-start, not reload (SIGTERM, ≤60 s, then SIGKILL — vLLM at this pin has no in-place swap for a non-LoRA model; the stop is the drain point between collection phases), then waits ≤600 s on `/health`.
 - `serve-llama31.sh` (`serve llama31`) — `unsloth/Meta-Llama-3.1-8B-Instruct` @ `a2856192…` (the origin repo is gated; the mirror carries Meta's weights and full chat template), pinned in `model-llama31-8b.env`; genconfig `~/gsj-vllm/genconfig-llama31`, byte-copied from the snapshot (temperature 0.6, top-p 0.9, eos `[128001, 128008, 128009]`). No template flag — the snapshot's own **embedded** template, its sha256 and the tokenizer's blob hash recorded from the snapshot actually served (mirrors ship different templates); `--tool-call-parser llama3_json` (under `hermes` every call stays unparsed text); neither Qwen-only flag — `enable_thinking` is a measured wire no-op on a Llama template. State `run/vllm-llama31.{pid,log}`, `serving/run/gsj-vllm-llama31/`; refuses to start while the Qwen pidfile is alive (one engine, one port); otherwise `serve.sh`'s shape plus `--max-model-len 32768`, `--enforce-eager`, DEBUG request logging.
 - `qwen3_training.jinja` — HuggingFace TRL's `trl/chat_templates/qwen3_training.jinja` **byte-verbatim**: sha256 `1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9`, upstream commit `63b7c3f547d3e06d0eae72712e36b7b64e9d5a45` (2026-07-16); served via `--chat-template` (the file, not a per-request override) and pinned as `chat_template_hash` in `pins/pins.gsj.json`. Its history branch always emits the think block, so consecutive pi prompts are strict token-prefix extensions and Polar's prefix grouping merges them natively — `generation_prompt_glue_ids` deliberately unset; the `{% generation %}` markers are accepted by the served vLLM 0.26.0 renderer.
+## Closing anonymous read (CP-56)
+By default the estate serves anonymous git read, so a sandbox agent that guesses `http://172.28.9.10:3000/gsj-staging/<case>.git` can re-clone a repo it was never given — or its own repo at a later `timestep-` branch — and read past its cutoff over the network. The in-sandbox git-history channel is already closed (CP-11: `--depth 1`, no remote, no reflog); this is the *network* channel, and it only matters for an estate someone intends to **train** from (every estate so far has been synthetic-corpus evaluation).
+
+The cure is **mechanism (a): credentialed clone URLs + Forgejo sign-in.** `estate.sh owner gsj-staging` now mints a read-scoped token (`read:repository,read:user`) into `estate/forgejo/.token-gsj-staging-read` beside the push token, and prints its export line; `rollout.h200.yaml`'s `clone_credential_env` splices it into the sandbox clone URL at render (the token never lands in the config or a trace — `pi_harness` strips userinfo from the echo). Enabling it:
+
+```bash
+./estate.sh up                                   # forgejo, sign-in still OFF
+./estate.sh owner gsj-staging                    # mints BOTH tokens; prints the exports
+export GSJ_FORGEJO_TOKEN_GSJ_STAGING=$(cat estate/forgejo/.token-gsj-staging)
+export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING=$(cat estate/forgejo/.token-gsj-staging-read)
+python3 estate/corpus/ingest_corpus.py all --corpus estate/corpus/staging   # scaffold + index, ANONYMOUS
+./estate.sh mcp-up                               # cold index build, ANONYMOUS
+# --- now, and only now, flip: ---
+#   uncomment REQUIRE_SIGNIN_VIEW in estate/forgejo/docker-compose.yml
+#   uncomment clone_credential_env  in estate/rollout.h200.yaml
+./estate.sh up                                   # recreates forgejo with sign-in ON
+```
+
+**Order matters, and it is a freeze finding, not a preference.** Turning sign-in on breaks two read paths that this CP left frozen: the pipeline's `phase_scaffold`/`verify` re-clone (`estate/corpus/ingest_corpus.py` reads anonymously and its push re-splices, so no single `--base-url` authenticates both) and a *cold* MCP index build (`estate/mcp-service/config.yaml` ships `auth_token_env: null`). Both are bring-up-time, not episode-time — so scaffold and build the index first, then flip; a warm MCP index serves episodes without re-cloning, and the harness clones with the read token. Making the H200 flip a one-shot needs those two lifted to present the token (`auth_token_env` + a verify credential) — gap row 2's remaining work. The demo estate (`gsj-rollout-demo`, all consumers lifted) already does the flip in `bootstrap.py` as its last step and closes it live.
+
 ## The trainer side — what the estate did not already provide
 | Need | How |
 | --- | --- |

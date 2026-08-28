@@ -1416,6 +1416,13 @@ anonymous read (CP-04: "anonymous clone 4 refs/repo"). That is estate
 posture, not a rollout-server property, it is shared with the
 predecessor's estate, and its cure (credentialed clone URLs or egress
 policy) belongs to the estate bring-up — recorded in gap row 2.
+**[CP-56] The cure is built.** Enabling Forgejo `REQUIRE_SIGNIN_VIEW` and
+setting `estate.clone_credential_env` (a read-scoped token spliced into the
+clone URL at render, stripped from the echo by `_strip_credentials`) makes
+that guessed re-clone return 401 — proven container-faithful. The demo
+estate closes it live; the H200 flip is a documented two-phase because two
+of its consumers (the MCP index build, the pipeline verify) read
+anonymously and are frozen (gap row 2).
 
 ## Carried evidence inventory (`pins/`)
 
