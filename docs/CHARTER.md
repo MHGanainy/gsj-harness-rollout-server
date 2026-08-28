@@ -1905,6 +1905,35 @@ missing; root suite 161 passed. Consumer artefact, outside the size
 law and outside the record. Tally unchanged: **21 PARITY · 7 DROPPED ·
 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-55] No §7 row moves; wishlist row 26 CLOSED — the encoder
+oracle's tolerance decided (ADR-0016 amendment; touched:
+`estate/mcp-service/tests/test_backend.py`, `docs/VERDICT.md` rows 26
+and 14; `gsj_rollout/` untouched at 1,999).** Row 26's token fired
+three times with one measurement (CP-53 run 33171819467 attempts 1
+and 2, CP-54 run 33178592668: chunk p0001c0000, max|Δ| 7.451e-09,
+cosine 1.000000119, docs-only diffs) and CP-55 is the sitting the
+reports promised. Step 1 found the hazard end of the margin was never
+in the record: the quoted "wrong embedder ≈ 0.80" is CP-18's
+different-chunks baseline under the SAME encoder (reproduced
+0.799976), so CP-55 measured the real thing — Chroma's default EF is
+an fp32 ONNX export of the SAME all-MiniLM-L6-v2 checkpoint (90 MB,
+unquantized; ADR-0016's "ONNX-quantized" corrected) sitting at
+max|Δ| 1.155e-07..2.719e-07 / cosine within 1 ULP of 1.0 across all
+51 case_0001 rows. The margin is [1.490e-08 … 1.155e-07], 7.75× end
+to end, not six orders. The bound: max|Δ| ≤ 4e-08 (the geometric
+midpoint — 2.7× above the worst benign drift, arm64's 1.490e-08, and
+2.9× below the substitution floor) AND cosine ≥ 0.999 (the
+wrong-model floor; cosine measured unable to resolve either near
+class). `np.array_equal` retired; a both-directions test pins the
+bound (the drift classes pass, the measured substitution delta fails,
+a wrong-direction vector fails the cosine floor alone); mcp suite 90
+(89 + the new test), root 161. Unknown, named: WHY the runner's
+arithmetic differs (reduction order / BLAS / torch build) — the
+amendment's reopen conditions (a drift crossing the bound, a
+substitute under ~1.155e-07, any encoder re-pin) stand in for the
+investigation. Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP ·
+1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

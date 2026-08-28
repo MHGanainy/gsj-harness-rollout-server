@@ -87,14 +87,47 @@ def test_tool_level_tight_timestep_serves_every_visible_page(built_state,
     assert serial not in json.dumps(results)
 
 
-# -- embedding identity (ADR-0016 guard) -------------------------------------
+# -- embedding identity (ADR-0016 guard; bounded since CP-55) ----------------
+
+# The CP-55 bound (ADR-0016 amendment). Both ends of the margin are
+# MEASURED, and it is thin — 7.75x end to end, not the six orders the
+# record used to claim: benign same-encoder drift reaches max|Δ|
+# 1.490e-08 (arm64, CP-18) / 7.451e-09 (the CI runner image — CP-53
+# attempts 1+2 and CP-54, identical), while the nearest real hazard —
+# Chroma's default EF, an fp32 ONNX export of the SAME checkpoint, not
+# the quantized model ADR-0016 assumed — sits at max|Δ|
+# 1.155e-07..2.719e-07 across all 51 case_0001 rows (CP-55; the three
+# rows this oracle samples: 1.6e-07..1.9e-07). 4e-08 is the geometric
+# midpoint: 2.7x above the worst measured drift, 2.9x below the hazard
+# floor, ~11 float32 ULP at MiniLM's typical component magnitude. The
+# cosine floor guards only the genuinely-different-model class
+# (unrelated vectors sit near 0.80, CP-18): cosine cannot resolve the
+# drift OR the fp32-ONNX substitution — every measured row of both
+# classes lands within 1 ULP of 1.0 (CP-51's forced run printed
+# 1.000000000; the firings and the substitution both print
+# 1.000000119, float32's 1+1ULP) — so it exists to keep the wrong-model
+# class caught if the |Δ| bound is ever loosened.
+ENCODER_MAX_ABS_DELTA = 4e-08
+ENCODER_MIN_COSINE = 0.999
+
+
+def assert_vector_is_the_pinned_encoders(chunk_id: str, stored, ours) -> None:
+    delta = float(np.abs(stored - ours).max())
+    cosine = float(stored @ ours / (np.linalg.norm(stored) * np.linalg.norm(ours)))
+    assert delta <= ENCODER_MAX_ABS_DELTA and cosine >= ENCODER_MIN_COSINE, (
+        f"chunk {chunk_id} vector is not "
+        f"the pinned encoder's: max|Δ| {delta:.3e}, cosine {cosine:.9f} "
+        f"(bound: max|Δ| ≤ {ENCODER_MAX_ABS_DELTA:.0e}, "
+        f"cosine ≥ {ENCODER_MIN_COSINE} — ADR-0016 as amended at CP-55)")
+
 
 def test_stored_vectors_are_the_pinned_encoders(built_state):
-    """Stored Chroma vectors are BIT-exact the pinned MiniLM encoder's
-    output for the same chunk texts — Chroma never embedded anything. The
-    hazard is silent: Chroma's default EF (attached by get_collection's
-    default parameter) is an ONNX MiniLM at the same 384 dims, so a
-    substitution would produce plausible-but-wrong scores, not errors."""
+    """Stored Chroma vectors are the pinned MiniLM encoder's output for the
+    same chunk texts, to within the CP-55 bound — Chroma never embedded
+    anything. The hazard is silent: Chroma's default EF (attached by
+    get_collection's default parameter) is a MiniLM at the same 384 dims,
+    so a substitution would produce plausible scores, not errors; the
+    bound is set so every measured row of that substitution fails it."""
     index = built_state.cases["case_0001"]
     ours = built_state.encoder.encode_corpus([c.text for c in index.chunks])
     for row in (0, len(index.chunks) // 2, len(index.chunks) - 1):
@@ -104,15 +137,44 @@ def test_stored_vectors_are_the_pinned_encoders(built_state):
             include=["embeddings"])
         stored = np.asarray(got["embeddings"][0], dtype=np.float32)
         assert stored.shape == (384,)
-        # CP-51 (wishlist 26): the oracle stays BIT-exact; on failure it now
-        # states the magnitude, so the ADR-0016 tolerance question can be
-        # decided with data (1-ULP class ≈ 1e-8 / cosine 0.99999994; a wrong
-        # embedder sits near cosine 0.80).
-        delta = float(np.abs(stored - ours[row]).max())
-        cosine = float(stored @ ours[row] / (np.linalg.norm(stored) * np.linalg.norm(ours[row])))
-        assert np.array_equal(stored, ours[row]), (
-            f"chunk p{chunk.page:04d}c{chunk.chunk_idx:04d} vector is not "
-            f"the pinned encoder's: max|Δ| {delta:.3e}, cosine {cosine:.9f}")
+        # np.array_equal until CP-55; the message keeps printing the
+        # measured numbers — they are what made the bound decidable, and
+        # the next drift must print its own.
+        assert_vector_is_the_pinned_encoders(
+            f"p{chunk.page:04d}c{chunk.chunk_idx:04d}", stored, ours[row])
+
+
+def test_identity_bound_fails_wrong_in_either_direction(built_state):
+    """The bound proven at both measured ends (ADR-0016, CP-55): the benign
+    drift classes pass (the CI runner's 7.451e-09 on every component,
+    arm64's worst 1.490e-08 on one), the measured hazard class fails (one
+    component moved by 1.937e-07 — the fp32-ONNX substitution's delta on
+    this very chunk), and a wrong-model vector fails the cosine floor on
+    its own. The failing halves are what stop a future loosening from
+    going unnoticed."""
+    index = built_state.cases["case_0001"]
+    chunk = index.chunks[0]
+    cid = f"p{chunk.page:04d}c{chunk.chunk_idx:04d}"
+    got = index.collection.get(ids=[cid], include=["embeddings"])
+    stored = np.asarray(got["embeddings"][0], dtype=np.float32)
+
+    within_ci = stored + np.float32(7.451e-09)
+    assert_vector_is_the_pinned_encoders(cid, within_ci, stored)
+    within_arm64 = stored.copy()
+    within_arm64[0] += np.float32(1.490e-08)
+    assert_vector_is_the_pinned_encoders(cid, within_arm64, stored)
+
+    beyond = stored.copy()
+    beyond[0] += np.float32(1.937e-07)
+    with pytest.raises(AssertionError, match="not the pinned encoder's"):
+        assert_vector_is_the_pinned_encoders(cid, beyond, stored)
+
+    wrong_model = np.roll(stored, 7)
+    cosine = float(wrong_model @ stored /
+                   (np.linalg.norm(wrong_model) * np.linalg.norm(stored)))
+    assert cosine < ENCODER_MIN_COSINE
+    with pytest.raises(AssertionError, match="not the pinned encoder's"):
+        assert_vector_is_the_pinned_encoders(cid, wrong_model, stored)
 
 
 def test_chroma_text_ops_are_refused(built_state):
