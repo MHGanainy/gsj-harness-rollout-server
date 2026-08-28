@@ -50,6 +50,7 @@ next: <advisory>
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
 ├── pyproject.toml               # 0.1.2; wheel force-includes both pins sets + ingest_corpus.py
 ├── docs/
+│   ├── guide/                   # the user documentation: plain Markdown pages + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
 │   ├── VERDICT.md               # the adoption verdict + the wishlist (the read-first document)
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)

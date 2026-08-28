@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml)
 
+**Documentation:** [`docs/guide/`](docs/guide/README.md) — installation, quickstarts for both roles, concepts, configuration and CLI reference, the Python API, with diagrams. Plain Markdown, readable here on GitHub.
+
 Given a task `(case, timestep, prompt)`, this server runs a pinned coding
 agent in an isolated sandbox in which everything the agent can see — the
 git checkout, the retrieval service — is truncated at `timestep`, captures

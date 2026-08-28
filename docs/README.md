@@ -59,14 +59,16 @@ read first. Added at CP-46; the mechanism is `polar/README.md`'s
 | `decisions/` | the ADRs, append-only, one decision each, Context → Decision → Consequence (ADR-0001 through ADR-0026 at CP-46) | anyone asking "why is it built this way" |
 | `golden/` | the golden-pair evidence — `mac/`, `h200/`, `COMPARISON.md` — the A-1 fidelity proof against the archived predecessor's reference traces | anyone re-verifying the `loss_mask`/`prompt_ids` claims |
 | `polar/` | real Polar run artifacts (fidelity, the training loops, thinking, the adversarial probe); carries its own shelf README | anyone re-verifying an episode claim |
+| `guide/` | the **user documentation**: plain Markdown (`guide/README.md` is the index) — installation, quickstarts, concepts, configuration, CLI and API reference — with diagrams as PNGs under `guide/img/`; the diagram sources are PowerPoint decks kept outside this repository. Not part of the evaluation record; written for consumers | anyone adopting the library |
 
 ## Who needs what
 
 - **Deciding whether to trust this server**: the root README, then
   `VERDICT.md`, then `AUDIT-2026-08-24.md` — and stop. The audit read
   all the reports adversarially so you don't have to.
-- **Training against a server** (the pip consumer): `checks-spec.md`
-  is the only file here you will open.
+- **Training against a server** (the pip consumer): `guide/README.md` and
+  the pages it indexes, then `checks-spec.md` when you need the reasoning
+  behind a finding.
 - **Operating an estate**: nothing here — `../estate/` (its README is
   the recipe; `estate.sh` the front door) and `../pins/` are the operator's
   directories.

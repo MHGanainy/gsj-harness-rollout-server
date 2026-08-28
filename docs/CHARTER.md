@@ -1797,6 +1797,51 @@ three parks (F-54, F-56, F-69) are owed at the demo's next sitting
 (not lifted). Nothing wanted a library line. Tally unchanged: **21
 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-52] No row moves; the user documentation (new: `docs/guide/` —
+21 plain-Markdown pages + 37 PNG diagrams; touched: `README.md`'s
+Documentation line, `docs/README.md`'s shelf row, `CLAUDE.md`'s layout
+line; `gsj_rollout/` untouched at 1,999; nothing in CI, no extra, no
+site).** The operator asked for professional consumer documentation
+with diagrams "as frequent as possible", drawn in PowerPoint and
+rendered to images; two directions arrived mid-CP and both bind: the
+decks and their generator live **outside** this repository (the sibling
+`gsj-harness-rollout-server-diagrams/` on the operator's disk — a
+python-pptx drawing vocabulary with one house style, one 37-slide deck,
+PowerPoint → PDF → PNG via `pdftoppm`, LibreOffice as the preview
+engine), and the pages are **plain GitHub-flavoured Markdown only** — a
+MkDocs Material site was built, reviewed and then withdrawn at the
+operator's word, so there is no site generator, no `[docs]` extra and
+no Pages workflow; `docs/guide/README.md` is the index GitHub shows for
+the folder. Shape: Getting started (3) · Concepts (5) · Guides (8) ·
+Reference (3: a hand-written Python API, the 42-string finding
+vocabulary, the wire formats) · About (1). **What the pages may not
+do**: cite `CP-NN`, ADRs, wishlist rows or the audit — the record is
+private since CP-48 (§8 rule; the one `docs/reports/` mention is the
+disclosure itself) — or link anything but the four tracked normative
+documents. **How they were checked**: written one agent per page from
+the source; reviewed twice by independent readers per page (every
+signature, default, message string, finding string, path and port
+opened against `gsj_rollout/*.py`, `estate/**`, the spec), each pass
+closed by a whole-set consistency editor; the second pass also rendered
+every page through GitHub's own Markdown API and a checker that
+verifies links, heading anchors (GitHub keeps the `--` of `--episodes`
+in a slug — three links fixed), images, alerts and angle-bracket
+placeholders GitHub would strip: final run **21 pages, 0 problems**;
+root suite 161 passed. Real corrections the reviews landed, so the
+docs say what the code does: `ADM1:status_not_completed:<status>`
+carries the status; G7 reads five stat keys, not six; `gsj_settings`
+is pi's `settings.json` (compaction off), not the model limits;
+`down --wipe` removes only `forgejo-data/` and `.token`; `serve` from a
+wheel still renders and prints, with a `NOTE:` line. **Said, not
+hidden**: the index's "what has been proven" strip copies the README's
+figures verbatim — a reader of the tracked tree cannot re-derive them
+(the CP-48 cost, restated on the About page); the PNGs add 7.3 MB of
+tracked binaries (200 dpi, palette-quantised — 150 dpi would halve it);
+a clone cannot regenerate a diagram, by the operator's decision — the
+regeneration recipe is the sibling directory's `README.md`. Consumer
+artefact, outside the size law and outside the record. Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
