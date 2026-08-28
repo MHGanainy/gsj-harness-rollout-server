@@ -18,11 +18,11 @@ What the evaluation left behind is the shape described in [Architecture](../conc
 
 ## The documents and what each is for
 
-Everything normative is tracked in the repository and readable from a clone. The reading order depends on what you are trying to do.
+Everything normative is tracked in the repository and readable from a clone. The reading order depends on what you are trying to do: run the library, trust it, or change it.
 
-![The document map: this site, the README and the two consumer repositories on the left, the four normative documents under docs/ in the middle, and on the right the archived predecessor, what stays checkable from a clone, and the private development record that citations point at](../img/document-map.png)
+![The document map: three numbered shelves. Shelf 1, run it: this site, the README, the examples repo and the demo repo. Shelf 2, trust it: VERDICT.md alone. Shelf 3, change it: CHARTER.md, checks-spec.md and corpus-contract.md.](../img/document-map.png)
 
-<sub>Read down the left, then across: the site, README and consumer repositories for running the library, the normative documents for the reasoning, the evidence for auditing it.</sub>
+<sub>One shelf per intent: shelf 1 to run the library, shelf 2 to decide whether to trust it (the verdict is standalone — read it, then stop), shelf 3 to change it. Auditing has its own map, [further down this page](#the-development-record-is-private).</sub>
 
 | Document | What it is | Open it when |
 | --- | --- | --- |
@@ -89,6 +89,10 @@ The library was built in numbered checkpoints, each with a prompt, a report, and
 > **`CP-NN` and ADR citations do not resolve from a clone**
 >
 > The tracked documents — the README, the charter, the verdict, the checks specification, and the provenance blocks inside the wheel-shipped `pins.gsj.json` — cite checkpoint reports (`docs/reports/CP-NN.md`) and decision records (`ADR-NNNN`) as their evidence. Those citations were left as written rather than rewritten: they are true of the private record, and rewriting settled documents is not something this project does. From a clone they are footnotes you cannot follow. Treat a claim that rests only on such a citation as *asserted*, not as checkable at the cited path.
+
+![The evidence map: a public region anyone can check — the code and its three test suites, the pins walk, the tracked documents, the release gate's wheel assertions, the evidence bodies, and the archived gsj-envloader v0.8.0 — beside a private region holding the operator's prompts and reports, decision records, and the audit and raw run evidence. An arrow from the tracked documents toward the private record is barred at the boundary: it cites, but does not resolve. A five-step strip below shows the check sequence a clone runs.](../img/evidence-map.png)
+
+<sub>What a clone can check (left) and what it cannot reach (right): the tracked documents cite the private record, but the citation stops at the boundary. The strip along the bottom is the audit sequence, spelled out below.</sub>
 
 What remains checkable from a clone is the code and what it executes against:
 

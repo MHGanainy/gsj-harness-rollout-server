@@ -62,7 +62,7 @@ Four paths under `estate/` are written at run time and never committed: `forgejo
 | `up` | `forgejo/up.sh`: `docker compose up -d`, waits up to 90 s for `/api/healthz`, creates the admin user `gsj-admin` if absent, mints an API token into `forgejo/.token` if the existing one no longer works | `docker` |
 | `owner <name>` | `forgejo/create_owner.sh <name>`: creates the pipeline owner user if absent and a push token into `forgejo/.token-<name>`; prints the `export GSJ_FORGEJO_TOKEN_<NAME>=…` line the pipeline needs | Forgejo up |
 | `down [--wipe]` | `forgejo/down.sh`: `docker compose down --remove-orphans`; with `--wipe` also deletes `forgejo-data/` and `.token` | — |
-| `mcp-up` | `docker compose -f mcp-service/compose.yml up -d` | `docker`; the image `gsj-mcp-service:0.3.0` already loaded; `GSJ_MCP_TOKEN_SECRET` exported — the verb refuses before compose does, and the value never lands in a file |
+| `mcp-up` | `docker compose -f mcp-service/compose.yml up -d`: the service runs `network_mode: host` on `0.0.0.0:8790`, as `user: 1000:1000`, with its clone cache and index under `mcp-service/data/` | `docker`; the image `gsj-mcp-service:0.3.0` already loaded (shipped by `docker save \| ssh … docker load` on a host whose daemon cannot pull); `GSJ_MCP_TOKEN_SECRET` exported — the verb refuses before compose does, and the value never lands in a file |
 | `mcp-down` | `docker compose -f mcp-service/compose.yml down` | `docker` |
 | `serve <0.6b\|llama31>` | `serving/serve.sh` or `serving/serve-llama31.sh` | the serving host's venv and model snapshot already provisioned; one engine per port |
 | `serve-updated <dir>` | `serving/serve-updated.sh <dir>` | an HF-format export directory on the serving host |
@@ -71,9 +71,9 @@ Four paths under `estate/` are written at run time and never committed: `forgejo
 
 There is no corpus verb: loading the corpus is the pipeline tool's job, and it sits between `owner` and `mcp-up` in the order below.
 
-![estate.sh verbs in bring-up order — up, owner, the corpus pipeline, mcp-up, serve, health/status — with serve-updated and down as the later branches, and what each step needs](../img/estate-bringup.png)
+![The bring-up order as a numbered strip — up, owner, scaffold, mcp-up, ingest, serve, health — each step above a tile naming what it stands up and what it needs, with the on-demand verbs serve-updated, status, down and mcp-down in a row below](../img/estate-bringup.png)
 
-<sub>The bring-up order, one box per verb, with the prerequisite each verb checks or assumes.</sub>
+<sub>Seven numbered steps, one tile each: what the step stands up and the prerequisite it checks or assumes. Steps 3 and 5 are the corpus pipeline, not `estate.sh` verbs; the on-demand row below holds the update, probe and teardown verbs.</sub>
 
 The whole sequence, from the repository checkout on the estate host:
 
@@ -105,9 +105,11 @@ python3 corpus/ingest_corpus.py ingest   --corpus corpus/staging   # trigger the
 
 `rollout.h200.yaml` encodes four facts measured on the reference host. They are worth understanding on any host, because the first one fails every episode when it is wrong and the others fail in ways that look like something else.
 
-![The two networks of the reference estate: host-side services split by bind address (127.0.0.1 for vLLM, the rollout API and the receiver; 0.0.0.0 for the gateway and the retrieval service) and the compose network gsj-staging-net holding Forgejo at a static IP and the episode containers, with the YAML key that names each address](../img/estate-topology.png)
+![One tile per process on the reference estate's two networks: on the host, vLLM and the Polar rollout API bound to 127.0.0.1 and the Polar gateway and retrieval service bound to 0.0.0.0; on the compose network gsj-staging-net, the episode container reaching Forgejo by clone_url_for and the host services through 172.28.9.1; below, a red strip where an episode on the default bridge is lost at git setup](../img/estate-topology.png)
 
-<sub>Which process listens where, and which YAML key carries each address; 172.28.9.1 is the host itself as seen from inside the compose network.</sub>
+<sub>Which process listens where, and the YAML key on each arrow; 172.28.9.1 is the host itself as seen from inside the compose network, and an episode started on the default bridge never reaches Forgejo.</sub>
+
+Two processes share the `127.0.0.1` column with the engine and the rollout API without a tile of their own: the trainer (`gsj-rollout submit`, or a loop over `RolloutClient`) submits and polls the rollout API on `127.0.0.1:8080`, and our receiver listens on `127.0.0.1:8300` for the terminal `TaskResult` the rollout API posts to `callback_url`. Every non-container process on the reference host — the engine, both Polar processes, the receiver, the submission — runs as one uid (1000), and the host's firewall is scoped to that uid, which is what breaks the root-originated legs of Docker's port publishing and registry pulls.
 
 **The clone happens inside the sandbox.** Our harness runs `git clone --depth 1 --branch timestep-T` from within the episode container, so `estate.clone_url_for` must resolve from *there*, not merely from the host. On the reference host, published ports do not work at all (the host's uid-scoped firewall drops the root-originated leg of Docker's port proxy), so Forgejo publishes nothing and lives at the static container IP `172.28.9.10:3000` on the compose network `gsj-staging-net`. Docker isolates its networks from each other: a container started on the default bridge cannot reach that address. The cure is one config value, `runtime.network: gsj-staging-net`, which starts every episode container on the same network as Forgejo.
 

@@ -21,12 +21,15 @@ cfg: RunConfig = load_config("rollout.yaml")   # raises ValueError on anything w
 | Server (`gsj-rollout serve`) | `render_topology(cfg)` | `polar.rollout`, `polar.gateway`, `polar.heartbeat_interval_seconds`, `estate.model`, `estate.serving_base_url` | `topology.rendered.yaml`, next to the config — Polar's own config file, never hand-maintained |
 | Server (`gsj-rollout serve`) | `Receiver(host, port, traces_dir, quarantine_dir)` | `receiver.*` | the callback endpoint that validates and files every trace |
 | Trainer (`gsj-rollout submit`, your loop) | `render_task_request(cfg, ...)` | `estate.*`, `runtime.*`, `harness.*`, `builder.*`, `receiver.base_url` | one Polar `TaskRequest` per task triple |
-| Trainer | `RolloutClient(cfg.polar.rollout.base_url)` | `polar.rollout` | where to submit and poll |
-| Both | `load_config` itself | `checks.*` | `checks.DEFAULT_POLICY` |
+| Trainer | `RolloutClient(cfg.polar.rollout.base_url)` | `polar.rollout` | where to submit, wait and collect |
+| Both | `load_config` itself | `checks.*` | `checks.DEFAULT_POLICY` — the receiver validates with it at the source, the trainer re-runs `checks.validate_session_result` with it on every collected result |
+| Nobody | — | `user` | round-trips into `cfg.user`, never rendered anywhere |
 
-![The nine sections of the YAML in the middle; the server lane on the left consumes polar.*, estate.model, estate.serving_base_url and receiver.*; the trainer lane on the right consumes estate, runtime, harness, builder and receiver.base_url; checks rebinds CheckPolicy on both; the six required values are starred](../img/config-map.png)
+![A document labelled rollout.yaml with nine section stripes in the middle; arrows run left from polar.gateway, polar.rollout and estate to a topology.rendered.yaml tile and from receiver to a receiver tile in the SERVER lane; arrows run right from polar.rollout to a RolloutClient tile and from estate, receiver, runtime, harness and builder to a TaskRequest tile in the TRAINER lane; the user stripe is greyed out as never read; the checks stripe points down to a CheckPolicy bar spanning both lanes](../img/config-map.png)
 
-<sub>Sections grouped by reader: the server renders Polar's topology and starts the receiver; the trainer renders every TaskRequest; the checks section binds the policy on both sides.</sub>
+<sub>Who reads which section: the server side renders `topology.rendered.yaml` from `polar.gateway`, `polar.rollout`, `estate.model` and `estate.serving_base_url` and starts the receiver from `receiver.*`; the trainer side posts through `RolloutClient` at `polar.rollout.base_url` and renders every `TaskRequest` from `estate`, `runtime`, `harness`, `builder` and (dashed, as `callback_url`) `receiver.base_url`; `checks` binds the `CheckPolicy` on both sides; `user` is read by nobody. A star marks a value with no default — four in `estate`, one each in `polar.gateway` and `receiver`.</sub>
+
+Because both sides begin with `load_config`, a wrong file fails on both sides at load — unknown keys, gutted sections, the `/v1` suffix, a port mismatch, a bad thinking level — before any process starts (see [Validation at load](#validation-at-load)). Every field that is not starred carries the value the reference estate measured with, so a file holding only the six required values is complete.
 
 > [!NOTE]
 > **Nothing in this file assumes Docker**
@@ -197,11 +200,22 @@ The callback endpoint this library runs. The receiver binds `host:port`; the tra
 config <path> invalid — 'section.field': <message>; section '<section>': unknown key '<key>'
 ```
 
+The load is four steps, and only two of them can reject:
+
+1. **Parse** — `yaml.safe_load`; the result must be a mapping. A parse error or a non-mapping top level raises its own `ValueError` (the two messages at the end of this section) before any validation runs.
+2. **Normalise null sections** — `_null_sections_to_empty` turns a section that parsed as `null` (a header with only comments under it) into `{}`, so pydantic can name the missing fields instead of rejecting the section as a whole; the dict-typed `user:` gets the same treatment.
+3. **Validate** — `RunConfig.model_validate`, with `extra="forbid"` on every section plus the field and model validators below. Every failure is collected and reported in the single `ValueError` above, `; `-joined.
+4. **Bind the policy** — on success, `checks.DEFAULT_POLICY` is rebuilt from the `checks` section and the `RunConfig` is returned.
+
+![A rollout.yaml document tile feeding a four-step chevron strip — parse YAML, null to empty mapping, validate, bind CheckPolicy — that ends in a green RunConfig tile; red arrows drop from step 1 to a reject tile for not-YAML or not-a-mapping and from step 3 to a reject tile for one ValueError listing every failing field](../img/config-validators.png)
+
+<sub>The load pipeline: parsing rejects on its own, validation rejects with one `ValueError` that lists every failing field, and a file that passes leaves with the `CheckPolicy` already rebound.</sub>
+
 Five validators exist specifically to catch files that are schema-plausible but would fail later as a bare 404, a connection refused, or a mislabelled run:
 
-![The load pipeline — yaml.safe_load, null-section normalisation, RunConfig.model_validate, RunConfig — and five reject cards: the /v1 suffix, gateway port versus public_url, harness.thinking off pi's levels, an unknown key, a section gutted to comments](../img/config-validators.png)
+![Five red cards in a row, each with an emblem — a /v1 badge for serving_base_url ending in /v1, a not-equal sign for gateway port versus public_url port, an on badge for a thinking value that is not a pi level, a question mark for an unknown key, a hash sign for a section gutted to comments — all pointing down to one bar reading rejected at load, one ValueError](../img/config-traps.png)
 
-<sub>What load_config rejects, with the input shape that triggers each message.</sub>
+<sub>The five look-right-but-fail files, each with the input that triggers it; the table below gives the message each one produces.</sub>
 
 | Check | Trigger | Message (leading text, verbatim) |
 |---|---|---|

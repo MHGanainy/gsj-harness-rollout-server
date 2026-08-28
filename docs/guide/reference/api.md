@@ -6,7 +6,7 @@ This is the reference for everything `gsj_rollout` exports, generated from the s
 
 ## The surface at a glance
 
-`pip install gsj-harness-rollout-server` installs one package, `gsj_rollout`, with three runtime dependencies (`pydantic`, `httpx`, `pyyaml`). Importing it never imports `polar`: the trainer side is a light client, and Polar lives in its own environment on the server side.
+`pip install gsj-harness-rollout-server` installs one package, `gsj_rollout`, with three runtime dependencies (`pydantic`, `httpx`, `pyyaml`). Importing it never imports `polar`: the trainer side is a light client, and Polar lives in its own environment on the server side. After the import, `sys.modules` holds exactly four of the package's modules — `gsj_rollout`, `gsj_rollout.checks`, `gsj_rollout.client`, and `gsj_rollout.config`; the four server-side modules are never loaded.
 
 ```python
 import gsj_rollout
@@ -15,9 +15,9 @@ gsj_rollout.__version__          # "0.1.2"
 gsj_rollout.__all__              # RolloutClient, Trace, checks, load_config, RunConfig, __version__
 ```
 
-![The importable surface of gsj_rollout: RolloutClient, Trace, checks, load_config and RunConfig are exported; partition_session_results, traces_of, render_task_request and render_topology are reached through their modules; pi_harness, builder, receiver and cli are deliberately not exported](../img/api-surface.png)
+![A trainer process imports gsj_rollout and gets four exported tiles — RolloutClient for submit, wait and collect; Trace, one trajectory as a pydantic model; checks, the validators run on both sides; and load_config producing RunConfig from the one YAML — each tile standing on the submodule it comes from](../img/api-surface.png)
 
-<sub>What `import gsj_rollout` gives a trainer, what the submodules add, and the four server-side modules that stay out of the public surface on purpose.</sub>
+<sub>What `import gsj_rollout` gives a trainer: the exported names, each standing on the submodule it comes from — `gsj_rollout.client` adds `partition_session_results` and `traces_of`, `gsj_rollout.config` adds `render_task_request` and `render_topology`, and `checks` is the whole module.</sub>
 
 | Name | Module | Role |
 |---|---|---|
@@ -38,6 +38,10 @@ Four modules ship in the package but are not part of this surface, by design:
 | `gsj_rollout.builder` | imports `polar`; Polar loads it by `builder.strategy` (`gsj_rollout.builder:ValidatingPrefixMergingBuilder`) |
 | `gsj_rollout.receiver` | the callback endpoint, started by `gsj-rollout serve` — see [The receiver](../guides/receiver.md) |
 | `gsj_rollout.cli` | the console script — see [Command line](../guides/cli.md) |
+
+![The four server-side modules and who reaches them instead of the trainer: Polar loads pi_harness and builder by their import-path strings, the operator at the shell runs the cli, whose serve command starts the receiver; a crossed-out arrow marks that the trainer never imports any of them](../img/api-server-side.png)
+
+<sub>Who reaches the four server-side modules: Polar loads `pi_harness` (`harness.import_path`) and `builder` (`builder.strategy`) by import path, and the operator's `gsj-rollout serve | submit` console script runs `cli`, with `serve` starting the `receiver` — never the trainer's `import gsj_rollout`.</sub>
 
 > [!NOTE]
 > **Two of them cannot be imported trainer-side at all**

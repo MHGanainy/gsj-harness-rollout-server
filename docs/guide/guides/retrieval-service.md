@@ -10,9 +10,18 @@ The service lives in the repository under `estate/mcp-service/` as the package `
 
 One long-running process ingests the frozen case dataset from the git host, embeds every page with a pinned MiniLM, stores the vectors in ChromaDB (one collection per case plus one for decisions), and answers token-scoped queries over streamable-http MCP to any number of concurrent episodes.
 
-![The service's URL surface: /health, /admin/reindex and the token-scoped /mcp route, the four tools behind the MCP route, and the per-case ChromaDB collections underneath](../img/mcp-surface.png)
+![Three actors on the left (operator, corpus pipeline, pi) each reach one door of the retrieval service: GET /health with no auth, POST /admin/reindex behind a padlock opened by an admin token, and POST /mcp/token behind a padlock opened by an episode token. Behind the doors sit the health JSON, the reindex thread and the four MCP tools; the tools and the reindex thread point at a ChromaDB store and its sidecar files in a persistent storage lane](../img/mcp-surface.png)
 
-<sub>Three routes on one process: an unauthenticated health probe, an admin-JWT reindex trigger, and the token-scoped MCP endpoint serving four tools over per-case collections.</sub>
+<sub>One process, three doors: the health probe needs no key, the reindex door takes an admin token, the MCP door takes an episode token. Behind them: the readiness JSON, the reuse-or-rebuild thread, and the four tools reading the store.</sub>
+
+Reading the picture row by row:
+
+- **The operator** polls `GET /health` (no auth) until the JSON says `state: "ready"`; the fields are tabulated below.
+- **The corpus pipeline** (`ingest_corpus.py ingest`) mints an admin token from the shared secret and calls `POST /admin/reindex`, which starts one background thread — fetch, fingerprint, then reuse the stored index or rebuild it — and answers `202` while `/mcp/*` returns 503 until `/health` is `ready` again (see [`POST /admin/reindex`](#post-adminreindex)).
+- **pi, in the sandbox**, reads `url: <mcp_url_base>/mcp/<token>` from `.pi/mcp.json` — the token was minted host-side by the harness — and calls the MCP endpoint, whose four tools pi renders as `mcp_gsj_*`.
+- **Storage** is `<index.path>/`, a volume that survives restarts: the ChromaDB store under `chroma/` (one collection per case plus `decisions`) and the sidecar files beside it (`<case_id>/chunks.json`, `decisions/corpus.json`, `fingerprint.json`), described under [Indexing and reindex](#indexing-and-reindex).
+
+The process is `python -m gsj_mcp_service --config config.yaml`, listening on `server.host:server.port`; the shipped file binds `0.0.0.0:8790`.
 
 ### The HTTP surface
 
@@ -46,6 +55,10 @@ curl -s localhost:8790/health | python -m json.tool     # poll until "state": "r
 ### The four tools
 
 The tools are registered unprefixed on an MCP server named `gsj`; pi renders them as `mcp_gsj_search_case` and so on. That server key is load-bearing — it is what the approved tool roster (gate G3) was pinned against, and `checks.py` names the cutoff-scoped tool as `mcp_gsj_search_case`.
+
+![pi on the left calls into two lanes. Inside the cutoff: search_case passes through a funnel labelled filter ≤ T then rank into one collection per case, and case_status reads the same case index to report T. Outside the cutoff: search_decisions ranks the whole decisions collection and decision_stats counts over it](../img/mcp-tools.png)
+
+<sub>Two of the four tools live inside the cutoff — `search_case` is filtered to pages ≤ T before it is ranked, `case_status` reports T — and two are exempt because the decisions corpus has no page structure. Chunks never cross a page, so every hit carries exactly one `page` and one `file`.</sub>
 
 | tool | arguments | returns | cutoff |
 |---|---|---|---|
@@ -110,11 +123,11 @@ Verification happens per request in the ASGI wrapper (`app.py`), so a bad reques
 
 The service indexes the **full** document of every case once and applies the cutoff at query time. This is the crucial design choice: there is no per-timestep index to get out of sync, and the cutoff cannot be widened by the client because the client never states it.
 
-![One search_case call: readiness check, HS256 verification, verified claims, the page ≤ T pre-filter on the case's collection, embedding and ranking, and the result shape gate G5 parses](../img/mcp-request-path.png)
+![pi posts to /mcp/token and a five-step strip runs: ready?, verify token, claims → T, filter ≤ T then rank, hits + log. Under the first two steps hang the early exits 503 not ready and 401 bad token; under the rest, the key that carries T, the case collection, and the top-k hits. The hits' result text travels back into the trace, where checks.py gate G5 re-reads it and lands on every page ≤ T or on a page > T](../img/mcp-request-path.png)
 
-<sub>T is taken from the verified claims, applied as a metadata pre-filter before ranking, and the hits' page fields are exactly what checks.py re-reads from the trace afterwards.</sub>
+<sub>Two early exits, then T from the verified claims, a pre-filter to pages ≤ T before ranking, and hits whose `page` fields are exactly what gate G5 re-reads from the trace — on the receiver, and again in the trainer.</sub>
 
-One `search_case` call, step by step (`app.py`, `tokens.py`, `tools.py`, `index.py`):
+The result text of every `search_case` call lands verbatim in the trace as the tool result; that is the text `check_page_cutoff` parses. The strip's fourth chevron covers steps 4 and 5 below. One `search_case` call, step by step (`app.py`, `tokens.py`, `tools.py`, `index.py`):
 
 1. **Readiness.** If the state is not `ready`, the request is answered 503 before the token is examined.
 2. **Verification.** The token is decoded with `algorithms=["HS256"]` and `exp` required; the claims are type-checked; the case must be in the frozen dataset and `1 ≤ timestep ≤ n_pages`. Any failure is a 401.

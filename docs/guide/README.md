@@ -16,15 +16,22 @@ The property the server exists for is the cutoff: `timestep` is a boundary the a
 
 Newcomers confuse these on first contact, so decide now which one you are.
 
-![The server role on the left needs an operator-run estate, this checkout, and two Polar processes; the trainer role on the right is a pip install of RolloutClient and checks; only task JSON and SessionResult JSON cross the wire between them](img/two-roles.png)
+![Two lanes side by side: the server role holds gsj-rollout serve, two Polar processes, the estate, and checks.py; the trainer role holds RolloutClient, your training loop, checks.py, and the pip-installed wheel. Two thick arrows cross the gap, a task JSON going to the server and a SessionResult coming back; a dashed line joins the two checks.py tiles, and a red tile marks what never crosses: weights, rewards, storage](img/two-roles.png)
 
-<sub>Server: an estate you operate. Trainer: a pip install that submits over HTTP and re-validates everything it gets back with the same checks.</sub>
+<sub>Left, the server: an estate you operate, the two Polar processes, and this checkout's receiver. Right, the trainer: a wheel, a client, and the same `checks.py`. Between them, HTTP only: one task JSON in, `SessionResult`s back, nothing else.</sub>
 
 | | Server role | Trainer role |
 | --- | --- | --- |
-| What you need | A machine you operate, running an inference engine (vLLM), a Forgejo git host, the retrieval service, and the ingested corpus — plus this repository checked out, with Polar's venv built under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.2, wheel-only; pydantic, httpx, pyyaml) |
-| What you run | `gsj-rollout serve --config <yaml>` renders `topology.rendered.yaml`, prints the two Polar commands (`serve_rollout`, `serve_gateway` — you start those yourself), then runs the receiver | `RolloutClient.collect(...)` — submit, poll `GET /rollout/task/{id}`, re-run `checks` on every result, return the `Trace`s of clean sessions |
+| What you need | A machine you operate, running the four estate services: an inference engine (vLLM, with the pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service (the signed-token page cutoff), and the ingested corpus (`ingest_corpus.py`) — plus this repository checked out, with Polar's venv built under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.2, wheel-only; pydantic, httpx, pyyaml). The wheel ships `gsj_rollout/`, both pins sets, and `ingest_corpus.py` — no `vendor/`, no Polar |
+| What you run | `gsj-rollout serve --config <yaml>` renders `topology.rendered.yaml`, prints the two Polar commands, then runs the receiver (`receiver.py` + `checks.py`). You start the two Polar processes yourself: `serve_rollout` is the rollout API and scheduler (`POST /rollout/task/submit`, `GET /rollout/task/{id}` — the trainer's `base_url`); `serve_gateway` is the gateway and capture proxy, one sandbox per episode, loading our `pi_harness.py` and `builder.py` by import path. Every callback lands in `traces/` if clean, in `quarantine/` with its findings if not | `RolloutClient` (`gsj_rollout.client`): `submit`, `wait`, `collect` — `collect(...)` submits, polls `GET /rollout/task/{id}`, re-runs `checks` on every result, and returns the `Trace`s of clean sessions. `checks` (`gsj_rollout.checks`): `validate_session_result(result)` returns findings — the same validators the receiver ran, because nothing upstream is trusted |
 | Start here | [Server quickstart](getting-started/server-quickstart.md), then [The estate](guides/estate.md) | [Installation](getting-started/installation.md), then [Trainer quickstart](getting-started/trainer-quickstart.md) |
+
+What crosses the wire between the two — and what does not:
+
+- HTTP only, in both directions. The trainer talks to Polar's rollout API, never to the receiver.
+- Trainer → server: one task JSON per `submit`.
+- Server → trainer: `SessionResult`s, verbatim, re-checked on arrival by the same `checks.py` the receiver already ran.
+- Never: weights, rewards, trajectory storage, or anything of the estate. The server keeps none of the trainer's state, and the trainer never touches the server's machines.
 
 The trainer side, end to end, is a handful of lines against the real signatures:
 
@@ -42,7 +49,7 @@ traces = client.collect([request])                      # only checks-clean sess
 > [!WARNING]
 > **The wheel ships this estate's pins**
 >
-> `checks` validates traces against pinned approved sets (tool rosters, system prompts, skill cards, settings), and the wheel carries the pins of the estate it was built for so the trainer leg works on install. On any other estate every hash gate fails `*_not_approved` — loudly, by design. Point `GSJ_PINS_PATH` at your own pins file before the first import of `gsj_rollout.checks`; an unreadable or malformed file raises `PinsConfigurationError` at the first gate rather than falling through to the packaged pins. See [Pins and approved sets](concepts/pins.md).
+> `checks` validates traces against pinned approved sets (tool rosters, system prompts, skill cards, settings), and the wheel carries the pins of the estate it was built for — `gsj_rollout/pins/pins.gsj.json`, plus the `thinking-on/` set — so the trainer leg works on install. On any other estate every hash gate fails `*_not_approved` — loudly, by design. Point `GSJ_PINS_PATH` at your own pins file before the first import of `gsj_rollout.checks`; an unreadable or malformed file raises `PinsConfigurationError` at the first gate rather than falling through to the packaged pins. See [Pins and approved sets](concepts/pins.md).
 
 > [!NOTE]
 > **The wheel alone runs no episodes**

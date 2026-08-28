@@ -125,9 +125,17 @@ Every session that fails re-validation is printed as `rejected <session_id>: [fi
 >
 > `checks` validates traces against pinned approved sets (tool roster, system prompt, skill cards, settings). The wheel ships the reference estate's pins so the trainer leg works on install; against any other estate every hash gate fails `*_not_approved`, loudly and by design. Point `GSJ_PINS_PATH` at that estate's pins file *before* the first import of `gsj_rollout.checks`. See [pins and approved sets](../concepts/pins.md).
 
-![The submit and collect lifecycle across the trainer, Polar and the receiver](../img/submit-collect-lifecycle.png)
+![Five numbered steps across three lanes: the trainer submits to Polar's rollout API and polls it, Polar's sandboxes run the episodes and call the receiver back at task end, the receiver files each session into traces_dir or quarantine, and the trainer re-validates the SessionResult bodies it collects into Trace objects or rejections](../img/submit-collect-lifecycle.png)
 
-<sub>The trainer submits, polls, and re-validates; the receiver validates the same bodies when Polar delivers them at task end; neither side trusts the other.</sub>
+<sub>The trainer talks only to Polar's rollout API; the receiver validates on arrival and the trainer runs the same `checks` on what it fetches. Navy is our code, slate is vendored Polar, amber a payload, green accepted, red rejected.</sub>
+
+The five steps in the figure, in the order they happen:
+
+1. **Submit** — `RolloutClient.submit(request)` posts the `TaskRequest` JSON to `POST /rollout/task/submit` and gets back Polar's `task_id`.
+2. **Episodes run** — Polar schedules `num_samples` attempts; each runs in its own sandbox with pi behind the capture proxy, and the builder reconstructs the trajectory and records its session-level verdict under `trajectory.metadata.gsj_validation`.
+3. **Receiver validates** — when the task ends, Polar posts one `TaskResult` envelope to `callback_url`; the receiver runs `checks.validate_session_result` on every session in it, one verdict each, and writes accepted bodies to `traces_dir/` and rejected ones, with their findings, to `quarantine/`. None of this reaches the trainer: no callback goes to the trainer and it shares no disk with the receiver.
+4. **Poll until terminal** — meanwhile `client.wait(task_id, timeout_s=…)` polls `GET /rollout/task/{id}` every `poll_interval_s` until the task status is `completed` or `failed`; if that has not happened by the deadline it raises `TimeoutError`. The terminal status response carries the `SessionResult` bodies in its `results` field — the same bodies the receiver validated, verbatim, one per attempt.
+5. **Re-validate** — `partition_session_results(results)` runs the same `checks.validate_session_result` on each body: accepted sessions become `Trace` objects, rejected ones are logged and never returned.
 
 ## 4. The same run in Python
 
@@ -216,9 +224,19 @@ Polar returns one `SessionResult` per attempt — the exact JSON body the receiv
 
 `--episodes N` (or `episodes=N` in `render_task_request`) asks Polar for N *attempts*, not for N accepted traces: a session counts as collected only when it is `COMPLETED` with no builder findings and no `checks` findings, and a rejected session is a consumed attempt, quarantined with its findings and never retried by the server. Exit 0 means `collected == attempted` exactly, so a `2/4` run exits 1 and is the honest count, not a failure of the server — the full definition (`gsj_rollout.config.COLLECT_SEMANTICS`) is quoted on the [Command line](../guides/cli.md#what---episodes-n-means) page, and [Running a training loop](../guides/training-loop.md#collect-n-semantics) shows a loop that resubmits under an attempt budget.
 
-![Four attempts: two collected, one quarantined, one errored — exit 1](../img/collect-n-semantics.png)
+![Four attempts fanned out from num_samples 4 — two collected, one quarantined, one that never counts — converging on a tally of 2 of 4 and exit 1](../img/collect-n-semantics.png)
 
-<sub>N attempts, three ways each can end, and the tally that decides the exit code.</sub>
+<sub>One `--episodes 4` run: a check for each collected attempt, a cross for the quarantined one, a warning sign for the errored one, and the tally that sets the exit code.</sub>
+
+The three ways an attempt in the figure ends, and what each one counts as:
+
+| the session ends | what decides it | counts as |
+| --- | --- | --- |
+| `COMPLETED`, `gsj_validation.findings: []`, no `checks` finding | the builder's verdict and the trainer's re-validation are both clean | collected — a `Trace` |
+| `COMPLETED` with builder findings, or with a `checks` finding | the receiver quarantines it with its findings | a consumed attempt |
+| `ERROR` or `TIMEOUT` | admission fails first: `ADM1:status_not_completed:ERROR` | never counts — still a consumed attempt |
+
+The CLI never re-submits to reach N accepted traces and the server never retries a consumed attempt. The run in the figure prints `collected 2/4 episodes` and exits 1; exit 0 needs `4/4`. Exit codes 2 and 3 — a usage error, an unreachable server — never get as far as a tally; they are in the [exit code table](#3-submit-one-task-from-the-command-line) above.
 
 ## See also
 

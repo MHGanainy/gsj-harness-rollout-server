@@ -16,9 +16,11 @@ The corpus makes this possible by storing each case as a git repository with one
 
 The cutoff is enforced twice while the episode runs and checked once after it ends. The two walls are preventive; the audit is evidence.
 
-![The timestep cutoff: the filesystem wall, the retrieval wall, and the G5 audit](../img/cutoff-walls.png)
+![The task carries T into the sandbox, where the agent reaches only a checkout at T and a search_case scoped to T; a filesystem wall and a retrieval wall stand between those and the estate, whose git host and retrieval service hold the full document](../img/cutoff-walls.png)
 
-<sub>T arrives with the task, truncates the sandbox twice while the episode runs, and is audited from the trace alone once it ends.</sub>
+<sub>Two walls. The agent's checkout holds pages 1..T in one commit, and its `search_case` calls carry T in a signed token; the git host and the retrieval service on the far side hold every page. The filesystem wall is built once, at clone time; the retrieval wall is enforced on every call.</sub>
+
+`T` is the page cutoff. It arrives once, in the task, and the harness (`gsj_rollout/pi_harness.py`) applies it twice: it clones the case repository at branch `timestep-T` before the agent starts, and it mints the token that scopes every `search_case` call. After the episode, the audit reads `T` back from the trace — `metadata.timestep`, stamped from the task — never from a caller.
 
 ### Wall 1 — the filesystem
 
@@ -51,15 +53,19 @@ The result is closed at the object level, not just the ref level: neither `main`
 The agent's `search_case` tool is served by the retrieval service (an MCP server, hence the `mcp_gsj_*` tool names), which indexes the **full** document of every case once and applies the cutoff at query time. The server has to tell the service what `T` is for this episode, and it has to do so in a way the agent cannot alter. It does this with a signed token:
 
 1. In the gateway process, on the host, the harness mints an HS256 JWT with the claims `{case_id, timestep, episode_id, exp}` (`_mint_episode_token`). `episode_id` is the Polar session id; `exp` is mint time plus a TTL (`harness.mcp_token_ttl_s`, default 3600 s). The signing secret is read from an environment variable of the gateway process (`estate.mcp_token_secret_env`, default `GSJ_MCP_TOKEN_SECRET`) and is never written to any file.
-2. The token becomes the last path segment of the MCP URL — `<mcp_url_base>/mcp/<token>` — and that URL is written into the sandbox's `.pi/mcp.json`, which is how pi's MCP extension knows where to send tool calls.
+2. The token becomes the last path segment of the MCP URL — `<mcp_url_base>/mcp/<token>` — and that URL is written into the sandbox's `.pi/mcp.json` before pi launches, which is how pi's MCP extension knows where to send tool calls.
 3. On every request the service verifies the signature, checks `exp`, checks that the case exists and that `1 ≤ timestep ≤ n_pages`, and then takes `T` from the **verified** claims. `T` is never a request field.
-4. `search_case` constrains candidates to `page ≤ T` as a metadata pre-filter **before** similarity ranking, then returns the top-k pages. Filter-before-rank matters: a post-filter would change result counts and is the classic leak shape.
+4. `search_case` constrains candidates to `page ≤ T` as a ChromaDB `where` pre-filter **before** cosine-similarity ranking, then returns the top-k pages, each as `{page, file, score, text}` — so every hit of a 200 response has `page ≤ T`. Filter-before-rank matters: a post-filter would change result counts and is the classic leak shape.
 
-Anything that fails verification is answered with HTTP 401 and a JSON-RPC error body; no tool runs. The service's contract is documented in full in [The retrieval service](../guides/retrieval-service.md).
+Anything that fails verification — a signature made with the wrong key, an expired `exp`, a header naming any algorithm but HS256, a case not in the dataset, or a timestep outside `1..n_pages` — is answered with HTTP 401 and a JSON-RPC error body; no tool runs. The service's contract is documented in full in [The retrieval service](../guides/retrieval-service.md).
 
 ### The audit — gate G5
 
 Walls prevent; they do not prove. After the episode, `gsj_rollout/checks.py` reads the trace and re-derives the cutoff from evidence inside it — gate **G5**. The same code runs on the receiver (a failing trace is quarantined before it is stored) and again in the trainer on everything it collects, so no trust is needed across the wire. G5 is described with the other gates in [Validation](validation.md).
+
+![The trace arrives as callback JSON, T is read from it, checks.py gate G5 runs on receiver and trainer alike, and the trace is accepted or quarantined; four locks below name the clauses that must all hold](../img/cutoff-audit.png)
+
+<sub>The audit runs on the trace alone. G5 holds when all four clauses do: every retrieved page is ≤ T (`check_page_cutoff`); the checkout is shallow with zero remotes, on branch `timestep-T`, with pages contiguous from 1 to T (`check_workspace`). Any clause that fails is a `G5:*` finding, and the trace is quarantined.</sub>
 
 ## Why the agent may read its token but cannot widen it
 
@@ -70,9 +76,9 @@ The token sits in `.pi/mcp.json`, inside the agent's own working directory, and 
 - Editing any claim invalidates the signature. A token whose payload says `timestep: 18` but whose signature was computed over `timestep: 12` is rejected with HTTP 401.
 - The secret needed to re-sign an edited payload lives only in the gateway process's environment on the host and never enters the sandbox.
 
-![The token path: host-side mint, the URL in the sandbox, verification and pre-filter in the service, and the 401 a tampered token receives](../img/token-flow.png)
+![Five steps from the host to the retrieval service: the harness signs the token, writes it into .pi/mcp.json, the agent calls search_case, the service verifies the signature and filters page ≤ T before ranking, ending in a 200; below, a token whose claims were edited from 12 to 18 with the original signature kept ends in a 401](../img/token-flow.png)
 
-<sub>The valid path (1–5) and the tampered path (6): the same token, claims edited from 12 to 18 with the original signature, is refused before any tool runs.</sub>
+<sub>The valid path (steps 1–5) runs along the top and ends in a 200 whose every hit has `page ≤ T`. The tampered path along the bottom — the same token, `timestep` edited from 12 to 18, original signature kept — ends in a 401 before any tool runs. The signing secret (`GSJ_MCP_TOKEN_SECRET` by default) exists only as an environment variable of the gateway process on the host; it is never written to a file and never enters the sandbox.</sub>
 
 > [!TIP]
 > **Verifying this yourself**

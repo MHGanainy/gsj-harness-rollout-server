@@ -113,13 +113,27 @@ usage: gsj-rollout submit [-h] --config CONFIG [--case CASE]
 
 The flow from argv to exit code:
 
-![gsj-rollout submit as a flowchart: parse args, load config (exit 2 on failure), resolve the task from flags or a taskbank row (usage errors exit 2), render_task_request, submit and wait (HTTP errors exit 3, a timeout exits 1), partition the results with checks, write --out, and exit 0 only when every attempt was accepted](../img/cli-submit-flow.png)
+![Seven numbered steps in a strip — load config, task source, render, submit, wait, validate, report — with the artefact under each: the YAML config, the flags or bank row, the TaskRequest JSON, the Polar rollout API, checks.py, and the --out folder. Below them the exit codes hang off the step that produces them: exit 2 under config and task source, exit 3 and a timed-out exit 1 under the Polar API, and exit 0 (accepted = N) or exit 1 (accepted < N) under the report](../img/cli-submit-flow.png)
 
-<sub>Eight steps, three early exits, and a final tally that is exact: exit 0 means accepted == --episodes, nothing looser.</sub>
+<sub>Seven steps, one artefact per step, and every exit code under the step that raises it. Exit 0 needs accepted == --episodes, nothing looser.</sub>
+
+Step by step, after argparse has accepted the flags (`gsj-rollout submit …` and `python -m gsj_rollout.cli submit …` are the same program):
+
+1. **Load config.** `load_config(--config)` parses the YAML and rebinds the process-wide check policy (`checks.DEFAULT_POLICY`) from its `checks:` section, so the re-validation in step 6 uses the same policy the receiver was started with. A missing file, invalid YAML or an unknown key prints one `gsj-rollout: …` line on stderr and exits 2.
+2. **Task source.** Exactly one of the two sources below yields `case_id`, `timestep` and `instruction` — plus `prompt_source` and `split` when the source is a bank row. An incomplete triple, a refused row, or both sources at once is a usage error: exit 2 (see [naming the task](#naming-the-task)).
+3. **Render.** `render_task_request` builds the one `TaskRequest` body: `num_samples` is `--episodes`, `timeout_seconds` is `--timeout`, `task_id` is `--task-id`, and `callback_url` comes from the YAML's `receiver` section, never from a flag.
+4. **Submit.** `RolloutClient.submit` POSTs the request to `<polar.rollout.base_url>/rollout/task/submit` and keeps the returned `task_id`.
+5. **Wait.** `RolloutClient.wait` polls `GET /rollout/task/<task_id>` every `--poll-interval` seconds for at most `--timeout + --grace` seconds. Any `httpx.HTTPError` raised by the submit or by a poll exits 3; a task still not terminal at the deadline exits 1 (see [timing](#timing)).
+6. **Validate.** `partition_session_results` runs `checks.validate_session_result` over every returned session and splits them into accepted and rejected-with-findings; each rejected session is printed with its finding codes.
+7. **Report.** With `--out DIR` every accepted session is written to `DIR/<session_id>.json`; then the `collected a/N episodes` and `length-terminated: k/a …` lines are printed, and the process exits 0 when `a == N` and 1 otherwise.
 
 ### Naming the task
 
 There are exactly two ways, and they do not mix.
+
+![Two lanes side by side. From flags: a laptop tile with --case C, --timestep T and --prompt TEXT or --prompt-file PATH, yielding prompt_source free and no split. From a taskbank row: a database tile with --from-bank PARQUET and --row N (default 0), pyarrow imported on first use, yielding prompt_source and split from the row. A red 'never both, exit 2' badge sits between the lanes; both lanes feed one TaskRequest envelope carrying case_id, timestep and instruction, and each lane has its own exit 2 for an incomplete triple or a refused row](../img/cli-task-sources.png)
+
+<sub>Flags or a taskbank row — never both — feed the same TaskRequest; each source refuses its own malformed input with exit 2.</sub>
 
 **From flags.** `--case`, `--timestep` and one of `--prompt`/`--prompt-file` are all required; any missing piece is a usage error (exit 2, `submit needs --case, --timestep and --prompt/--prompt-file — or --from-bank`). `--prompt-file` is read whole, in text mode, with no trimming. The rendered request carries `prompt_source: "free"` and no `split`.
 

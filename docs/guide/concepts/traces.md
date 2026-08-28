@@ -30,9 +30,9 @@ traces: list[Trace] = client.collect([request])   # only checks-clean sessions
 
 ## The fields
 
-![One Trace as aligned token strips: prompt_ids, then response_ids with loss_mask and response_logprobs aligned one to one, plus the message views, metadata, finish_reason and reward](../img/trace-anatomy.png)
+![The four token arrays as one aligned strip: an amber prompt_ids block of 2,965 ids, then three response rows side by side — response_ids as a green 259-id sampled span, a grey 6,755-id canonical span and a green 182-id sampled span; loss_mask as rows of 1s under the green spans and 0s under the grey one; response_logprobs as bars hanging below a zero line under the sampled spans and a flat 0.0 line under the interstitial](../img/trace-anatomy.png)
 
-<sub>The example trace: 2,965 prompt ids, then 7,196 response positions across two sampled assistant turns and one canonical interstitial; the three response arrays are indexed together.</sub>
+<sub>The example trace (`docs/polar/pi-corpus/trace.json`): 2,965 prompt ids, then 7,196 response positions — two sampled assistant turns around one canonical interstitial. The three response rows share one index; strip widths are not to scale.</sub>
 
 | Field | Type | Meaning | Comes from |
 |---|---|---|---|
@@ -60,6 +60,14 @@ tools               11 function schemas
 finish_reason       "stop"
 reward              null
 ```
+
+The six fields that are not token arrays, mapped by who states them:
+
+![The non-array fields as a map: a lane of three message-view tiles (prompt_messages, response_messages, tools), a lane of three metadata tiles labelled by provenance (the task request, the harness, Polar), and below them a finish_reason tile pointing at its allowed values and a reward-is-null tile pointing at the trainer, who scores from the episode's artifacts](../img/trace-fields.png)
+
+<sub>The message views are the wire objects verbatim — `prompt_messages` is the first request's two messages, `response_messages` the ten messages of the example (an assistant turn with eight tool calls, the eight tool results, the final assistant turn), `tools` the first request's eleven function schemas. The metadata has three provenances: the task request's keys (`case_id`, `timestep`, `prompt_source`, plus `split` and `skill_card_hash` when stated), the harness's echoes (`gsj_settings`, `gsj_workspace`), and Polar's own (`session_id`, `task_id`, `completion_metadata[]`). `finish_reason` is the last merged completion's, from an allowlist of four; `reward` is always `null`.</sub>
+
+The message views are what a person reads to follow an episode and what the content gates hash — G2 the system text in `prompt_messages`, G3 the `tools` roster — so they are copied exactly as they went over the wire, never normalised. The task request's keys reach the trace because Polar hoists the first completion's metadata onto it; the harness's echoes are stamped before the first completion, so every completion carries them.
 
 ## The token arrays
 
@@ -204,9 +212,9 @@ Two things the metadata deliberately does not carry: the engine's identity and i
 
 An agent episode is many model calls, not one. Each call reaches the gateway as its own completion with its own prompt. Polar's `PrefixMergingBuilder` (vendored, selected through `builder.strategy`) stitches them back into the single `prompt + response₁ + interstitial + response₂ + …` stream a trainer needs, without introducing tokenization drift.
 
-![Two completions merged into one chain: completion 2's prompt is a strict prefix-extension of completion 1's, the builder splices its tail after the end-of-turn token as the mask-0 interstitial, and the reconstruction_stats feed G7](../img/prefix-merging.png)
+![Five numbered steps — capture completions, group by prefix, splice the tail, snapshot the stats, G7 verifies — over three aligned token rows: completion 1 (prompt C1, sampled turn 1), completion 2 (prompt C2 with the same ids, then the re-rendered turn 1, the tool results and glue, and sampled turn 2, with an amber cut marker at the first end-of-turn token), and the merged Trace (prompt_ids, turn 1 at mask 1, the interstitial at mask 0, turn 2 at mask 1). A Polar bar labelled PrefixMergingBuilder sits between the rows and feeds a reconstruction_stats tile, which feeds a G7 tile](../img/prefix-merging.png)
 
-<sub>Grouping is decided on server-tokenized prompts only; the sampled response ids never enter the prefix comparison.</sub>
+<sub>Two gateway captures become one chain: C2's prompt repeats C1's prompt token for token, so the two group together; C2's tail after the first `<|im_end|>` is the mask-0 interstitial, and each completion's own sampled ids sit at mask 1. Grouping is decided on engine-tokenized prompts only — the sampled response ids never enter the prefix comparison. The builder writes `reconstruction_stats` beside the trace, and G7 reads them on the receiver and in the trainer alike.</sub>
 
 **Grouping.** A completion joins the chain whose last prompt is a token-prefix of its own prompt: `prompt_ids(C2)[:len(prompt_ids(C1))] == prompt_ids(C1)`. Both sides of that comparison are engine tokenizations of the same conversation prefix, so it is stable across the special-token boundary of the generation prompt and immune to how the sampled response re-tokenizes when it comes back as history. A completion that extends no open chain starts a new one.
 
@@ -223,13 +231,17 @@ An agent episode is many model calls, not one. Each call reaches the gateway as 
 | `completions_total` | completions left after Polar's trainability filter | — |
 | `completions_merged` | completions that made it into a trace | `== completions_total` |
 
-The example's stats: `chains_total 1`, `chains_reconstructed_full 1`, `chains_reconstructed_truncated 0`, `raw_completions_total 2`, `completions_total 2`, `completions_merged 2`. Each clause is its own finding (`G7:chains_total_ne_1`, `G7:chains_truncated`, `G7:completions_merged_ne_total`, `G7:raw_completions_ne_total`), and a missing or non-integer stat fails closed (`G7:missing_evidence:reconstruction_stats`). The conjunction matters because every failure it catches otherwise *looks clean*: a session with no engine token ids reconstructs as N tidy one-completion chains; a retry with an identical prompt breaks the merge and drops everything after it; a harness that edits earlier messages opens a fresh chain — all with `status: COMPLETED`.
+The example's stats: `chains_total 1`, `chains_reconstructed_full 1`, `chains_reconstructed_truncated 0`, `raw_completions_total 2`, `completions_total 2`, `completions_merged 2`. Each clause is its own finding (`G7:chains_total_ne_1`, `G7:chains_truncated`, `G7:completions_merged_ne_total`, `G7:raw_completions_ne_total`), a missing or non-integer stat fails closed (`G7:missing_evidence:reconstruction_stats`), and the rule runs on both sides of the wire — the receiver before it persists a session, `RolloutClient` again on what arrived. The conjunction matters because every failure it catches otherwise *looks clean*: a session with no engine token ids reconstructs as N tidy one-completion chains; a retry with an identical prompt breaks the merge and drops everything after it; a harness that edits earlier messages opens a fresh chain — all with `status: COMPLETED`.
 
 Beside the stats sits `trajectory.metadata.gsj_validation`, written by this library's `ValidatingPrefixMergingBuilder` subclass: `builder`, the session-level `findings` it raised (empty on an accepted session — any finding flips the session to `status: ERROR`), and `glue_stitched`.
 
 ### When the template is asymmetric
 
 Grouping needs consecutive prompts to be prefix-stable, and that is a property of the served chat template. A **symmetric** template renders an assistant turn the same way in history as it does at the generation prompt, so the merge works natively and `generation_prompt_glue_ids` stays unset (`glue_stitched: 0`). An **asymmetric** template appends something to the generation prompt that it omits from the history render — Qwen3's stock template with `enable_thinking: false` appends the empty think block `<think>\n\n</think>\n\n` (`[151667, 271, 151668, 271]`) only at generation time. Then no later prompt extends the earlier one, every turn becomes its own chain, `chains_total` equals the number of turns, and G7 rejects the session.
+
+![Two lanes. Top, glue ids unpinned: prompt C1 ends in a yellow glue block, prompt C2 continues straight into the grey history render with no glue, a red cross marks the mismatch, and a red tile reads two chains, G7 rejects, chains_total 2. Bottom, generation_prompt_glue_ids pinned: the same two prompts, but C2 now carries the yellow glue block before the history render, a green check marks the boundary, and a green tile reads one chain, glue_stitched 1, ValidatingPrefixMergingBuilder](../img/glue-stitch.png)
+
+<sub>Without the pin, C1's prompt ends in the generation-prompt glue that C2's history render omits, so C2 is not a prefix-extension of C1 and Polar opens a second chain. With the glue ids pinned, `ValidatingPrefixMergingBuilder` stitches the glue back into C2's prompt before Polar groups, the prefix test passes and the stitch is counted.</sub>
 
 The repair lives in `ValidatingPrefixMergingBuilder._stitched_session`, applied before Polar groups: when the previous prompt ends with the configured `generation_prompt_glue_ids` and the next prompt extends it exactly up to that glue, the glue is stitched back into the next prompt so the prefix test passes. It is strict-extension only — an identical retry or a non-matching boundary is left alone for the checks to catch — and every stitch is counted in `glue_stitched` (`1` in the example, which was collected under the asymmetric template with the glue ids pinned).
 

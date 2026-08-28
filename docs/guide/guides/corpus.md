@@ -35,11 +35,17 @@ One directory, one shape:
 
 The tree is strict: at the root only these entries are allowed (dot-prefixed entries such as `.git` are ignored at the root only); under a split only `cases/`; under a case only `case.yaml` and `timestep-<T>/`; under a timestep only `pages/` and `prompts.yaml`; under `pages/` only page files. A misspelled `timestep_12/` or a third split named `test/` is a validation error, never something silently skipped.
 
-![The corpus tree: corpus.yaml, AGENTS.md and skills/ at the root; train/cases/, case_id, timestep-T holding pages/ and prompts.yaml; eval/cases/ with the same shape; the two generated files; five callouts for the hard invariants](../img/corpus-tree.png)
+![The corpus tree drawn as a file browser: the root folder branching to corpus.yaml, AGENTS.md, skills/, train/cases/, eval/cases/ and the two generated files; train/cases/ opening to a case folder, then a stack of timestep folders, then pages/ and prompts.yaml](../img/corpus-tree.png)
 
-<sub>The source tree and the five rules a folder shape cannot enforce on its own — the validator checks all of them before anything is uploaded.</sub>
+<sub>The tree as the pipeline sees it — your files in amber, directories in white, the two generated files greyed and dashed. The case directory's name becomes the repository name; every timestep directory is the whole case at that cutoff, and `eval/cases/` has exactly the same shape inside.</sub>
 
 ### The five hard invariants
+
+A folder shape cannot enforce these on its own, so the validator does. The pipeline copies your directories exactly as they are — it never truncates a larger set down to `1..T` for you.
+
+![Five cards, one per rule: a timestep folder holding all twelve pages beside a rejected one holding only pages 6 to 12; page_0007.md accepted and page_7.md rejected; two timestep folders whose first five pages are marked equal; prompts.yaml resolving to SKILL.md or carrying verbatim text; a case sitting in train/cases/ and crossed out in eval/cases/](../img/corpus-tree-rules.png)
+
+<sub>The five rules as pictures — green is what passes, red is what the validator names as a finding.</sub>
 
 | # | rule | what the validator does |
 | --- | --- | --- |
@@ -98,9 +104,17 @@ Unknown keys are rejected by name, and so is the retired `eval_case_ids` key —
 
 `ingest_corpus.py` is one file with five phases as subcommands and `all` running them in order, stopping at the first failure. Every phase re-validates the tree before doing anything, so nothing downstream ever runs on a tree that fails the contract.
 
-![The five phases validate, scaffold, ingest, taskbank, verify in a row; below them the findings table, the git host, the retrieval service and the verify checklist; below those corpus.lock.json and taskbank.parquet with the arrows that write them; the trainer consuming the parquet](../img/corpus-pipeline.png)
+![The five phases as a numbered strip: validate, scaffold, ingest, taskbank, verify. The source tree feeds validate; scaffold writes corpus.lock.json and pushes to the git host; ingest posts a reindex to the retrieval service; taskbank writes taskbank.parquet, which the training loop reads; verify reads the estate and both artifacts back](../img/corpus-pipeline.png)
 
-<sub>Validate checks the input; scaffold, ingest and taskbank change the estate and write the two artifacts; verify checks reality against the tree and the lock.</sub>
+<sub>Two artifacts land next to your tree and are never edited by hand; two estate services are touched, each behind one credential from the environment (the key icons); verify closes the loop by reading everything back.</sub>
+
+What the picture leaves to the text:
+
+- **The git host** is Forgejo, or a `file://` bare estate for rehearsals. Every case becomes the repository `<owner>/<case_id>.git`; `scaffold` pushes `refs/heads/*` with `--force --prune`.
+- **The retrieval service** clones `main` of every case and rebuilds its index when `ingest` posts the reindex; the phase waits until `/health` reports `ready`.
+- **`corpus.lock.json`** is written by `scaffold` and extended by `taskbank` with the parquet's sha256 and its row counts.
+- **`verify` holds** when the cloned branches equal the tree, the live refs and the split equal the lock, the service's census equals the corpus, the parquet's sha256 equals the lock, and its rows are set-equal to the tree. Anything else is a `FAIL` line and exit code `1`.
+- **The two credentials** — `GSJ_FORGEJO_TOKEN_<OWNER>` for `scaffold`, `GSJ_MCP_TOKEN_SECRET` for `ingest` — are read from the environment, never from files; see [Credentials](#credentials).
 
 ### Where to run it from
 

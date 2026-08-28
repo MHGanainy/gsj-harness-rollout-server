@@ -8,9 +8,11 @@ This page shows how a trainer integrates the rollout server into a loop: the sha
 
 The server's job ends at the trace. Everything around it — storing traces, deciding what to train on, scoring, the optimizer step, exporting weights, serving them — is the trainer's and the estate's. A loop therefore has one fixed shape: collect a batch, do your own work, put new weights on the engine, collect again. Nothing in the server side changes between iterations; only the weights behind the engine do.
 
-![The trainer's loop: collect N re-validated traces, the trainer's own storage/reward/optimizer step, an HF-format export, serve-updated on the estate, then collect again; the server side is only task to sandbox to agent to trace](../img/training-loop.png)
+![Six numbered steps — collect N, score and store, train one step, export weights, serve-updated, collect again — above two lanes: the trainer's lane holds the training loop, score and store, one optimizer step and the HF-format weights; the server-side lane holds the rollout server, the inference engine and serve-updated. Tasks go down from the training loop to the rollout server and traces come back up; the weights go down to serve-updated, which feeds the engine; a line from serve-updated loops back to the start.](../img/training-loop.png)
 
-<sub>One iteration, strictly serialized; the server side never learns that a loop exists.</sub>
+<sub>One iteration, strictly serialized: the trainer's lane on top, the server side below. Only the weights cross downward, only traces come back up, and the server side never learns that a loop exists.</sub>
+
+Reading the picture left to right: your training loop submits N attempts as `TaskRequest`s, and `collect` polls the `SessionResult`s and re-runs `checks` on each one before handing back `Trace`s. The rollout server runs every attempt as a Polar episode — pi in a sandbox checked out at `timestep-T`, every model call proxied through the capture layer so tokens and logprobs are recorded — and then builder, receiver and `checks.py` decide accept or quarantine. The engine is the estate's: vLLM serving `estate.model` under `--served-model-name`. Scoring, storage, mixing, the optimizer step (slime, verl, or your own) and the export are yours; the export is an HF-format directory (`config.json` plus the tensors) on the serving host, and `serve-updated` stops the engine and starts it on that directory under the same served name, so the next `collect` samples from the new weights with the same requests and the same checks. Everything in the trainer's lane — storage, scheduling, reward, weights, versioning and the training itself — is deliberately outside the server.
 
 In Python the trainer-facing surface is three calls: `load_config` for the YAML, `render_task_request` for each task, `RolloutClient.collect` for the batch. Everything after `collect` returns is your code.
 
@@ -56,25 +58,25 @@ Three things about this skeleton are load-bearing:
 
 Every `Trace` you get from `collect` carries the same guarantees, and the same silences. Knowing which is which is what keeps the loop honest.
 
-![A ledger of concerns: the cutoff, validation and the aligned arrays are server guarantees; sampling parameters, reward, engine and codec provenance, storage and retention, and weight sync are owned by the trainer or the estate](../img/responsibility-split.png)
+![Left, three green guarantee tiles — the cutoff held, checked twice, aligned raw arrays — each pointing at one Trace whose reward is null. Right, six concerns wired to their owner: reward and scoring, storage and retention, resubmits and mixing point at the trainer; sampling parameters and engine/codec provenance point at the estate; weight sync points at both.](../img/responsibility-split.png)
 
-<sub>Per trace, three guarantees; everything else is owned by the trainer, the estate, or both.</sub>
+<sub>Three guarantees flow into every trace; the rest is wired to the trainer, the estate, or both — and the trace carries none of it.</sub>
 
 **Guaranteed, per accepted trace:**
 
-| guarantee | what it means for the loop |
-| --- | --- |
-| the cutoff held | the sandbox was a shallow clone of branch `timestep-T` with no remote, retrieval was clamped to page ≤ T from verified token claims, and gate G5 audited both from the trace itself — see [the timestep cutoff](../concepts/timestep-cutoff.md) |
-| the session passed the same checks on both sides | the receiver validated the callback body at the source and `collect` re-ran every rule on what it fetched; a trace in your hands has passed twice |
-| the arrays are aligned and raw | `response_ids`, `loss_mask` and `response_logprobs` are indexed together; the logprobs are the engine's own at sampling time, never renormalized — see [Traces](../concepts/traces.md) |
+| guarantee | what it means for the loop | what stays yours |
+| --- | --- | --- |
+| the cutoff held | the sandbox was a shallow clone of branch `timestep-T` with no remote, retrieval was clamped to page ≤ T from verified token claims, and gate G5 audited both from the trace itself — see [the timestep cutoff](../concepts/timestep-cutoff.md) | nothing: the cutoff is enforced twice and audited once, and nobody else has to enforce it |
+| the session passed the same checks on both sides | the receiver validated the callback body at the source and `collect` re-ran every rule on what it fetched; a trace in your hands has passed twice | resubmitting: a rejected attempt is consumed, and the server never retries, so when the goal is N accepted traces you submit again — see [collect-N semantics](#collect-n-semantics) |
+| the arrays are aligned and raw | `response_ids`, `loss_mask` and `response_logprobs` are indexed together; the logprobs are the engine's own at sampling time, never renormalized — see [Traces](../concepts/traces.md) | collation and mixing, and what to do with a row whose `finish_reason` is `length` |
 
 **Deliberately not the server's:**
 
 - **Sampling parameters are the estate's.** The pinned agent sends none, so the engine's configuration *is* the sampling policy, and the trace records nothing about it. An engine started without an explicit generation-config pin samples at its neutral defaults, silently. The reference estate pins `--generation-config` in the serve argv for exactly this reason; on your estate, do the same.
 - **`reward` is `null` in every callback.** The server never scores an episode. What you score from is the trace plus the episode's artifacts, which the harness lands on the server host under `<artifacts_dir>/<session_id>/` — `pi_transcript.jsonl` and, when the agent produced one, its `out/` deliverable. `trace.metadata["session_id"]` is the join key. `harness.artifacts_dir` defaults to `/tmp/gsj-artifacts`; point it at durable storage before a real run.
 - **Codec and engine provenance are the estate's.** No engine identity, snapshot revision or tokenizer hash rides the callback; codec identity is verified at bring-up by the pins walk, not per trace. `estate.model_revision` in the YAML is an optional pin the server never reads — a trainer can check its own snapshot against it before spending GPU time, but it is not evidence carried by a trace.
-- **Storage, retention, mixing, staleness and collation are the trainer's.** The receiver writes accepted bodies verbatim to `traces_dir` and rejected ones to `quarantine/`, and that is the whole of its persistence: no index, no rotation, no policy-version stamp.
-- **Weight sync is the trainer's and the estate's.** Nothing in `gsj_rollout/` reads, writes or serves weights.
+- **Storage, retention, mixing, staleness and collation are the trainer's**, and so is the drain before each sync. The receiver writes accepted bodies verbatim to `traces_dir` and rejected ones to `quarantine/`, and that is the whole of its persistence: no index, no rotation, no policy-version stamp.
+- **Weight sync is the trainer's and the estate's.** The trainer exports HF-format weights; the estate runs `serve-updated <dir>` — a stop, then a start on the new directory under the same `--served-model-name`. Nothing in `gsj_rollout/` reads, writes or serves weights.
 
 > [!WARNING]
 > **It has never trained anything, and says so**

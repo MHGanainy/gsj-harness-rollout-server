@@ -89,6 +89,10 @@ The `POST` body is one of two shapes, and both are unwrapped to a list of `Sessi
 
 Every member must pass the **shape screen** before anything is validated: it is an object, it has a `trajectory` key (of any type — a malformed trajectory is a *finding*, not a 400), and its `session_id` is a string matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` in full. The regex exists because the id becomes a file name: `../evil` is refused with a 400 rather than walking the filesystem. It is the same pattern Polar's gateway applies to its own session ids (`SESSION_ID_PATTERN`, 128 characters at most), so an id Polar would refuse is refused here too, and an over-long-but-legal id fails at the shape screen instead of at the write.
 
+![Polar's manager delivers a callback to the receiver, and three answers fan out: 200, every member dispositioned, pointing at the accepted and quarantined folders; 400, the body is at fault; 500, the server's fault; the 400 and 500 arrows both end at a "nothing lands, archive untouched" tile](../img/receiver-responses.png)
+
+<sub>The three answers to a callback. A 200 carries the counts and covers both verdicts; a 400 or a 500 means nothing landed in either directory, and the body says whose fault it was.</sub>
+
 > [!NOTE]
 > **200 does not mean accepted**
 >
@@ -100,13 +104,15 @@ A callback may carry many `SessionResult`s, and validating one of them can raise
 
 `Receiver.ingest` therefore works in two phases, and the guarantee is: **every member of an envelope is dispositioned, or none is.**
 
-![The two-phase ingest: the callback body passes a shape screen, then every member is validated and serialized in memory and planned to one path per session_id; only then is each member staged to a .tmp file and committed by rename, any failure unlinking every stage; the response is 200 with counts, 400 for a bad body, 500 for a pins or write fault](../img/receiver-ingest.png)
+![Map of the two-phase ingest: Polar's callback envelope enters an in-memory lane (shape screen, validate, plan) and then an on-disk lane (stage, commit), landing in traces_dir or quarantine_dir; a fault in the memory lane exits to "nothing written" (400 or 500), a fault in the disk lane to "stages unlinked" (500)](../img/receiver-ingest.png)
 
-<sub>Phase 1 touches no disk, so a pins fault or an unserializable member aborts with nothing written; phase 2 stages every file before committing any, and unlinks every stage if a single write fails.</sub>
+<sub>The five steps of an ingest. The first three run in memory and can only abort with nothing written; the last two touch disk, and a fault there unlinks every staged file before the error is answered. Both landing places name the file after the session id and the pins mode.</sub>
 
 **Phase 1 — in memory.** For every member, in order: `checks.validate_session_result(result)` produces the findings list; the payload to persist is the result itself when the list is empty, or `{"findings": [...], "session_result": result}` otherwise; and that payload is serialized with `json.dumps` *now*, so an unserializable member raises here, as a `ValueError` (a 400: the body is the caller's). The member is then **planned**: one target path and one serialized text per `session_id`. If the same `session_id` appears twice in one envelope, the later member wins — one id must never land as both an accepted trace and a quarantined one, and two members must never contend for the same temporary file.
 
 **Phase 2 — disk.** Every planned entry is written to `<path>.<i>.tmp` (where `<i>` is its index in the plan, so stages are unique), and only when all of them are staged is each one committed with `os.replace` — an atomic rename within one filesystem, which is why the stage sits beside its target rather than in a temporary directory. If anything in this phase raises, every staged `.tmp` is unlinked and the exception propagates; nothing half-lands, and no orphan is left behind.
+
+The two 500 bodies map onto the two phases: `pins configuration: <detail>` can only come from phase 1, where a hash gate opened the pins file, so it always means nothing was written; `receiver: <ExceptionType>: <detail>` is the catch-all for phase 2, a stage or commit that raised, and by the time it is answered every stage has been unlinked. A 400 is always phase 1: the shape screen or the serializer refused the body.
 
 Only after the commit do the counters move and the log lines fire. The consequences, all of which the test suite pins down over HTTP:
 

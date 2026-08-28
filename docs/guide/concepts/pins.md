@@ -85,6 +85,10 @@ Canonical JSON is exactly this, and every hash in the `sha256_canonical_json` ro
 json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 ```
 
+![Six keys of pins.gsj.json above six gates: five locks, G1 skill card, G2 system prompt, G3 tool roster, G7 settings echo and G6 turn openings, each labelled with the trace field it hashes and the convention on the arrow from its key; the sixth, G4, is an estate-side tile fed by tokenizer_hash and chat_template_hash with nothing arriving from the trace](../img/pins-gate-map.png)
+
+<sub>Each lock compares one field of the trace, hashed under the key's convention, against that key's approved set; G6 compares token ids by list suffix rather than by hash, and G4's two keys are verified at bring-up because no codec evidence rides the callback.</sub>
+
 > [!NOTE]
 > **G4 is a bring-up check, not a trace check**
 >
@@ -103,9 +107,11 @@ json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow
     not defaults — set GSJ_PINS_PATH to your own or every hash gate fails *_not_approved.
     ```
 
-![The pins file resolution: GSJ_PINS_PATH if set, else the checkout file, else the packaged copy with a warning; the thinking-on set is reached only through an explicit GSJ_PINS_PATH](../img/pins-resolution.png)
+![Both legs, the receiver and your training process, import gsj_rollout.checks and follow one numbered strip: GSJ_PINS_PATH set, checkout pins/ exists, packaged copy. Each step yields a pins document; a bad path under the first raises PinsConfigurationError, the thinking-on set is reachable only through the first, and the third emits a UserWarning](../img/pins-resolution.png)
 
-<sub>Resolution happens once at import; a wrong override raises rather than falling through, and the packaged fallback warns because it holds the reference estate's values, not defaults.</sub>
+<sub>One rule on both legs, resolved once at import: the file you named (any path, either mode), else the checkout copy, else the packaged copy with a warning. A bad override raises instead of falling through; the thinking-on set is only ever reached by naming it.</sub>
+
+Two facts the picture compresses. The file you name in `GSJ_PINS_PATH` may be either mode — the thinking-off reference, the thinking-on sibling, or a file of your own — while routes 2 and 3 always resolve to the thinking-off reference. And the thinking-on sibling is a valid target on both legs: `pins/thinking-on/pins.gsj.json` in a checkout, `gsj_rollout/pins/thinking-on/pins.gsj.json` in site-packages; nothing selects it for you (see [The thinking-on set](#the-thinking-on-set)).
 
 The warning is the trap named in the README: a fresh `pip install` validates against *this* estate's pins, which is exactly right for a trainer talking to the reference server and exactly wrong for any other estate — where every hash gate fails `*_not_approved`, loudly, until you point `GSJ_PINS_PATH` at your own file.
 
@@ -183,9 +189,9 @@ python pins/derive_pins.py
 # all approved values reproduced
 ```
 
-![Each approved value's evidence: skill cards, real episodes' wire system prompt and tools array, the served template tail, the harness's rendered settings, and the served snapshot; each hashed under its convention into a pins key consumed by one gate](../img/pins-derivation.png)
+![The walk as four numbered steps, read the evidence, hash by convention, compare to the sets, exit 1 on divergence. Six evidence files in the repository, skill cards, two real episodes, the container prompt, the rendered settings, the G6 tail capture and the convention anchor, feed derive_pins.py; the served tokenizer and template feed it from the estate side; the result is compared against pins.gsj.json and its thinking-on sibling, ending either in all values reproduced or DIVERGED with exit 1](../img/pins-derivation.png)
 
-<sub>The walk reads only files the repository owns; G1–G3 and G7 flow from real episodes' wire payloads and committed artifacts, G6's ids from the served tokenizer at pin time, G4 from the served snapshot and template file.</sub>
+<sub>Every approved value is re-derived from a file the repository owns, then compared with the two pins documents; the served tokenizer and template are the one input measured outside the repository, on the serving host. A skip is printed as a skip and never counted as a pass.</sub>
 
 What the walk reads, in order:
 
@@ -194,8 +200,8 @@ What the walk reads, in order:
 | `pins/tools.captured.json` | the canonical-JSON convention itself — the anchor runs first; if it fails, nothing below is trustworthy | — |
 | `docs/polar/pi-corpus/trace.json`, `docs/polar/fidelity/trace.json` | `tool_roster_hash` from each `tools[]`; `system_prompt_hash` from each `prompt_messages[0]` (asserted to be the system role) | — |
 | `pins/container/system_prompt.container.derived.txt` | `system_prompt_hash` from the derived singleton text | — |
-| `pins/settings.rendered.json` and the literal `{"compaction": {"enabled": false}}` | `settings_hash` twice — the carried evidence and the harness constant must agree | — |
-| every `estate/corpus/staging/skills/*/SKILL.md` | `skill_card_hash`, one entry per card — a new card in the tree is pinnable without a script edit | — |
+| `pins/settings.rendered.json` and the literal `{"compaction": {"enabled": false}}` | `settings_hash` twice — the carried evidence and the `settings_json` constant in `pi_harness.py` must agree | — |
+| every `estate/corpus/staging/skills/*/SKILL.md` | `skill_card_hash`, one entry per card, hashed from the card bytes — the same bytes ingest writes into every case repository; a new card in the tree is pinnable without a script edit | — |
 | `tokenizer.json` in the codec and served snapshots | `tokenizer_hash` (git-blob OID); the snapshot-embedded `chat_template` is printed as *not approved* | `GSJ_CODEC_SNAPSHOT`, `GSJ_SERVED_SNAPSHOT` (default: the Qwen3-0.6B snapshot in `~/.cache/huggingface/hub`) |
 | the served `--chat-template` file | `chat_template_hash` — sha256 of the file the engine actually renders with | `GSJ_SERVED_TEMPLATE` (default `estate/serving/qwen3_training.jinja`) |
 | `pins/g6_tail.captured.txt` | `g6_expected_tail` verbatim; `g6_expected_tail_ids` by tokenizing it with the served tokenizer | needs `transformers` and the served snapshot |

@@ -100,16 +100,16 @@ From the checkout, with the venv that holds `gsj_rollout` active:
 gsj-rollout serve --config estate/rollout.h200.yaml
 ```
 
-![The four steps of gsj-rollout serve: load and validate the YAML, render topology.rendered.yaml, print the two Polar commands, start the receiver and block](../img/serve-startup.png)
+![The one YAML feeds a four-step strip: load and validate, render topology, print Polar commands, run the receiver. Under the steps: an invalid YAML exits 2, the rendered topology.rendered.yaml, you in two shells running serve_rollout and serve_gateway, and the receiver, which lands accepted traces in traces_dir and rejected ones in quarantine. The first three steps are all that --render-only runs.](../img/serve-startup.png)
 
-<sub>`serve` validates, renders, prints, then runs only our receiver; with `--render-only` it returns after printing.</sub>
+<sub>One YAML in, four steps in order. Only the last one keeps running: the receiver, which sorts every callback body into `traces_dir/` or `quarantine/`. `--render-only` returns after the third step.</sub>
 
 In order, `serve`:
 
-1. **Loads and validates the YAML.** An invalid file is one message on stderr and exit code 2.
-2. **Renders `topology.rendered.yaml`** next to the YAML — for the example, `estate/topology.rendered.yaml`. This is Polar's own `topology.yaml`, generated from your config on every run. Never hand-edit it; edit the YAML and re-run.
-3. **Prints the two Polar commands** for you to run, then one line with the callback URL, the traces directory and the quarantine directory.
-4. **Starts our receiver** — an HTTP endpoint at `receiver.host:port` that validates every callback body and lands it — and blocks until SIGINT or SIGTERM.
+1. **Loads and validates the YAML** with `load_config()`. An invalid file is one message on stderr (an unknown key is named by section and key, a bad value by its field) and exit code 2. Three things reject at this step that would otherwise only fail at run time: an unknown key anywhere, a `serving_base_url` ending in `/v1`, and a `polar.gateway.public_url` whose port disagrees with `polar.gateway.port`.
+2. **Renders `topology.rendered.yaml`** with `render_topology(cfg)`, written beside the YAML — for the example, `estate/topology.rendered.yaml`. This is Polar's own `topology.yaml`, generated from your config on every run. Never hand-edit it; edit the YAML and re-run.
+3. **Prints the two Polar commands** for you to run — absolute paths, because they run in other shells — then one line with the callback URL, the traces directory and the quarantine directory.
+4. **Starts our receiver** — `Receiver(host, port, traces_dir, quarantine_dir)`, an HTTP endpoint at `receiver.host:port` that runs `checks.py` over every callback body and lands each result atomically (`.tmp`, then rename) as `<session_id>.<pins_mode>.json` under `traces_dir/` if accepted or `traces_dir/quarantine/` if rejected — and blocks until SIGINT or SIGTERM.
 
 `serve` is not a process supervisor: it starts nothing but the receiver. The output for the example looks like this (absolute paths shortened):
 
@@ -170,11 +170,23 @@ Two things about these lines are deliberate:
 - **`GSJ_MCP_TOKEN_SECRET` goes on the gateway command only.** Our harness runs inside the gateway process and mints each episode's HS256 token there, host-side, with claims `{case_id, timestep, episode_id, exp}`. The secret is read from the environment variable named by `estate.mcp_token_secret_env`; if it is unset the episode fails immediately with `token secret env var 'GSJ_MCP_TOKEN_SECRET' is unset in the gateway process`. The same value must be the retrieval service's secret, or every retrieval call is refused with HTTP 401.
 - **`PYTHONPATH=<checkout>`** makes `gsj_rollout` importable in Polar's process however its venv was built. Polar loads `gsj_rollout.pi_harness:PiHarness` and `gsj_rollout.builder:ValidatingPrefixMergingBuilder` by the import-path strings carried in every task request.
 
-![The processes on the server host with their ports and URLs: vLLM engine, Forgejo, retrieval service, Polar rollout API, Polar gateway node, the receiver, and episode containers, with arrows for who dials whom](../img/server-processes.png)
+![Every process on the server host as a pictogram with its port, and an arrow from each dialer to its listener: the trainer submits and polls the Polar rollout API; the rollout API POSTs sessions to the Polar gateway node and the terminal TaskResult to our receiver; the gateway proxies chat completions to the vLLM engine and starts, execs and stops the episode container on the gsj-staging-net network; the container dials the gateway's public_url, git-clones from the Forgejo container and makes MCP calls to the retrieval service on the host network](../img/server-processes.png)
 
-<sub>Every process on the H200 host with the value that names it, and the direction of each connection.</sub>
+<sub>Who dials whom on the H200 host, with the values from `estate/rollout.h200.yaml`. Every arrow points from the dialer to the listener; nothing dials into the episode container.</sub>
 
-Reading the arrows: the trainer talks only to the rollout API (`POST /rollout/task/submit`, then `GET /rollout/task/{task_id}` until terminal). The rollout API dispatches each session to the gateway at `public_url` and, when the task is terminal, POSTs the whole `TaskResult` to our receiver's `callback_url`. The gateway starts one container per session on `runtime.network`, execs the harness steps in it, proxies the container's model calls to the engine while capturing tokens and logprobs, and pushes each `SessionResult` back to the rollout API. Nothing dials into the container; it dials out to the gateway, to Forgejo and to the retrieval service.
+The seven processes, and the value in the YAML that names each one:
+
+| Process | Runs as | Listens on | Named by |
+| --- | --- | --- | --- |
+| trainer | `gsj-rollout submit` or `RolloutClient(base_url)` — the same host in this quickstart | — | `polar.rollout` |
+| Polar rollout API | `polar serve_rollout`: task queue, scheduler, dispatch | `127.0.0.1:8080` | `polar.rollout.host` / `port` |
+| Polar gateway node | `polar serve_gateway`: sandbox lifecycle, the capture proxy | `0.0.0.0:8200`, advertised as `public_url` `http://172.28.9.1:8200` | `polar.gateway` |
+| vLLM engine | host-local, dialed only by the gateway's proxy | `127.0.0.1:8000` | `estate.serving_base_url` (no `/v1`) |
+| receiver | ours, `gsj-rollout serve` | `127.0.0.1:8300`, `callback_url` `http://127.0.0.1:8300/callbacks/session_result` | `receiver` |
+| retrieval service | a container on `network_mode: host`; verifies the per-episode token | `0.0.0.0:8790` | `estate.mcp_url_base` `http://172.28.9.1:8790` |
+| Forgejo | a container with a static IP on `gsj-staging-net` (`172.28.9.0/24`), no published ports | `172.28.9.10:3000` | `estate.clone_url_for` `http://172.28.9.10:3000/gsj-staging/{case_id}.git` |
+
+Reading the arrows: the trainer talks only to the rollout API (`POST /rollout/task/submit`, then `GET /rollout/task/{task_id}` until terminal). The rollout API dispatches each session to the gateway (`POST /sessions` at `public_url`) and, when the task is terminal, POSTs the whole `TaskResult` to our receiver's `callback_url`; the gateway registers with the rollout API when it starts, heartbeats to it, and pushes each `SessionResult` back to it. The gateway starts one container per session from `runtime.image` (`ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` — pi 0.83.0 with `git` and the MCP extension) on `runtime.network`, execs the harness steps in it, and proxies the container's model calls (`/v1/chat/completions`) to the engine while capturing tokens and logprobs. Nothing dials into the container; it dials out three ways — pi's `OPENAI_BASE_URL` is `public_url` + `/v1`, the checkout is a `git clone --depth 1` of the `timestep-T` branch from `clone_url_for`, and the agent's `mcp_gsj_*` tools speak streamable-http to `mcp_url_base` + `/mcp/<token>`, where the token is the one the gateway minted for that episode.
 
 ## Submit a first task
 

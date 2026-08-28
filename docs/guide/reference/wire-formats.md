@@ -84,9 +84,9 @@ This is `tests/golden/task_request.json`, verbatim. The test suite asserts that 
 }
 ```
 
-![The TaskRequest block by block: the top-level scalars and metadata come from the call arguments, runtime from the runtime section, agent from estate and harness, builder from the builder section, callback_url from the receiver section; case_id and timestep land in both metadata and agent.settings](../img/task-request-anatomy.png)
+![The TaskRequest as a sheet with six blocks; arrows from your call feed the task block and the metadata block, a dashed arrow carries case_id and timestep into agent as well, arrows from rollout.yaml feed runtime, agent (estate and harness), builder and callback_url, and a big arrow hands the sheet to the Polar rollout API](../img/task-request-anatomy.png)
 
-<sub>Every block of the request traced to the call argument or YAML section it is rendered from; <code>case_id</code> and <code>timestep</code> are stated twice, once for the trace's metadata and once for the harness.</sub>
+<sub>Two sources, one body: the call arguments fill the task and <code>metadata</code> blocks (and reach <code>agent.settings</code> a second time); the YAML fills <code>runtime</code>, <code>agent</code>, <code>builder</code> and <code>callback_url</code>; the sheet goes to <code>POST /rollout/task/submit</code>.</sub>
 
 Key by key:
 
@@ -96,7 +96,7 @@ Key by key:
 | `instruction` | `str`; the prompt handed to the agent | the `instruction` argument |
 | `num_samples` | `int ≥ 1`; the number of sessions Polar schedules — attempts, not accepted traces | `episodes` (default 1) |
 | `timeout_seconds` | `float > 0`; the per-session execution budget, from which Polar counts a session's deadline | `timeout_seconds` (default 900.0) |
-| `metadata` | `dict`; registered as the session's metadata, stamped on every completion, hoisted into each trace's `metadata` | `case_id`, `timestep` (coerced to `int`), `prompt_source`; plus `skill_card_hash` when `skill_card_text` is given, `split` when stated |
+| `metadata` | `dict`; registered as the session's metadata, stamped on every completion, hoisted into each trace's `metadata` — where G1 reads `prompt_source` and `skill_card_hash`, G5 reads `timestep` and TR3 reads `split` | `case_id`, `timestep` (coerced to `int`), `prompt_source`; plus `skill_card_hash` when `skill_card_text` is given, `split` when stated |
 | `runtime.backend` | `"docker"` or `"apptainer"` | `runtime.backend` |
 | `runtime.image` | non-empty `str` | `runtime.image` |
 | `runtime.network` | `str` or `null`; Polar's own default is `"host"`, the render always states a value | `runtime.network` |
@@ -105,9 +105,11 @@ Key by key:
 | `agent.settings` | `dict`; opaque to Polar, handed to `PiHarness.setup` | see below |
 | `builder.strategy` | `str`; an import path Polar resolves on the gateway | `builder.strategy` |
 | `builder.config` | `dict`; passed to the builder's constructor | `end_of_turn_token_id` always; `generation_prompt_glue_ids` only when the YAML sets it |
-| `callback_url` | `str` or `null`; where the manager POSTs the terminal result | `receiver.base_url` + `/callbacks/session_result` |
+| `callback_url` | `str` or `null`; where the manager POSTs the terminal result | `receiver.base_url` + `/callbacks/session_result`, where `base_url` is `receiver.public_url` when set and `http://<host>:<port>` otherwise |
 
 `agent.settings` is the harness's whole configuration document. Twelve keys are always present: `case_id` and `timestep` (the call arguments again — the harness needs them to pick the clone and the cutoff), `clone_url_for`, `mcp_url_base` and `mcp_token_secret_env` from `estate:`, and `mcp_token_ttl_s`, `tools_allowlist`, `artifacts_dir`, `workdir`, `context_window`, `max_tokens` and `thinking` from `harness:`. Two more, `pi_entry` and `pi_mcp_extension`, appear only when the YAML sets them. The [configuration guide](../guides/configuration.md#what-the-trainer-renders-taskrequest) lists what every YAML key means; this page only fixes where it lands.
+
+The `runtime:`, `harness:` and `builder:` sections may be omitted from the YAML wholesale: every key of theirs has a default — the measured reference values — so the rendered request always states `runtime`, `agent.settings` and `builder.config` in full whether or not the YAML did. `estate:` and `receiver:` have no such defaults. A `user:` section is reserved for your own keys and is never read by the render.
 
 > [!NOTE]
 > **What the render refuses**
@@ -193,9 +195,9 @@ EOF
  'response_logprobs', 'response_messages', 'reward', 'tools']
 ```
 
-![The SessionResult: session_id, task_id, node_id, status, error, timing and metadata at the top; trajectory with its status, error, metadata (reconstruction_stats, gsj_validation and more) and traces; the trainer's poll on the left returns the same bodies in TaskStatus.results, the callback on the right carries them in the TaskResult envelope, and the receiver lands each one as an accepted file (verbatim) or a quarantine file wrapping it with its findings](../img/session-result-anatomy.png)
+![The SessionResult as a sheet with three layers: the top level (status, error, timing, metadata, plus session_id, task_id, node_id), the trajectory (status, error, metadata, traces, with metadata.reconstruction_stats and metadata.gsj_validation nested inside) and traces[i] (the token arrays, messages, tools, finish_reason, reward, metadata); three lock badges on the right name what reads each layer (ADM1; ADM2, ADM3 and G7; ADM4, ADM5 and then every per-trace rule); builder.py on the left writes gsj_validation, and a callout notes that non-empty findings mean status ERROR](../img/session-result-anatomy.png)
 
-<sub>The same body on all three paths; the annotations between the body and the disk name the admission rules and the gate that read each block.</sub>
+<sub>Three layers, three readers: ADM1 reads the top-level <code>status</code>; ADM2, ADM3 and G7 read the trajectory (<code>gsj_validation.findings</code>, its shape, <code>reconstruction_stats</code>); ADM4 and ADM5 admit the trace list before the per-trace rules run on each member. Our builder writes <code>gsj_validation</code> on Polar's gateway node and sets <code>ERROR</code> whenever its findings are non-empty.</sub>
 
 ### Top level
 
@@ -268,6 +270,10 @@ When a task reaches its terminal state, Polar's manager POSTs the `TaskResult` t
 ```
 
 The receiver unwraps `results` and ignores the envelope's other keys. It also accepts a bare `SessionResult` as the whole body — the shape Polar's gateway pushes per session to the rollout server's own `/callbacks/session_result`, and the shape of the fixture files under `docs/polar/` — so a captured body can be replayed against a receiver with `curl` unchanged. Either way, each member must be a JSON object with a `trajectory` key and a `session_id` matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` in full, or the whole request is a 400.
+
+![The same SessionResult on three paths: your training loop submits with POST /rollout/task/submit to the Polar rollout API, which produces one SessionResult per attempt; the trainer receives it through GET /rollout/task/{task_id} in TaskStatus.results, the receiver receives it through POST callback_url in TaskResult.results and lands it in traces_dir when findings are empty or in quarantine_dir otherwise](../img/session-result-paths.png)
+
+<sub>One body, three paths: the poll hands it to <code>wait</code> (and <code>collect</code> re-checks every one), the callback hands it to the receiver, and the receiver writes it as <code>&lt;session_id&gt;.&lt;mode&gt;.json</code> — verbatim when accepted, inside the two-key <code>{findings, session_result}</code> wrapper when quarantined. Polar's <code>status</code> and <code>error</code> are never rewritten on any path.</sub>
 
 > [!WARNING]
 > **A failed callback is a missing file, not lost data**

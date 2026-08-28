@@ -4,9 +4,9 @@
 
 Every failure in this system surfaces in one of four places: at `submit` (an exit code and a line on stderr), at `serve` (a line on stdout or a warning at import), inside the episode (the gateway process log, and a session that arrives with `status: "ERROR"`), or at the callback (a finding in a quarantine file). This page is organised by where the failure surfaces. For each symptom it gives the exact message the code emits, what that message means, and the fix — including the three networking traps that cost episodes on a real estate.
 
-![A decision tree from the symptom to the fix: exit 2 leads to the config validator messages; exit 3 to the rollout API URL and process; exit 1 to the quarantine file and the findings families ADM, not_approved, G5, LP, G6 and H41; a receiver 500 to the pins file; an episode that never starts to the image, the network, public_url and the token secret](../img/triage-tree.png)
+![Three lanes — at submit, at the receiver, in the episode — each holding red symptom tiles over the one place to look: exit 2 over the YAML or the flags, exit 3 over Polar's rollout API, exit 1 over the quarantine file, HTTP 500 over the pins file, and a session ERROR over the sandbox setup (image, network, URL, secret)](../img/triage-tree.png)
 
-<sub>Start from where the failure surfaced — the submit exit code, the receiver's reply, or the gateway log — and follow its row to the message and the fix.</sub>
+<sub>Where the failure surfaced says where to look: the `submit` exit code points at the config, the rollout API, or the quarantine file; the receiver's 500 at the pins file; a session `ERROR` at the sandbox setup. The messages behind each tile are in the sections below.</sub>
 
 ## Where to look first
 
@@ -28,7 +28,7 @@ The exit codes are documented in `gsj-rollout submit --help`: `0` all collected;
 
 Nothing was started. The YAML did not load, or the flags did not make a task.
 
-`load_config` raises one `ValueError` listing **every** failing field, and the CLI prints it prefixed with `gsj-rollout: `. The leading text of each message, verbatim:
+`load_config` raises one `ValueError` listing **every** failing field, joined by `; `, and the CLI prints it prefixed with `gsj-rollout: `. The leading text of each message, verbatim:
 
 | Symptom (stderr) | Cause | Fix |
 |---|---|---|
@@ -108,6 +108,19 @@ print(sr["status"], sr.get("error"))          # ERROR  agent execution failed: P
 ```
 
 The first token of every finding names its family; [Findings by family](#at-the-callback-findings-by-family) below maps each family to a cause. Only the `ADM` family means the episode itself failed — every other family is a completed episode whose trace the validators refused.
+
+![A quarantine file tile, named session_id dot mode dot json, with a big arrow labelled the first token pointing at six red family badges: ADM episode not completed, G1 G2 G3 G7 pins not this estate, G5 cutoff evidence wrong, LP1 to LP9 logprobs not evidence, G6 thinking mode not the pins, H41 no tool was called — each with the place to look](../img/quarantine-families.png)
+
+<sub>The first token of each finding names its family, and the family names the place to look. `findings` come first in the file, then `session_result`; `submit` printed the same list. A `not terminal after <t>s` line is exit 1 too, but the poll gave up before the session finished, so there is no quarantine file for it yet.</sub>
+
+| Family | What it says | Where to look |
+|---|---|---|
+| `ADM` — `ADM1:status_not_completed:ERROR` or `:TIMEOUT` | the episode did not complete | `session_result.error` in the file, then the gateway log |
+| `G1` `G2` `G3` `G7` — `*_not_approved` | the pins file does not describe this estate | `GSJ_PINS_PATH` on both legs, or re-pin |
+| `G5` | cutoff evidence from the trace: branch ≠ `timestep-<T>`, pages ≠ 1..T, a page > T | the corpus branch, the retrieval service |
+| `LP1`–`LP9` | logprob capture: absent, misaligned, sentinel, zero-rate | the engine's logprobs, the `checks:` policy |
+| `G6` — `prompt_suffix_ne_tail_ids` | mode mismatch: `harness.thinking` and `GSJ_PINS_PATH` must agree on **both** legs | the pins file each leg resolves |
+| `H41` — `roster_offered_zero_tool_calls` | the agent was offered tools and called none; fires only with `reject_toolless_roster: true` | the retrieval service, from inside the sandbox |
 
 From Python, `RolloutClient.collect` logs rejections at `WARNING` through the `gsj_rollout.client` logger and returns only accepted traces. To see the findings programmatically, use the lower-level pair:
 

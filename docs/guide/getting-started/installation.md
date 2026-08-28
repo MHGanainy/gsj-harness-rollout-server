@@ -15,9 +15,15 @@ The package serves two roles that are easy to confuse on first contact.
 
 The published wheel is for the trainer role. If you only ever call a server that somebody else operates, stop after the [trainer section](#trainer-role-pip-install) and continue with the [trainer quickstart](trainer-quickstart.md). Everything on the server side additionally needs an estate — an inference engine, a Forgejo git host, the retrieval service and an ingested corpus — which no `pip install` provides; see [the estate](../guides/estate.md) and the [server quickstart](server-quickstart.md).
 
-![The three install paths: the PyPI wheel for the trainer role; a checkout with an editable install and Polar's own uv venv for the server role; Python 3.12 or newer everywhere](../img/install-paths.png)
+![Two lanes. Trainer: one pip install of gsj-harness-rollout-server 0.1.2 giving RolloutClient and checks — no Polar, no estate. Server: a numbered strip git clone, pip install -e .[dev], uv venv for Polar; the checkout feeds your venv (which runs gsj-rollout serve and submit) and Polar's venv (which runs polar serve_rollout and serve_gateway and hosts gsj_rollout too); a note reads Python 3.12 or newer everywhere](../img/install-paths.png)
 
-<sub>The trainer role is one pip install; the server role is a checkout with two virtual environments — yours, and Polar's, which hosts gsj_rollout by import path.</sub>
+<sub>Two roles, three installs. The trainer is one `pip install` and talks to a server over HTTP. The server is a clone plus two virtual environments: yours at the checkout root, and Polar's under `vendor/polar/.venv`, which is also where `gsj_rollout` must be importable — Polar's process loads the harness and the builder from the checkout by import path. Python 3.12 or newer on every path.</sub>
+
+What each of the three installs pulls in, in one line each:
+
+- `pip install gsj-harness-rollout-server` — the PyPI wheel, `0.1.2`, with `pydantic`, `httpx` and `pyyaml`; what lands in `site-packages/gsj_rollout/` is the eight modules, both pins sets and `ingest_corpus.py` (the [wheel section](#what-the-wheel-contains) below).
+- `pip install -e ".[dev]"` in your own venv at the checkout root — the same package plus `pytest` and `pyarrow`, and the checkout's `vendor/polar/` at the pinned `POLAR_SHA` with its three carried patches.
+- `uv venv --python 3.12` under `vendor/polar/`, then `uv pip install -e .` (Polar) and `uv pip install -e ../..` (`gsj_rollout`) into it — the environment the two Polar processes run from.
 
 ## Python version
 
@@ -123,9 +129,9 @@ export GSJ_PINS_PATH=/srv/my-estate/pins.gsj.json      # before the process star
 
 Publication is wheel-only. Four source paths are copied into the wheel at build time and nothing else in the checkout is: the `pins/` and `estate/corpus/` files stay the single source in the tree and are force-included by the build backend, never duplicated.
 
-![The published wheel: gsj_rollout with its eight modules, the two pins sets and ingest_corpus.py force-included from their source paths; vendor/polar, tests, docs and estate deliberately excluded](../img/wheel-contents.png)
+![Two lanes, the checkout and the wheel 0.1.2 py3-none-any. Four rows cross from left to right: gsj_rollout/ (8 modules) via hatch packages; pins/pins.gsj.json, pins/thinking-on/pins.gsj.json and estate/corpus/ingest_corpus.py via force-include, landing under gsj_rollout/. A red never-ships row — vendor/, estate/, spike/, tests/, docs/, .github/ — points at a cross: nothing crosses](../img/wheel-contents.png)
 
-<sub>What ships and what does not — the release workflow asserts both on the built artifact before anything is uploaded.</sub>
+<sub>Four paths cross from the checkout into the wheel — the package by hatchling's `packages`, the three data files by `force-include` — and nothing else does. The wheel is `0.1.2`, `py3-none-any`, and the only artifact published.</sub>
 
 | in the wheel | copied from | why it rides along |
 | --- | --- | --- |
@@ -134,7 +140,11 @@ Publication is wheel-only. Four source paths are copied into the wheel at build 
 | `gsj_rollout/pins/thinking-on/pins.gsj.json` | `pins/thinking-on/pins.gsj.json` | the thinking-on set, data only — something for `GSJ_PINS_PATH` to point at on a pip-only estate |
 | `gsj_rollout/ingest_corpus.py` | `estate/corpus/ingest_corpus.py` | the corpus pipeline, standalone (stdlib + PyYAML; pyarrow lazily), so a pip consumer can validate a corpus tree without a clone |
 
-Deliberately **not** in the wheel: `vendor/polar/` (NVIDIA-authored, under its own licence — nothing of it ships under this project's name), `estate/` (the corpus pipeline's tests, the retrieval service, the Forgejo and serving recipes), `tests/`, `docs/`, `spike/`, `.github/`. The release workflow asserts, on the artifact it is about to upload, that the five must-ship paths are present and that none of those prefixes leaked in, then installs the wheel into a fresh venv *outside* the checkout and validates a real callback body with it — because with the repository as the working directory, `import gsj_rollout` would bind to the source tree and prove nothing about the wheel.
+Deliberately **not** in the wheel: `vendor/polar/` (NVIDIA-authored, under its own licence — nothing of it ships under this project's name), `estate/` (the corpus pipeline's tests, the retrieval service, the Forgejo and serving recipes), `tests/`, `docs/`, `spike/`, `.github/`. To see for yourself what a published wheel holds, without installing it:
+
+```bash
+pip download gsj-harness-rollout-server --no-deps && unzip -l gsj_harness_rollout_server-*.whl
+```
 
 With the wheel alone you can validate a corpus tree:
 
@@ -143,6 +153,22 @@ python -m gsj_rollout.ingest_corpus validate --corpus /path/to/corpus
 ```
 
 See [the corpus](../guides/corpus.md) for the tree contract this checks.
+
+### How a release proves the wheel
+
+![A five-step strip — tag = version, build --wheel, assert what ships, install proof, TestPyPI then PyPI — over a row of tiles: the wheel, three green assertions (nothing leaked in; five must-ship paths; install proof in a fresh venv outside the checkout), and PyPI. A red rail from the three assertions leads to a tile reading nothing published — any assertion fails](../img/release-gate.png)
+
+<sub>The release workflow builds the wheel and then proves it is the right wheel before anything is uploaded; any failed assertion stops the release with nothing published.</sub>
+
+The release workflow runs on a `v*` tag (a manual run rehearses the same path but stops at TestPyPI). In order:
+
+1. **Tag matches version** — the tag must equal `v` + the `version` in `pyproject.toml`; a mismatch would publish the wrong number under the right name and nothing downstream would ever say so.
+2. **`python -m build --wheel`** — the wheel only; no sdist is published.
+3. **Assert what ships** — on the built artifact, that no entry starts with `vendor/`, `estate/`, `spike/`, `tests/`, `docs/` or `.github/`, and that the five must-ship paths are present: `gsj_rollout/checks.py`, `gsj_rollout/client.py`, both pins files and `gsj_rollout/ingest_corpus.py`. `twine check` runs on the artifact too.
+4. **Install proof, from outside the checkout** — the wheel is installed into a fresh venv and, with the working directory moved *away* from the repository, `checks.PINS_PATH` is asserted to be the packaged copy under `site-packages` and a real callback body is validated with zero findings. With the repository as the working directory, `import gsj_rollout` would bind to the source tree and prove nothing about the wheel.
+5. **TestPyPI, then PyPI** — trusted publishing (an OIDC exchange, no stored token); the PyPI job is tag-gated as well as chained, so a rehearsal can never reach it.
+
+The workflow does not re-run CI's suites — those guard components that are not in the artifact — and expects the tag to point at a commit CI has already validated.
 
 ## Checking the install
 

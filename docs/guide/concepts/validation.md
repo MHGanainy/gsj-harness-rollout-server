@@ -21,9 +21,9 @@ Validation is evidence-based, and evidence that was never gathered fails the rul
 
 ## One function, two legs
 
-![The same checks.py runs in receiver.ingest and in RolloutClient.collect, both resolving the same pins file](../img/checks-both-sides.png)
+![Two lanes, server and trainer, each feeding a SessionResult into the one checks.py funnel in the middle; the funnel reads pins.gsj.json; each lane ends in an accepted tile and a rejected tile](../img/checks-both-sides.png)
 
-<sub>The receiver quarantines failing results at the source; the trainer re-runs the identical validators on what it fetched, so no verdict has to be trusted across the wire.</sub>
+<sub>One funnel, fed from both sides. The server leg writes accepted results to `traces/` and failing ones to `quarantine/`; the trainer leg returns `Trace` objects and logs the rest. Both read the same pins file, and neither trusts the other's verdict.</sub>
 
 The entry point is one function:
 
@@ -35,7 +35,7 @@ if findings:
     ...  # quarantine or log it — never train on it
 ```
 
-It takes the callback-shaped `SessionResult` mapping (the body Polar POSTs, or one member of a `TaskResult` envelope's `results`) and returns findings; an empty list means accepted. Both legs call exactly this:
+It takes the callback-shaped `SessionResult` mapping (the body Polar POSTs, or one member of a `TaskResult` envelope's `results`) and returns findings; an empty list means accepted. The two legs get their input from different places — the receiver from Polar's callback, `POST /callbacks/session_result`; the trainer from `RolloutClient.wait`, which polls `GET /rollout/task/{id}` and hands back the `SessionResult` bodies verbatim, `status` and `error` intact — and then both call exactly this:
 
 | leg | caller | accepted | rejected |
 |---|---|---|---|
@@ -88,9 +88,9 @@ See [Finding vocabulary](../reference/findings.md) for every entry with its trig
 
 ## Inside `validate_session_result`
 
-![validate_session_result as three stages: admission, the chain snapshot, then run_trace_checks on every trace in a fixed order](../img/checks-pipeline.png)
+![A four-step strip, admission, chain snapshot, per-trace rules, verdict; under the first three, a tile each and the findings it appends, all flowing into one findings list that ends in an accepted tile or a rejected tile; a CheckPolicy gear feeds the per-trace rules](../img/checks-pipeline.png)
 
-<sub>Every rule appends its own findings; nothing short-circuits except a missing trajectory, which ends admission because there is nothing left to inspect.</sub>
+<sub>Three stages append to one list — admission its `ADM*` findings, the chain snapshot its `G7` stat findings, the per-trace rules everything else — and the list is the verdict: empty is accepted, anything else is quarantined or rejected with the findings kept. Nothing short-circuits except a missing trajectory, which ends admission because there is nothing left to inspect.</sub>
 
 ### Admission
 
@@ -119,15 +119,44 @@ Each clause is its own finding (`G7:chains_total_ne_1:<n>`, `G7:chains_truncated
 
 ### The per-trace rules
 
-`run_trace_checks(trace, policy)` runs every trace-level rule, in this order, and concatenates their findings: logprob discipline → tripwires → page cutoff (G5) → workspace census (G5) → tool roster (G3) → system prompt (G2) → skill card (G1) → settings echo (G7) → thinking tail (G6) → toolless roster (H41). No rule stops the others, so a rejected trace's findings list is the complete picture, not the first failure.
+![Ten numbered chevrons in two rows of five, each with the finding ids it emits underneath; the tenth is greyed as off by default; below, the three CheckPolicy knobs each naming the rule it gates](../img/trace-rules-order.png)
+
+<sub>`run_trace_checks` on one trace: the ten rules in the order the code runs them, the ids each can emit, and the three `CheckPolicy` knobs pointing at the rules they tune.</sub>
+
+`run_trace_checks(trace, policy)` runs every trace-level rule, in this order, and concatenates their findings:
+
+1. logprob discipline — `LP1`–`LP9` (reads `sentinel_threshold` for `LP3` and `zero_at_mask1_max_rate` for `LP6`)
+2. tripwires — `TR1`–`TR3`
+3. page cutoff — `G5`
+4. workspace census — `G5`
+5. tool roster — `G3`
+6. system prompt — `G2`
+7. skill card — `G1`
+8. settings echo — `G7`
+9. thinking tail — `G6`
+10. toolless roster — `H41`, only when `reject_toolless_roster` is on; off by default
+
+No rule stops the others, so a rejected trace's findings list is the complete picture, not the first failure.
 
 ## The gates
 
-![The gates G1 to G7 as a table: the evidence each reads, what it compares against, and its findings; G4 greyed as estate-side](../img/gates-map.png)
+![Seven padlocks G1 to G7 in a row; above each, the evidence it reads from the trace; below each, what it compares that evidence with — a pins key for G1, G2, G3, G6 and G7, a clock for G5, an estate server for G4](../img/gates-map.png)
 
-<sub>Every hash gate compares a digest against an approved set in the pins file; G5 compares the trace against its own timestep; G4 has no per-trace evidence and is verified on the estate at bring-up.</sub>
+<sub>Read from the trace, compare with the pin. Five gates hold a key into `pins.gsj.json`; G5 compares the trace with its own timestep and needs no pin; G4 is teal because no codec evidence rides the callback — the tokenizer and chat template are verified on the estate at bring-up, never per trace.</sub>
 
-Each gate protects one invariant of the collecting stack. What follows is what the code checks and what the check is worth.
+Each gate reads one kind of evidence and compares it with one thing. The findings are the fail-closed shape first, then the mismatch; the detail suffixes (`:<hash>`, `:<page>><T>`, `:first=<turn>:count=<n>`) are spelled out in [Finding vocabulary](../reference/findings.md).
+
+| gate | compares with | findings |
+|---|---|---|
+| G1 skill card | `skill_card_hash` — sha256 of the card's UTF-8 bytes | `G1:missing_evidence:prompt_source` · `G1:missing_evidence:skill_card_hash` · `G1:skill_card_hash_not_approved` |
+| G2 system prompt | `system_prompt_hash` — sha256 of the flattened text | `G2:missing_evidence:system_prompt` · `G2:system_prompt_hash_not_approved` |
+| G3 tool roster | `tool_roster_hash` — canonical-JSON sha256 of `tools` | `G3:missing_evidence:tools` · `G3:tool_roster_hash_not_approved` |
+| G4 tokenizer + template | `tokenizer_hash`, `chat_template_hash` — checked by `pins/derive_pins.py` at bring-up | none — never emitted per trace |
+| G5 page cutoff | the trace's own timestep — no pin | `G5:missing_evidence:timestep` · `G5:search_page_gt_timestep` · `G5:missing_evidence:workspace` · `G5:workspace_branch_ne_timestep` · `G5:checkout_max_page_ne_timestep` · `G5:checkout_pages_not_contiguous` · `G5:checkout_history_posture` |
+| G6 thinking tail | `g6_expected_tail_ids` — an ids `endswith`, no hash and no tokenizer at check time | `G6:missing_evidence:turns` · `G6:prompt_suffix_ne_tail_ids` · `G6:interstitial_ne_tail_ids` |
+| G7 no compaction | `settings_hash` — canonical-JSON sha256 of `gsj_settings`; plus the four chain stats above | `G7:missing_evidence:settings` · `G7:settings_hash_not_approved` · `G7:missing_evidence:reconstruction_stats` · `G7:chains_total_ne_1` · `G7:chains_truncated` · `G7:completions_merged_ne_total` · `G7:raw_completions_ne_total` |
+
+Every hash gate reports content it cannot hash as `*_not_approved:unhashable`, never as an exception. What follows is what each check is worth.
 
 **G1 — skill-card integrity** (`check_skill_card`). The task states its origin in trace metadata: `prompt_source` is `free` or `skill:<name>`, and a skill source carries `skill_card_hash`, the sha256 of the card's UTF-8 bytes as computed by `render_task_request`. `free` passes with no card; `skill:<name>` with no string hash is `G1:missing_evidence:skill_card_hash`, and a hash outside `skill_card_hash` is `G1:skill_card_hash_not_approved:<hash>`; anything else — absent, non-string, a bare or blank `skill:`, an unrecognised word — is `G1:missing_evidence:prompt_source`. This is stated evidence: the submit path's own declaration, riding the same channel as `case_id` and `timestep`. It is also set membership, not name-to-card binding: any approved card's hash passes under any skill name.
 

@@ -8,9 +8,21 @@ Every string `gsj_rollout.checks` can put in a findings list, grouped by family:
 
 A finding is `{id}:{slug}[:detail]`. The `{id}:{slug}` prefix is one of the 42 entries of `checks.FINDING_VOCABULARY`, a sorted tuple that is snapshot-tested — a rename is a deliberate, breaking decision, because forensics downstream grep these strings. The detail after the prefix varies by rule and is documented per finding below.
 
-![The 42 finding prefixes as a family tree: ADM admission, LP logprob discipline, TR tripwires, the gates split into hash gates and evidence gates, and the policy-gated H41, with the detail-suffix conventions](../img/finding-families.png)
+![Five family badges with their counts — admission 5 in the session-level lane; logprob discipline 9, tripwires 3, gates 24 and the dashed policy-gated H41 in the trace-level lane. The gates badge splits into hash gates (9, a digest against the pins set) and evidence gates (15, a comparison without a digest); a CheckPolicy gear points at the knob-bearing rules LP3, LP6 and H41](../img/finding-families.png)
 
-<sub>Five families, 42 prefixes; hash gates compare a digest against an approved set in the pins file, evidence gates compare the trace against its own timestep, the pinned tail ids, or the reconstruction stats.</sub>
+<sub>The five families and their counts, in the lane of what they judge. The gates split into nine hash gates (a digest against the pins file's approved set) and fifteen evidence gates (a comparison, no digest); `CheckPolicy` conditions three rules, and `H41` stays off unless `reject_toolless_roster` is set.</sub>
+
+### The families at a glance
+
+| family | prefixes | count | level | what it judges |
+|---|---|---|---|---|
+| admission | `ADM1`–`ADM5` | 5 | session | is this a completed, well-formed session? `ADM2` re-emits the builder's own findings after it; `ADM3` stops admission |
+| logprob discipline | `LP1`–`LP9` | 9 | trace | the `loss_mask` and `response_logprobs` arrays are real evidence: present, aligned, finite, ≤ 0, 0/1 ints |
+| tripwires | `TR1`–`TR3` | 3 | trace | three non-array fields: the `finish_reason`, the re-vendor canary (`reasoning_loss_mask`), the `split` label |
+| gates | `G1` `G2` `G3` `G5` `G6` `G7` | 24 | trace, except the `G7` chain snapshot (session) | one invariant of the collecting stack each |
+| policy-gated | `H41` | 1 | trace | a roster was offered and no tool call was parsed — emitted only when `CheckPolicy.reject_toolless_roster` is set |
+
+The 24 gate entries are two kinds. The **hash gates** (9 entries: `G1` skill card 3, `G2` system prompt 2, `G3` tool roster 2, `G7` settings echo 2) hash what the trace carries and test membership in the approved set of a pins key; they fail as `*_not_approved:<digest>` (or `:unhashable`) and as `missing_evidence:<field>`. The **evidence gates** (15 entries: `G5` cutoff and checkout census 7, `G6` turn openings 3, `G7` chain snapshot 5) carry no digest — `G5` compares the trace against its own timestep `T`, `G6` compares each turn opening against the pinned tail ids, and `G7` reads the five reconstruction stats as a conjunction. Three rules read a `CheckPolicy` knob: `LP3` (`sentinel_threshold`), `LP6` (`zero_at_mask1_max_rate`) and `H41` (`reject_toolless_roster`).
 
 To map a finding back to its vocabulary entry, match on the prefix — never on equality, because most findings carry a detail:
 

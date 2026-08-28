@@ -1842,6 +1842,43 @@ regeneration recipe is the sibling directory's `README.md`. Consumer
 artefact, outside the size law and outside the record. Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-53] No row moves; the diagrams redrawn illustratively and the
+READMEs refactored (touched: `docs/guide/` — every page, `img/` now 54
+slides, was 37; `README.md`, `docs/README.md`, `estate/README.md`,
+`estate/mcp-service/README.md`, `vendor/REVENDOR.md`, `spike/README.md`;
+`gsj_rollout/` untouched at 1,999).** Two operator directions, both
+applied whole. **First: "the figures are too wordy where it should have
+been more illustrative"** — the drawing kit grew an illustrative layer
+(pictogram glyphs, icon tiles, numbered chevron strips, block arrows;
+≤ 6 words per shape, ≥ 12 pt, the sentence moves to the page), an
+exemplar was approved in Preview, and every module was redrawn against
+it: table-slides became maps (the gates as seven padlocks over the keys
+they compare against, G4 unlocked and estate-side; a trace as aligned
+token strips with logprob bars; the triage as symptom tiles over the
+one place to look), eight dense slides split rather than shrank
+(cutoff-audit, trace-fields, glue-stitch, trace-rules-order,
+pins-gate-map, corpus-tree-rules, cli-task-sources, release-gate,
+session-result-paths, quarantine-families, repo-map, revendor-recipe
+are new), and every fact that left a slide was relocated into its
+page's prose — stated per-slide in the workflow record, not assumed.
+**Second: the six consumer/operator READMEs rewritten in place with
+figures**, under one rule: the body carries no CP/ADR/wishlist
+citations (facts stay; each displaced citation moves verbatim into a
+closing "Provenance" section, so nothing is lost), with two stated
+exceptions — the root README's proof-table evidence column and
+`docs/README.md`'s banner/shelf map, which describe the private record
+itself. The root README is also the PyPI page: absolute raw-URL
+images, no GitHub-only alert syntax, verified through PyPI's own
+renderer (`readme-renderer`: renders, 5 images, zero alert artifacts).
+Every page and README passed the GitHub-render checker (links,
+anchors, images, alerts, stripped placeholders): 21 pages + 6 READMEs,
+0 problems; the deck manifest and `img/` agree at exactly 54; no PNG
+is unreferenced; `img/` weighs 6.7 MB (was 7.3 at 37 — the flat style
+compresses better). The decks and generator stay OUTSIDE the
+repository (the operator's standing direction). Root suite 161 passed.
+Consumer artefact, outside the size law and outside the record. Tally
+unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

@@ -25,9 +25,9 @@ The published wheel is for the trainer role only. It contains `gsj_rollout/`, th
 
 Episode execution and trajectory reconstruction are not ours. They come from NVIDIA's Polar ([`NVIDIA-NeMo/ProRL-Agent-Server`](https://github.com/NVIDIA-NeMo/ProRL-Agent-Server)), vendored by commit into `vendor/polar/` — Polar has no releases or tags, so the pin is a SHA recorded in `POLAR_SHA` (`f0e8343a…`, branch `stable`), with three carried patches. Our code is the thin shell that points Polar at our corpus, our retrieval service, our pinned agent, and our checks.
 
-![The code map: our eight modules tagged by the side that runs them, the vendored Polar packages they drive, and the operator-run estate](../img/component-map.png)
+![The code map as three regions: our shell, eight pictogram tiles tagged TRAINER, BOTH or SERVER; the Polar layer beneath it, five package tiles chained rollout API, gateway, harness factory, runtime, trajectory; and the operator-run estate beside them, four tiles for the corpus, git host, retrieval service and inference engine. Solid arrows carry HTTP submit and poll, the TaskResult callback and runtime.backend downward; two dashed arrows, agent.import_path and builder.strategy, point up from Polar into pi_harness.py and builder.py](../img/component-map.png)
 
-<sub>Our eight modules against the five Polar packages they drive; the two dashed arrows are the only places Polar reaches into our code, and it does so by import-path string.</sub>
+<sub>Our shell above the five Polar packages it drives, the estate beside them. Solid arrows are things we call or configure; the two dashed arrows are the only places Polar reaches into our code, and it does so by import-path string. Sizes are in the tables below: 1,999 lines of ours against ~14,200 vendored.</sub>
 
 ### Our eight modules
 
@@ -37,7 +37,7 @@ Episode execution and trajectory reconstruction are not ours. They come from NVI
 | --- | --- | --- | --- |
 | `__init__.py` | TRAINER | 18 | The consumer surface: `RolloutClient`, `Trace`, `checks`, `load_config`, `RunConfig`. Importing `gsj_rollout` never imports `polar`; `pi_harness`, `builder`, `receiver` and `cli` are deliberately not exported. |
 | `client.py` | TRAINER | 123 | Submit + collect. Polls `GET /rollout/task/{id}` (never the receiver's disk) and re-runs `checks.validate_session_result` on every result it fetches. |
-| `checks.py` | BOTH | 528 | The trace validators. One entry point, `validate_session_result`, returns byte-stable `{id}:{slug}[:detail]` findings; an empty list means accepted. Runs on the receiver *and* in the trainer — see [Validation](validation.md). |
+| `checks.py` | BOTH | 528 | The trace validators — admission (`ADM`), the logprob discipline (`LP`), the tripwires (`TR`) and the gates `G1`–`G7`. One entry point, `validate_session_result`, returns byte-stable `{id}:{slug}[:detail]` findings; an empty list means accepted. Runs on the receiver *and* in the trainer — see [Validation](validation.md). |
 | `config.py` | SERVER | 413 | The one YAML, two audiences: the server renders the receiver settings and Polar's `topology.yaml` from it; the trainer renders `TaskRequest` bodies from it. Unknown keys reject loudly. See [Configuration](../guides/configuration.md). |
 | `cli.py` | SERVER | 241 | The `gsj-rollout` console script: `serve` renders the topology, prints the two Polar commands, and runs our receiver; `submit` submits, polls and collects. See [Command line](../guides/cli.md). |
 | `receiver.py` | SERVER | 195 | The callback endpoint (`POST /callbacks/session_result`, stdlib HTTP). Validates each `SessionResult` and lands it verbatim under `traces/`, or with its findings under `quarantine/`. See [The receiver](../guides/receiver.md). |
@@ -94,22 +94,35 @@ request["callback_url"]            # 'http://127.0.0.1:8300/callbacks/session_re
 
 Polar's harness factory resolves `agent.import_path` to a `BaseHarness` subclass; its strategy registry resolves any `module:Class` string to a `BaseTrajectoryBuilder` subclass and instantiates it with `builder.config`. Neither required a vendored edit — the registry and the factory are upstream features — which is why the whole validation layer could be inserted without forking Polar.
 
+### The estate
+
+The third region of the map is not code the server runs but services it needs running. The repository ships a reference of each under `estate/`; production brings its own of each, named in the `estate` and `runtime` sections of the one YAML.
+
+| `estate/` | what it is | who talks to it |
+| --- | --- | --- |
+| `corpus/` | `ingest_corpus.py` and the staging tree it builds from: one repository per case, a `timestep-T` branch per timestep, and the lock file that records what was ingested — see [The corpus](../guides/corpus.md) | the ingest, at bring-up |
+| `forgejo/` | the git host holding the case repositories | `pi_harness.py` clones `timestep-T` from it, depth 1 |
+| `mcp-service/` | the retrieval service; every request carries the episode's cutoff token, which it verifies before clamping results to page ≤ T — see [The retrieval service](../guides/retrieval-service.md) | pi, through its MCP tools |
+| `serving/` | the vLLM serving recipes with the pinned chat template | the gateway's capture proxy forwards pi's model calls to it |
+
+[The estate](../guides/estate.md) is the operator's page for all four.
+
 ## One episode, as data
 
 Every hop in an episode is a payload or a file you can read. This is the same flow the [Trainer quickstart](../getting-started/trainer-quickstart.md) drives from the outside.
 
-![One episode end to end: TaskRequest, scheduling, sandbox start, PiHarness.setup, run_steps through the capture proxy, postprocess, builder reconstruction, SessionResult, then the callback and poll legs](../img/episode-dataflow.png)
+![One episode as an eight-step strip and a map beneath it: a TaskRequest document goes to the rollout API, which opens a gateway node whose runtime starts a sandbox; inside the sandbox, setup clones at T, pi runs, and postprocess collects artifacts; pi's model calls drop to the capture proxy, whose completions feed builder.build; a SessionResult document leaves the node and returns through the rollout API, which fans out to receiver.py on the callback leg and to the trainer's poll on the other](../img/episode-dataflow.png)
 
-<sub>TaskRequest in, SessionResult out; the rollout API both posts the terminal envelope to our receiver and serves the trainer's poll, and both legs run the same checks.</sub>
+<sub>TaskRequest in, SessionResult out. The numbered badges match the eight steps below; the rollout API both posts the terminal envelope to our receiver and serves the trainer's poll, and both legs run the same checks.</sub>
 
 1. **TaskRequest.** `render_task_request` produces one body for the triple: `instruction`, `num_samples`, `timeout_seconds`, `metadata {case_id, timestep, prompt_source}`, `runtime {backend, image, network}`, `agent {import_path, model_name, settings}`, `builder {strategy, config}` and `callback_url`. `metadata.timestep` is hoisted by Polar into every trace's top-level metadata, which is what gate G5 later reads (see [Validation](validation.md)).
 2. **The rollout API schedules.** `POST /rollout/task/submit` creates one session per sample and dispatches each to a gateway node.
 3. **The runtime starts the sandbox.** The node creates a runtime from `runtime.backend` and starts `runtime.image` on `runtime.network`. From here the node only ever calls `start`, `stop`, `exec`, `upload_*`, `download_*` on it.
 4. **`PiHarness.setup`** — `runtime.exec` only. Writes pi's settings and a models template; `git clone --depth 1 --branch timestep-T --single-branch`, then removes the remote and scrubs the reflogs so history cannot reach a page past T even offline; probes the checkout (branch, commit, shallow posture, remotes, page census); and echoes two statements — `gsj_settings` and `gsj_workspace` — into the gateway's session registry *before any model call*, so the chain's first completion carries them. See [The timestep cutoff](timestep-cutoff.md).
 5. **`run_steps`** — pi runs. The harness mints an HS256 cutoff token host-side (claims `{case_id, timestep, episode_id, exp}`; the secret never enters the sandbox), writes `.pi/mcp.json` with the token in the MCP URL, and substitutes the proxy's base URL and the session id into `models.json` — the session id is pi's API key, which is how the gateway maps captures to the session. pi's model calls go through the capture proxy, which records token ids and per-token logprobs per completion; its `mcp_gsj_*` tool calls go to the retrieval service, which verifies the token and clamps results to page ≤ T.
-6. **`postprocess`** — `runtime.download_*` only. pi's transcript and the `out/` deliverable land under `<artifacts_dir>/<session_id>/`. Loud but non-fatal: evidence collection never fails the run.
-7. **The builder reconstructs one trajectory.** `ValidatingPrefixMergingBuilder.build` first computes session-level findings — empty prompt or response ids, duplicate consecutive prompts, a mid-chain `finish_reason=length`, more than one choice, a non-agent-shaped request, a roster that changed across completions, mixed policy versions, an unconfigured end-of-turn id — then applies the optional generation-prompt glue stitch, then runs Polar's prefix merging. The findings go to `trajectory.metadata["gsj_validation"]`; any finding turns a `COMPLETED` trajectory into `status="ERROR"`. The gateway node only ever escalates a status, never clears one.
-8. **SessionResult → callback and poll.** The gateway posts the `SessionResult` (`session_id`, `task_id`, `status`, `error`, `trajectory {traces[], metadata}`) to the rollout server, which holds it for `GET /rollout/task/{id}` and, once the task is terminal, posts the `TaskResult` envelope (`results: [SessionResult…]`) to `callback_url` — our receiver. The receiver runs `checks.validate_session_result` and lands the result under `traces/` or `quarantine/`; the trainer's `RolloutClient.wait` fetches the same results from the poll and runs the identical checks. Wire shapes are in [Wire formats](../reference/wire-formats.md).
+6. **`postprocess`** — `runtime.download_*` only. pi's transcript and the `out/` deliverable land under `<artifacts_dir>/<session_id>/`; the trace points at that directory through `trajectory.metadata.session_id`. Loud but non-fatal: evidence collection never fails the run.
+7. **The builder reconstructs one trajectory.** `ValidatingPrefixMergingBuilder.build` first computes session-level findings — empty prompt or response ids (`S1`, `S6`), duplicate consecutive prompts (`S3`), a mid-chain `finish_reason=length` (`S7`), more than one choice (`S8`), a non-agent-shaped request (`A12`), a roster that changed across completions (`R11`), mixed policy versions (`S9`), an unconfigured end-of-turn id (`A15`) — then applies the optional generation-prompt glue stitch, then runs Polar's prefix merging. The findings go to `trajectory.metadata["gsj_validation"]`; any finding turns a `COMPLETED` trajectory into `status="ERROR"`. The gateway node only ever escalates a status, never clears one.
+8. **SessionResult → callback and poll.** The gateway posts the `SessionResult` (`session_id`, `task_id`, `status`, `error`, `trajectory {traces[], metadata}`) to the rollout server, which holds it verbatim — status and error intact — for `GET /rollout/task/{id}` and, once the task is terminal, posts the `TaskResult` envelope (`results: [SessionResult…]`) to `callback_url` — our receiver. Each entry of `trajectory.traces[]` carries `prompt_ids`, `response_ids`, `loss_mask`, `response_logprobs`, the `prompt_messages` and `response_messages` views, `tools`, `finish_reason` and `metadata`; `trajectory.metadata` carries `reconstruction_stats`, `gsj_validation` and more. The receiver runs `checks.validate_session_result`, lands the result under `traces/` (no findings) or `quarantine/` (with them), and answers 200 either way; the trainer's `RolloutClient.wait` fetches the same results from the poll and runs the identical checks. Wire shapes are in [Wire formats](../reference/wire-formats.md).
 
 > [!TIP]
 > **Same checks on both sides of the wire**
