@@ -3,9 +3,11 @@
 The standalone retrieval service the Spec always assumed and dev never had:
 the four `gsj` tools (Spec §2.2) served over **streamable-http** to any
 number of concurrent episodes, replacing the per-session stdio stub
-(ADR-0007 — retired at CP-32, last-known-good commit `bbd4830`; CP/ADR
-numbers in this file are the predecessor's, `gsj-envloader` @ v0.8.0 —
-maintained here since this repo's CP-01, ADR-0002) with one
+(ADR-0007 — retired at CP-32, last-known-good commit `bbd4830`; the
+numbers in THIS paragraph and the ADR-0007/0034/0040/0041/0047, CP-29/32/33
+and A-08 cites are the predecessor's, `gsj-envloader` @ v0.8.0, where the
+service was built; CP-10/14/15, ADR-0016 and A-25 are this repo's, which has
+maintained it since its CP-01, ADR-0002 — scoped at CP-51, audit C1) with one
 long-running process. It
 ingests the frozen case dataset from staging Forgejo (the estate scaffolded
 from `estate/corpus/staging` by `estate/corpus/ingest_corpus.py`; freeze record
@@ -23,7 +25,7 @@ streamable-http` (ADR-0041, `docs/config-reference.md`).
 Local, any host (a venv and a reachable Forgejo):
 
 ```bash
-cd mcp-service
+cd estate/mcp-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 export GSJ_MCP_TOKEN_SECRET=<secret>     # required; the value never lands in a file
@@ -49,7 +51,7 @@ daemon cannot pull, same recipe as the sandbox image, the predecessor's
 DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 estate/mcp-service/
 docker save gsj-mcp-service:0.3.0 | ssh h200-admin docker load
 # H200
-cd mcp-service && GSJ_MCP_TOKEN_SECRET=<secret> docker compose up -d
+cd estate/mcp-service && GSJ_MCP_TOKEN_SECRET=<secret> docker compose up -d
 ```
 
 (0.3.0 = CP-15: the ChromaDB backend. The chromadb dependency set adds

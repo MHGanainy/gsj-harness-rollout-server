@@ -2,7 +2,7 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.2** (wheel-only: `gsj_rollout/`, both pins sets, `ingest_corpus.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-68). The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.2** (wheel-only: `gsj_rollout/`, both pins sets, `ingest_corpus.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-69, next fresh id F-70). The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
@@ -28,8 +28,9 @@ status: done | partial | blocked
 scope_drift: none | <what and why>
 files: <git show --stat summary>
 tests: <command> → <counts> | n/a
+ci: <the push's run id> → <every job's colour>; any red job → the register row it matches (never "runner-side" without a row — §8 rule 9 (b))
 adrs: <ids or none>        assumptions: <ids or none>
-gap_register: <rows touched>
+gap_register: <rows touched>; waiting-on scanned: <grep -rn 'waiting-on:' docs/ count> — <none fired | the ids that did, and what moved>
 questions: <each with the applied default> | none
 next: <advisory>
 ```

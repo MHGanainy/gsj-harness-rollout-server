@@ -104,9 +104,15 @@ def test_stored_vectors_are_the_pinned_encoders(built_state):
             include=["embeddings"])
         stored = np.asarray(got["embeddings"][0], dtype=np.float32)
         assert stored.shape == (384,)
+        # CP-51 (wishlist 26): the oracle stays BIT-exact; on failure it now
+        # states the magnitude, so the ADR-0016 tolerance question can be
+        # decided with data (1-ULP class ≈ 1e-8 / cosine 0.99999994; a wrong
+        # embedder sits near cosine 0.80).
+        delta = float(np.abs(stored - ours[row]).max())
+        cosine = float(stored @ ours[row] / (np.linalg.norm(stored) * np.linalg.norm(ours[row])))
         assert np.array_equal(stored, ours[row]), (
             f"chunk p{chunk.page:04d}c{chunk.chunk_idx:04d} vector is not "
-            f"the pinned encoder's")
+            f"the pinned encoder's: max|Δ| {delta:.3e}, cosine {cosine:.9f}")
 
 
 def test_chroma_text_ops_are_refused(built_state):

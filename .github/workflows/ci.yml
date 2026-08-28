@@ -20,7 +20,7 @@
 # is 3.12 (the mcp-service image and venv, Polar's uv venv per its own
 # `uv venv --python 3.12`, the H200 collector), so a matrix would test a
 # configuration nothing runs. What that choice does not cover, said plainly:
-# `pyproject.toml` declares `requires-python = ">=3.11"` and the operator's
+# `pyproject.toml` declares `requires-python = ">=3.12"` (CP-19, ADR-0020) and the operator's
 # workstation venv is 3.13 — neither is exercised here.
 #
 # Size law (CHARTER §3): this file is CI configuration, not `gsj_rollout/`

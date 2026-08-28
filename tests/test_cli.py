@@ -223,10 +223,16 @@ def test_serve_printout_hints_the_unbuilt_venv(tmp_path, capsys, monkeypatch):
     (REVENDOR.md, which includes the A-14 gsj_rollout install) instead of
     leaving the stranger an unexplained ENOENT."""
     config = _config_for(tmp_path, "http://127.0.0.1:8080")
-    real_exists = os.path.exists
+    real_exists, real_isdir = os.path.exists, os.path.isdir
     monkeypatch.setattr(cli.os.path, "exists",
                         lambda p: False if p.endswith(os.path.join("bin", "polar"))
                         else real_exists(p))
+    # CP-51 (CP-47's accidental coupling): cli.py picks this branch on
+    # isdir(vendor/polar) — answer it here, so the suite no longer needs the
+    # vendored tree on disk to pass.
+    monkeypatch.setattr(cli.os.path, "isdir",
+                        lambda p: True if p.endswith(os.path.join("vendor", "polar"))
+                        else real_isdir(p))
     assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
     out = capsys.readouterr().out
     assert "venv is unbuilt" in out and "REVENDOR.md" in out
