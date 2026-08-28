@@ -1879,6 +1879,32 @@ repository (the operator's standing direction). Root suite 161 passed.
 Consumer artefact, outside the size law and outside the record. Tally
 unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-54] No row moves; the documentation condensed (touched:
+`docs/guide/` — 21 pages merged into SIX flat pages, 1,189 lines total
+(was ~5,800); `img/` pruned to the 33 referenced slides, 3.3 MB (was 54
+/ 6.7 — the full 54-slide deck survives outside the repo); the six
+READMEs tightened again to 506 lines total; `gsj_rollout/` untouched at
+1,999).** The operator: "the guide and markdown files are too many …
+condensed and compact and to the point." The new shape, by reader
+intent: `README.md` (index, 70) · `how-it-works.md` (175) ·
+`validation-and-pins.md` (224 — the complete 42-string vocabulary
+survives as a one-line-per-finding table) · `server-guide.md` (302 —
+the full YAML field reference and every CLI flag survive as tables) ·
+`trainer-guide.md` (299 — the API as signatures + short notes) ·
+`troubleshooting.md` (119). The condensing rule, enforced per file and
+reported per agent: hard line caps; every command, flag, default,
+port, env var, finding string, message text, hash, and number
+survives; depth is delegated by link to the four normative documents —
+**zero operative facts dropped, by each condenser's own accounting**.
+The record documents stay untouched (the operator's CP-53 scope
+answer, carried forward). Verified: the GitHub-render checker on all
+12 files → 0 problems (the root README's absolute-URL images are the
+checker's known false positive, resolved by hand); PyPI's renderer on
+the root README → renders; no PNG unreferenced, none referenced and
+missing; root suite 161 passed. Consumer artefact, outside the size
+law and outside the record. Tally unchanged: **21 PARITY · 7 DROPPED ·
+2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
