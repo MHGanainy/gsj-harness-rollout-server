@@ -860,6 +860,11 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
                    only: list[str] | None = None) -> None:
     env = git_env(corpus.git_identity)
     token = None if dry_run else resolve_push_auth(corpus, base_url)
+    # CP-59: the post-push convergence read-back presents the read token
+    # (the same variable verify's clone-back and the sandbox clone use),
+    # so a scaffold against an estate requiring sign-in no longer dies at
+    # its first case's ls-remote (CP-58's one remaining anonymous reader).
+    read_token = None if dry_run else resolve_read_auth(corpus, base_url)
     lock = load_lock(corpus.root)
     lock.setdefault("corpus", {})
     lock["corpus"] = {"name": corpus.name, "owner": corpus.owner,
@@ -867,7 +872,10 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
                       "sandbox_image": corpus.sandbox_image}
     lock.setdefault("cases", {})
 
-    print(f"== scaffold ({'DRY-RUN — nothing pushed' if dry_run else base_url}) ==")
+    print(f"== scaffold ({'DRY-RUN — nothing pushed' if dry_run else base_url}"
+          + ("" if dry_run or _is_file_url(base_url) else
+             f"; reading back {'with ' + read_token_env_name(corpus.owner) if read_token else 'anonymously'}")
+          + ") ==")
     with tempfile.TemporaryDirectory(prefix="gsj-corpus-scaffold-") as tmp:
         for case_id in sorted(corpus.cases):
             if only and case_id not in only:
@@ -878,7 +886,21 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
                 ensure_remote_repo(corpus, base_url, case_id, token)
                 push_repo(corpus, base_url, case_id, Path(tmp) / case_id,
                           token, env)
-                live = ls_remote_heads(base_url, corpus.owner, case_id)
+                try:
+                    live = ls_remote_heads(base_url, corpus.owner, case_id,
+                                           read_token)
+                except subprocess.CalledProcessError as error:
+                    stderr = (error.stderr or "").strip()
+                    if read_token:
+                        stderr = stderr.replace(read_token, "***")
+                    hint = ("" if read_token or _is_file_url(base_url) else
+                            f" (anonymous read — an estate requiring sign-in "
+                            f"needs {read_token_env_name(corpus.owner)} "
+                            f"exported; the push itself succeeded)")
+                    raise PipelineError(
+                        f"{case_id}: post-push read-back `git ls-remote "
+                        f"{clone_url(base_url, corpus.owner, case_id)}` "
+                        f"failed: {stderr}{hint}") from None
                 if live != heads:
                     raise PipelineError(
                         f"{case_id}: push did not converge — built {heads}, "

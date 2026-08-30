@@ -208,6 +208,7 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 
 | verb | runs |
 | --- | --- |
+| `bringup [args…]` | `bringup.py` — corpus → running estate + taskbank + `rollout.yaml`, creating or adopting Forgejo and the retrieval service (needs the checkout's python: `PYTHON=<abs path>` or an activated `.venv`) |
 | `up` | Forgejo compose up, health wait (90 s), admin `gsj-admin`, API token → `forgejo/.token` |
 | `owner <name>` | pipeline owner + push token → `forgejo/.token-<name>` + read-scoped clone token → `forgejo/.token-<name>-read` (CP-56); prints both export lines |
 | `down [--wipe]` | compose down; `--wipe` also deletes `forgejo-data/` and `.token` |
@@ -217,7 +218,7 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 | `health` | `/health`, `/v1/models`, one full tool round trip |
 | `status` | compose ps × 2 + the engine probe |
 
-Bring-up order (steps 3 and 5 are the corpus pipeline, not verbs):
+One command instead of the sequence below: `estate/bringup.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#bringuppy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. The verbs, by hand (steps 3 and 5 are the corpus pipeline, not verbs):
 
 ```bash
 cd estate
@@ -225,10 +226,8 @@ cd estate
 export GSJ_FORGEJO_TOKEN_GSJ_STAGING="$(cat forgejo/.token-gsj-staging)"
 export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING="$(cat forgejo/.token-gsj-staging-read)"   # every read under sign-in (CP-58)
 export GSJ_MCP_TOKEN_SECRET='<the shared secret>'
-# FRESH or --wipe'd estate only (the H200's four repos exist — skip): scaffold's post-push
-# ls-remote still reads anonymously (not lifted at CP-58) and dies with a traceback under
-# sign-in — run it with REQUIRE_SIGNIN_VIEW: "false" in forgejo/docker-compose.yml + ./estate.sh up,
-# then restore "true" and ./estate.sh up again (recreates Forgejo closed):
+# a fresh or --wipe'd estate scaffolds CLOSED as is (CP-59: the post-push read-back presents the
+# read token too); the H200's four repos exist, so there this line converges and changes nothing
 python3 corpus/ingest_corpus.py scaffold --corpus corpus/staging
 ./estate.sh mcp-up
 python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
@@ -238,9 +237,9 @@ python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
 The three networking traps:
 - **The clone happens inside the sandbox.** `clone_url_for` must resolve from the episode container; with `runtime.network` unset or wrong, every episode dies at its `git` setup step with `PiHarness setup failed` after consuming the attempt. The cure is `runtime.network: gsj-staging-net`. If the estate requires sign-in for read (below) and `clone_credential_env` is unset or its token wrong, the same setup step dies with a `git ... Authentication failed`.
 
-**Closing anonymous read (CP-56; the reference estate ships closed since CP-58).** An estate serving anonymous git read lets a sandbox agent that guesses `…/gsj-staging/<case>.git` re-clone past its cutoff. The reference estate now requires sign-in for every read (`estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW: "true"`) and every reader presents the one read-scoped token `estate.sh owner gsj-staging` mints (`GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING`): the sandbox clone via `rollout.h200.yaml`'s `clone_credential_env`, the MCP index build via `config.yaml`'s `source.auth_token_env`, and the pipeline's verify clone-back — so the bring-up is one shot, no anonymous-first phase. The two re-clone channels return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`). Not defended: the model endpoint and the retrieval service, which the agent must reach. Still anonymous, outside CP-58's lift: any *scaffold*'s (first or repeat) post-push `ls-remote` convergence check — under sign-in it is refused after the first case's push and escapes as an uncaught `CalledProcessError` traceback (`main` catches only `PipelineError`), so a fresh or wiped estate scaffolds with sign-in temporarily off (the bring-up block above); the one-argument follow-up is named in `estate/README.md`.
+**Closing anonymous read (CP-56; the reference estate ships closed since CP-58).** An estate serving anonymous git read lets a sandbox agent that guesses `…/gsj-staging/<case>.git` re-clone past its cutoff. The reference estate now requires sign-in for every read (`estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW: "true"`) and every reader presents the one read-scoped token `estate.sh owner gsj-staging` mints (`GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING`): the sandbox clone via `rollout.h200.yaml`'s `clone_credential_env`, the MCP index build via `config.yaml`'s `source.auth_token_env`, and the pipeline's verify clone-back — so the bring-up is one shot, no anonymous-first phase. The two re-clone channels return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`). Not defended: the model endpoint and the retrieval service, which the agent must reach. Since CP-59 no reader is anonymous: the scaffold's post-push `ls-remote` convergence check presents the same read token (`resolve_read_auth`), and against a closed estate without it the pipeline fails with a `PipelineError` naming `GSJ_FORGEJO_READ_TOKEN_<OWNER>` (the push itself succeeded, the lock is not written) — a fresh or wiped estate scaffolds closed, one shot.
 - **`host.docker.internal` never resolves in an episode** — Polar's Docker runtime passes only `--network`, never `--add-host`. Address host-bound services by the compose network's gateway IP, `172.28.9.1` (not `172.17.0.1`).
-- **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`.
+- **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`. `bringup.py` *measures* the host (a listener on the port, a container on the run's network dialing every host address) rather than deriving it: on a Docker Desktop Mac the LAN IP was host-only and `host.docker.internal` container-only (CP-59).
 
 Serving: `serve.sh` works over SSH (`GSJ_VLLM_SSH_HOST=h200-admin`) with a tunnel `127.0.0.1:8100 → 8000`; overrides `GSJ_VLLM_PORT=8000`, `GSJ_VLLM_LOCAL_PORT=8100`, `GSJ_VLLM_GPU=3`, `GSJ_VLLM_REMOTE_DIR=gsj-vllm`, `GSJ_VLLM_GPU_FRAC=0.30`, `GSJ_VLLM_MODEL_ENV=model-0.6b.env`. It byte-copies the snapshot's `generation_config.json` and passes `--generation-config` explicitly — the engine's defaults *are* the sampling policy. Qwen (`serve 0.6b`, `Qwen/Qwen3-0.6B` @ `c1899de2…`) serves TRL's symmetric `qwen3_training.jinja` (sha256 `1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9` — the pinned `chat_template_hash`; why symmetric: [how-it-works.md](how-it-works.md)) with `--tool-call-parser hermes`, `--reasoning-parser qwen3`, `enable_thinking: false`; Llama (`serve llama31`, `unsloth/Meta-Llama-3.1-8B-Instruct` @ `a2856192…`) uses its embedded template and `--tool-call-parser llama3_json`. `health` asserts the Qwen pin unless `GSJ_VLLM_MODEL_ENV=serving/model-llama31-8b.env`. Switching family is YAML only: `estate.model` byte-equal, `builder.end_of_turn_token_id` re-derived, pins re-derived. `serve-updated <dir>` serves a local HF export under `--served-model-name Qwen/Qwen3-0.6B` (wire identity constant), stopping the old engine first (SIGTERM, 60 s, then SIGKILL) — vLLM at this pin has no in-place weight swap.
 

@@ -129,3 +129,109 @@ def test_owner_override_changes_owner_and_token_env(corpus_root, estate,
                     "--base-url", estate,
                     "--owner-override", "gsj-prod"]) == 0
     assert heads(estate, "gsj-prod", "case_a")
+
+
+# -- CP-59: scaffold's post-push read-back credential (gap row 2's last
+#    anonymous reader) ---------------------------------------------------
+
+READ_VAR = "GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING"
+HTTP_ESTATE = "http://forgejo.invalid:3000"
+
+
+def _http_scaffold_with_refused_ls_remote(monkeypatch, seen: list[list[str]]):
+    """An http estate whose push side is faked away (no Forgejo here) and
+    whose `git ls-remote` is refused the way a sign-in-required Forgejo
+    refuses under GIT_TERMINAL_PROMPT=0 — every other git call is real, so
+    the repo build and the splice run for real."""
+    real_run = ic.subprocess.run
+    monkeypatch.setattr(ic, "resolve_push_auth", lambda corpus, base_url: "push-tok")
+    monkeypatch.setattr(ic, "ensure_remote_repo", lambda *a, **k: None)
+    monkeypatch.setattr(ic, "push_repo", lambda *a, **k: None)
+
+    def fake_run(args, **kwargs):
+        if list(args[:2]) == ["git", "ls-remote"]:
+            seen.append(list(args))
+            raise subprocess.CalledProcessError(
+                128, args, output="",
+                stderr=f"fatal: unable to access '{args[-1]}': could not read "
+                       f"Username for '{HTTP_ESTATE}': terminal prompts disabled")
+        return real_run(args, **kwargs)
+    monkeypatch.setattr(ic.subprocess, "run", fake_run)
+
+
+def test_scaffold_read_back_carries_the_read_token_and_refusal_is_a_named_error(
+        corpus_root, monkeypatch, capsys):
+    """Fails if phase_scaffold stops passing resolve_read_auth(...) to
+    ls_remote_heads: the argv would carry no userinfo."""
+    monkeypatch.setenv(READ_VAR, "s3cret-read-token")
+    seen: list[list[str]] = []
+    _http_scaffold_with_refused_ls_remote(monkeypatch, seen)
+    rc = ic.main(["scaffold", "--corpus", str(corpus_root),
+                  "--base-url", HTTP_ESTATE])
+    assert rc == 2                                      # a PipelineError, not a traceback
+    assert seen and "://gsj-staging:s3cret-read-token@forgejo.invalid:3000/" in seen[0][-1]
+    out, err = capsys.readouterr()
+    assert f"reading back with {READ_VAR}" in out       # says which credential
+    assert "s3cret-read-token" not in out + err         # redacted everywhere
+    assert ("case_a: post-push read-back `git ls-remote "
+            f"{HTTP_ESTATE}/gsj-staging/case_a.git` failed") in err
+    assert "'http://gsj-staging:***@forgejo.invalid:3000/" in err
+    assert "needs GSJ_FORGEJO_READ_TOKEN" not in err    # no hint: a token WAS given
+    assert not (corpus_root / "corpus.lock.json").exists()  # nothing recorded
+
+
+def test_scaffold_anonymous_read_back_refusal_names_the_variable(
+        corpus_root, monkeypatch, capsys):
+    monkeypatch.delenv(READ_VAR, raising=False)
+    seen: list[list[str]] = []
+    _http_scaffold_with_refused_ls_remote(monkeypatch, seen)
+    rc = ic.main(["scaffold", "--corpus", str(corpus_root),
+                  "--base-url", HTTP_ESTATE])
+    assert rc == 2
+    assert seen and "@" not in seen[0][-1]              # anonymous, as configured
+    out, err = capsys.readouterr()
+    assert "reading back anonymously" in out
+    assert "terminal prompts disabled" in err
+    assert f"needs {READ_VAR} exported" in err          # the cure, named
+    assert "the push itself succeeded" in err
+
+
+def test_scaffold_read_back_with_the_token_converges_and_writes_the_lock(
+        corpus_root, monkeypatch, capsys):
+    """The success path: the credentialed read-back returns the built heads,
+    the case converges, the lock is written and names the credential used."""
+    monkeypatch.setenv(READ_VAR, "s3cret-read-token")
+    built: dict[str, dict[str, str]] = {}
+    real_build = ic.build_case_repo
+
+    def build_and_remember(corpus, case, dest, env):
+        heads = real_build(corpus, case, dest, env)
+        built[case.case_id] = heads
+        return heads
+    monkeypatch.setattr(ic, "build_case_repo", build_and_remember)
+    monkeypatch.setattr(ic, "resolve_push_auth", lambda corpus, base_url: "push-tok")
+    monkeypatch.setattr(ic, "ensure_remote_repo", lambda *a, **k: None)
+    monkeypatch.setattr(ic, "push_repo", lambda *a, **k: None)
+    real_run = ic.subprocess.run
+    seen: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        if list(args[:2]) == ["git", "ls-remote"]:          # the remote answers with
+            seen.append(list(args))                          # exactly what was built
+            case_id = args[-1].rsplit("/", 1)[-1][:-len(".git")]
+            out = "".join(f"{sha}\trefs/heads/{branch}\n"
+                          for branch, sha in built[case_id].items())
+            return subprocess.CompletedProcess(args, 0, out, "")
+        return real_run(args, **kwargs)
+    monkeypatch.setattr(ic.subprocess, "run", fake_run)
+    rc = ic.main(["scaffold", "--corpus", str(corpus_root), "--base-url", HTTP_ESTATE])
+    assert rc == 0
+    assert len(seen) == 2 and all(
+        "://gsj-staging:s3cret-read-token@forgejo.invalid:3000/" in a[-1] for a in seen)
+    out = capsys.readouterr().out
+    assert f"reading back with {READ_VAR}" in out
+    assert out.count("[pushed, converged]") == 2
+    assert "s3cret-read-token" not in out
+    lock = read_lock(corpus_root)
+    assert set(lock["cases"]) == {"case_a", "case_b"}
+    assert lock["cases"]["case_a"]["refs"] == built["case_a"]

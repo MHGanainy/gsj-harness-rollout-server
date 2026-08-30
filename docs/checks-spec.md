@@ -1422,7 +1422,7 @@ clone URL at render, stripped from the echo by `_strip_credentials`) makes
 that guessed re-clone return 401 — proven container-faithful. The demo
 estate closes it live; the H200 flip is a documented two-phase because two
 of its consumers (the MCP index build, the pipeline verify) read
-anonymously and are frozen (gap row 2).
+anonymously and are frozen (gap row 2). **[CP-58/CP-59]** Both consumers and the scaffold's post-push read-back now present the read token; the H200 ships closed and the flip is one-shot (gap row 2).
 
 ## Carried evidence inventory (`pins/`)
 

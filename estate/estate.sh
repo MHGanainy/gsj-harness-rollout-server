@@ -3,8 +3,8 @@
 #
 # THIN BY LAW: every verb execs an existing script or compose file in
 # place; nothing here reimplements a recipe. The recipes are this
-# directory's README.md; bring-up-from-nothing belongs to the demo repo
-# (gsj-rollout-demo/bootstrap.py), not here. Scripts keep their homes —
+# directory's README.md; bring-up-from-nothing is `bringup` (bringup.py,
+# CP-59 — the production sibling of gsj-rollout-demo/bootstrap.py). Scripts keep their homes —
 # serve.sh reads its sibling model-*.env files and ships its own jinja,
 # up.sh cd's to its compose — so this file only routes.
 set -euo pipefail
@@ -14,6 +14,11 @@ usage() {
   cat <<'USAGE'
 estate.sh — front door to the H200 estate scripts (see estate/README.md)
 
+  bringup [args…]       corpus -> running estate + taskbank + rollout.yaml, in one
+                        command (bringup.py up; CP-59). Creates OR adopts Forgejo
+                        and the retrieval service; run directory estate/runs/<name>/.
+                        Needs: the checkout's python (PyYAML, pyarrow, gsj_rollout)
+                        — set PYTHON=<path> or run from an activated .venv.
   up                    start Forgejo (forgejo/up.sh: compose up, health
                         wait, admin user, API token). Needs: docker.
   owner <name>          create a Forgejo owner + a push token AND a read-scoped
@@ -43,6 +48,8 @@ USAGE
 need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 not found — $2" >&2; exit 1; }; }
 
 case "${1:---help}" in
+  bringup)
+    shift; exec "${PYTHON:-python3}" bringup.py "$@" ;;
   up)
     need docker "install docker or run this on the estate host"
     exec forgejo/up.sh ;;

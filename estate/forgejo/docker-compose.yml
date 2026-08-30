@@ -48,9 +48,9 @@ services:
       # rollout.h200.yaml's clone_credential_env, the MCP index build through
       # config.yaml's auth_token_env, the pipeline's verify clone-back through
       # the same variable (CP-58 lifted the last two — the flip is one-shot now,
-      # no anonymous-first phase). A re-SCAFFOLD's post-push ls-remote still
-      # reads anonymously (outside CP-58's lift) — see estate/README.md
-      # "Closing anonymous read". Set "false" only on an estate meant to serve
+      # no anonymous-first phase; CP-59 gave the scaffold's post-push
+      # ls-remote the same token — every reader is credentialed, a fresh or
+      # wiped estate scaffolds closed). Set "false" only on an estate meant to serve
       # anonymous read (no training corpus on it).
       FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
       FORGEJO__mailer__ENABLED: "false"

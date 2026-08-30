@@ -192,10 +192,11 @@ the rollout side then presents a read-scoped token
 the same read token when its variable is exported and reads anonymously
 when it is not (an estate requiring sign-in then fails the clone with a
 finding naming the variable); the MCP index build presents it through
-`source.auth_token_env`. The one remaining anonymous reader is scaffold's
-post-push `ls-remote` convergence check — a fresh or wiped closed estate
-scaffolds with sign-in temporarily off until that one-argument follow-up
-lands — see gap row 2.
+`source.auth_token_env`. **[CP-59]** `scaffold`'s post-push read-back
+(the `ls-remote` convergence check) presents the same read token, so a
+fresh or wiped closed estate scaffolds as is; anonymous against an estate
+requiring sign-in, it fails with a message naming the variable (the push
+itself succeeded, the lock is not written). No reader is anonymous.
 
 If `mcp.url_base` is set, re-indexing additionally requires
 `GSJ_MCP_TOKEN_SECRET` in the environment (the retrieval service's shared
@@ -249,6 +250,11 @@ The pipeline also writes, into `<corpus-root>`:
   submit-path argument.
 
 ## Running the pipeline
+
+The estate operator's one-command bring-up, `estate/bringup.py up`, runs
+the five phases below for you against a git host and retrieval service it
+creates or adopts, and writes the rollout server's config beside the
+table — this section is the pipeline on its own.
 
 ```bash
 python estate/corpus/ingest_corpus.py validate --corpus <corpus-root>   # check the tree

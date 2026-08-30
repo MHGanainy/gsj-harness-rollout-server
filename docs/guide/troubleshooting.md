@@ -124,6 +124,23 @@ Quick reference — who dials what:
 | `polar.rollout.host/port/public_url` | the trainer, the gateway | exit 3 |
 | `receiver.host/port/public_url` | the rollout API (callback) | nothing lands on disk; `submit` still collects |
 
+## At `estate/bringup.py up` — REFUSED
+
+Every refusal prints `found:` / `expected:` / `what to do:`; the message is the fix. The shapes measured at CP-59:
+
+| Refusal | Cause → fix |
+|---|---|
+| `the retrieval service in gsj-<run>-mcp crashed (its process died; the container still shows running)` — `qemu: uncaught target signal 11` in its log | the amd64 `gsj-mcp-service` image under emulation on an arm64 daemon dies at the embed step (0.3.0 survived it, 0.4.0 does not); build it natively (`docker build --platform linux/arm64 -t gsj-mcp-service:0.4.0-arm64 estate/mcp-service`) and pass `--mcp-image`. Production is amd64 and runs the shipped image as is |
+| `the adopted retrieval service serves a different embedding identity` / `the run's index store was built by a different embedding model` | CP-57's posture: a model change is a re-pin, never a silent rebuild — ask for the identity that built the store, or `--rebuild` (own store) / `index.rebuild: always` once on the adopted service |
+| `owner '…' on <url> holds N repo(s) whose content is NOT what this corpus builds` — branches named per case | someone else's (or an edited) repo under a case id; another `--owner`, delete them there, or `--overwrite-repos` (a `--force --prune` push) |
+| `the admin credential for … was rejected` with a valid token | Forgejo mints another user's tokens only under **basic auth**: give the admin's password (`$GSJ_FORGEJO_ADMIN_PASSWORD` or `--forgejo-admin-password-file`), not a token |
+| `the adopted retrieval service rejected the token secret` — `POST /admin/reindex -> 401 … Signature verification failed` | the secret given (`$GSJ_MCP_TOKEN_SECRET` / `--mcp-secret-file`) is not the one the service's `config.yaml` `token_secret_env` names — ask its operator |
+| `run '…' recorded the owner = '…'; this invocation asks for '…'` (also the Forgejo/MCP URL, the network, create vs adopt) | a re-run reuses the recorded estate; a different identity is another run (`--name`), a wipe, or `--retarget` — which rewrites the record and prints `changed:` lines |
+| `no host address is dialable from a container on '…'` — `tried [...] — every one timed out from the container` | CP-03's one-URL rule has no answer on this host: on Docker Desktop add `127.0.0.1 host.docker.internal` to `/etc/hosts` and pass `--gateway-host host.docker.internal`; `--gateway-host <address>` writes one unprobed (the episode then fails `no completions` if a sandbox cannot dial it — the gateway log shows session polls and no `/v1/chat/completions`) |
+| `the gateway-host probe container could not run on network '…'` | the sandbox network does not exist — a created run makes its own, an adopted-only run creates or verifies it; `--network` must name an existing one |
+| `run '…' exists but its .env is missing` | restore it — a re-mint would invalidate the running service's secret and every token the record names; or `down --wipe` and start over |
+| the corpus pipeline's `scaffold` fails `post-push read-back … terminal prompts disabled (anonymous read — … needs GSJ_FORGEJO_READ_TOKEN_<OWNER> exported)` | an estate requiring sign-in and no read token in the environment (CP-59 — the push itself succeeded); `bringup.py` exports it from the run's `.env` |
+
 ## See also
 
 - [validation-and-pins.md](validation-and-pins.md) — the complete finding vocabulary, the gates, re-pinning.
