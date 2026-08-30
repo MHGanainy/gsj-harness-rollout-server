@@ -53,6 +53,33 @@
     },
     "non_g6_sets": {
       "notes": "Inherited byte-equal from pins/pins.gsj.json — CP-28 measured every one of them unmoved by the thinking flag (same engine process served both legs; G2 30/30 episodes, G4 sha unmoved, settings/roster/skill/tokenizer untouched). derive_pins.py fails the walk if the two files ever diverge on these six keys."
+    },
+    "engine": {
+      "recorded_by": "pins/derive_pins.py --record (CP-51) — re-run at every serve change",
+      "served_model": {
+        "id": "Qwen/Qwen3-0.6B",
+        "root": "Qwen/Qwen3-0.6B",
+        "revision": {
+          "absent": "the endpoint reports no revision (vLLM's /v1/models carries none) — see snapshot_revision"
+        },
+        "source": "GET http://127.0.0.1:8000/v1/models"
+      },
+      "snapshot_revision": {
+        "value": "c1899de289a04d12100db370d81485cdf75e47ca",
+        "source": "the served snapshot's path ~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca — a local-disk fact, not the endpoint's"
+      },
+      "generation_config_sha256": {
+        "value": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+        "source": "~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/generation_config.json — the file serve.sh's --generation-config points at (the argv itself is not read)"
+      },
+      "tokenizer_git_blob_oid": {
+        "value": "949e1ec83f61520a25c75426edc4a43acc36f29a",
+        "source": "~/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/tokenizer.json — the served tokenizer"
+      },
+      "chat_template_sha256": {
+        "value": "1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9",
+        "source": "the served --chat-template file estate/serving/qwen3_training.jinja"
+      }
     }
   }
 }

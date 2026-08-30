@@ -275,3 +275,120 @@ def test_all_with_only_completes_and_leaves_the_bank_alone(corpus_root,
     assert "== verify: PASS" in out
     assert (corpus_root / "taskbank.parquet").read_bytes() == bank_before
     assert ic.load_lock(corpus_root)["taskbank"] == lock_before
+
+
+# -- CP-58: verify's clone-back credential (gap row 2, the H200 flip) ---------
+
+READ_VAR = "GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING"
+
+
+def _fail_clone(monkeypatch, seen: list[list[str]]):
+    """Record every git argv and fail the clone as a sign-in-required
+    Forgejo does under GIT_TERMINAL_PROMPT=0 (the CP-56 refusal text)."""
+    def fake_run(args, **kwargs):
+        seen.append(list(args))
+        url = args[-2] if args[:2] == ["git", "clone"] else args[-1]
+        # echo the URL git was handed, credential and all — so the
+        # redaction is what the token test exercises, not the fake's silence
+        raise subprocess.CalledProcessError(
+            128, args, output="",
+            stderr=f"fatal: unable to access '{url}': could not read Username "
+                   f"for 'http://forgejo.invalid:3000': terminal prompts disabled")
+    monkeypatch.setattr(ic.subprocess, "run", fake_run)
+
+
+def test_read_token_env_name_derives_from_the_owner_like_the_push_one():
+    assert ic.read_token_env_name("gsj-staging") == READ_VAR
+    assert ic.read_token_env_name("gsj-prod") == "GSJ_FORGEJO_READ_TOKEN_GSJ_PROD"
+    # the same variable create_owner.sh prints and clone_credential_env names
+    assert ic.token_env_name("gsj-staging") == "GSJ_FORGEJO_TOKEN_GSJ_STAGING"
+
+
+def test_credentialed_url_splices_http_only():
+    url = "http://forgejo.invalid:3000/gsj-staging/case_a.git"
+    assert ic.credentialed_url(url, "gsj-staging", "tok") == \
+        "http://gsj-staging:tok@forgejo.invalid:3000/gsj-staging/case_a.git"
+    assert ic.credentialed_url(url, "gsj-staging", None) == url
+    assert ic.credentialed_url("file:///bares/gsj-staging/case_a.git",
+                               "gsj-staging", "tok") == \
+        "file:///bares/gsj-staging/case_a.git"
+
+
+def test_verify_clones_back_with_the_read_token_and_never_prints_it(
+        corpus_root, estate, monkeypatch, capsys):
+    run_all_local(corpus_root, estate)
+    monkeypatch.setenv(READ_VAR, "s3cret-read-token")
+    seen: list[list[str]] = []
+    _fail_clone(monkeypatch, seen)
+    rc = ic.main(["verify", "--corpus", str(corpus_root),
+                  "--base-url", "http://forgejo.invalid:3000", "--skip-ingest"])
+    assert rc == 1
+    clones = [a for a in seen if a[:2] == ["git", "clone"]]
+    assert clones and all(
+        "://gsj-staging:s3cret-read-token@forgejo.invalid:3000/" in a[-2]
+        for a in clones)                                # the splice, per case
+    out, err = capsys.readouterr()
+    assert "s3cret-read-token" not in out + err         # redacted everywhere
+    assert "unable to access 'http://gsj-staging:***@forgejo.invalid:3000/" in out
+    assert f"cloning back with {READ_VAR}" in out       # says which credential
+    assert "git clone http://forgejo.invalid:3000/gsj-staging/case_a.git failed" in out
+    assert "needs GSJ_FORGEJO_READ_TOKEN" not in out    # no hint: a token WAS given
+
+
+def test_verify_anonymous_refusal_names_the_read_variable(
+        corpus_root, estate, monkeypatch, capsys):
+    run_all_local(corpus_root, estate)
+    monkeypatch.delenv(READ_VAR, raising=False)
+    seen: list[list[str]] = []
+    _fail_clone(monkeypatch, seen)
+    rc = ic.main(["verify", "--corpus", str(corpus_root),
+                  "--base-url", "http://forgejo.invalid:3000", "--skip-ingest"])
+    assert rc == 1
+    assert all("@" not in a[-2] for a in seen if a[:2] == ["git", "clone"])
+    out = capsys.readouterr().out
+    assert "cloning back anonymously" in out
+    assert "terminal prompts disabled" in out
+    assert f"needs {READ_VAR} exported" in out          # the cure, named
+
+
+def test_file_estate_ignores_the_read_token(corpus_root, estate, monkeypatch,
+                                            capsys):
+    """The hermetic rail needs no credential: an exported read token is
+    neither spliced (file:// has no userinfo) nor announced."""
+    run_all_local(corpus_root, estate)
+    monkeypatch.setenv(READ_VAR, "s3cret-read-token")
+    assert verify(corpus_root, estate) == 0
+    out = capsys.readouterr().out
+    assert "== verify: PASS" in out
+    assert "s3cret-read-token" not in out
+    assert "cloning back" not in out
+
+
+def test_verify_ls_remote_carries_the_read_token_and_refusal_is_a_redacted_refs_finding(
+        corpus_root, estate, monkeypatch, capsys):
+    """The clone-back is two git calls; the second (ls-remote) must carry
+    the same credential, and its refusal must land as a redacted finding."""
+    run_all_local(corpus_root, estate)
+    monkeypatch.setenv(READ_VAR, "s3cret-read-token")
+    seen: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        seen.append(list(args))
+        if args[1] == "clone":                          # the clone succeeds
+            return subprocess.CompletedProcess(args, 0, "", "")
+        raise subprocess.CalledProcessError(            # ls-remote is refused
+            128, args, output="",
+            stderr="fatal: Authentication failed for "
+                   "'http://gsj-staging:s3cret-read-token@forgejo.invalid:3000/'")
+    monkeypatch.setattr(ic.subprocess, "run", fake_run)
+    rc = ic.main(["verify", "--corpus", str(corpus_root),
+                  "--base-url", "http://forgejo.invalid:3000", "--skip-ingest"])
+    assert rc == 1
+    ls = [a for a in seen if a[:2] == ["git", "ls-remote"]]
+    assert ls and all(
+        "://gsj-staging:s3cret-read-token@forgejo.invalid:3000/" in a[-1]
+        for a in ls)                                    # the splice, per case
+    out = capsys.readouterr().out
+    assert "s3cret-read-token" not in out               # redacted everywhere
+    assert "git ls-remote http://forgejo.invalid:3000/gsj-staging/case_a.git failed" in out
+    assert "'http://gsj-staging:***@forgejo.invalid:3000/'" in out   # the stderr, redacted

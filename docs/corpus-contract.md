@@ -178,20 +178,24 @@ credential in the environment. That is the whole point of the switch.**
 |---|---|---|
 | `owner` in corpus.yaml | `gsj-staging` | `gsj-prod` |
 | push credential (env var) | `GSJ_FORGEJO_TOKEN_GSJ_STAGING` | `GSJ_FORGEJO_TOKEN_GSJ_PROD` |
+| read credential (env var, optional — verify's clone-back) | `GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING` | `GSJ_FORGEJO_READ_TOKEN_GSJ_PROD` |
 
-The env var name is derived from the owner: `GSJ_FORGEJO_TOKEN_` + the
-owner uppercased with `-` → `_`. Credentials are **never** written into
-`corpus.yaml` or any other file — the pipeline reads the named environment
-variable at push time and refuses to run scaffold without it. The push
-token authorizes *pushes*; anonymous *read* of the pushed repos is the
-pipeline's default (scaffold's convergence check, the MCP index build, and
-`verify`'s re-clone all read without credentials). **[CP-56] An estate may
-close anonymous read** (Forgejo `REQUIRE_SIGNIN_VIEW`) to stop a sandbox
-agent re-cloning past its cutoff; the rollout side then needs a read-scoped
-token (`estate.clone_credential_env`). Note the frozen coupling: this
-pipeline's own reads are anonymous, so a sign-in estate must build the
-corpus and index *before* the flip, or run a pipeline lifted to present the
-read token — see gap row 2.
+The env var names are derived from the owner: `GSJ_FORGEJO_TOKEN_` /
+`GSJ_FORGEJO_READ_TOKEN_` + the owner uppercased with `-` → `_`.
+Credentials are **never** written into `corpus.yaml` or any other file —
+the pipeline reads the named environment variables and refuses to run
+scaffold without the push one. The push token authorizes *pushes*.
+**[CP-56] An estate may close anonymous read** (Forgejo
+`REQUIRE_SIGNIN_VIEW`) to stop a sandbox agent re-cloning past its cutoff;
+the rollout side then presents a read-scoped token
+(`estate.clone_credential_env`). **[CP-58]** `verify`'s clone-back presents
+the same read token when its variable is exported and reads anonymously
+when it is not (an estate requiring sign-in then fails the clone with a
+finding naming the variable); the MCP index build presents it through
+`source.auth_token_env`. The one remaining anonymous reader is scaffold's
+post-push `ls-remote` convergence check — a fresh or wiped closed estate
+scaffolds with sign-in temporarily off until that one-argument follow-up
+lands — see gap row 2.
 
 If `mcp.url_base` is set, re-indexing additionally requires
 `GSJ_MCP_TOKEN_SECRET` in the environment (the retrieval service's shared

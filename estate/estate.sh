@@ -24,8 +24,11 @@ estate.sh — front door to the H200 estate scripts (see estate/README.md)
                         instance data + token — the README's caveats apply.
   mcp-up                start the MCP service (mcp-service/compose.yml).
                         Needs: docker, the gsj-mcp-service image loaded,
-                        GSJ_MCP_TOKEN_SECRET in the environment.
-  mcp-down              stop the MCP service.
+                        GSJ_MCP_TOKEN_SECRET and (CP-58: the index build
+                        clones under sign-in) GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING
+                        in the environment.
+  mcp-down              stop the MCP service (needs the same two variables:
+                        compose interpolates them on down as well).
   serve <0.6b|llama31>  serve a model (serving/serve.sh or
                         serving/serve-llama31.sh). Needs: the H200's venv
                         + snapshot (BRINGUP §3 — these scripts start, they
@@ -51,9 +54,13 @@ case "${1:---help}" in
   mcp-up)
     need docker "install docker or run this on the estate host"
     [ -n "${GSJ_MCP_TOKEN_SECRET:-}" ] || { echo "ERROR: GSJ_MCP_TOKEN_SECRET is not set — export it first (the compose refuses without it; value never lands in a file)" >&2; exit 1; }
+    [ -n "${GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING:-}" ] || { echo "ERROR: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING is not set — export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING=\$(cat estate/forgejo/.token-gsj-staging-read) first (CP-58: the estate requires sign-in for read, the index build clones with it)" >&2; exit 1; }
     exec docker compose -f mcp-service/compose.yml up -d ;;
   mcp-down)
     need docker "install docker or run this on the estate host"
+    # compose interpolates the \${VAR:?} lines on down too — both must be set
+    [ -n "${GSJ_MCP_TOKEN_SECRET:-}" ] || { echo "ERROR: GSJ_MCP_TOKEN_SECRET is not set — compose interpolates it even for down; export it first" >&2; exit 1; }
+    [ -n "${GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING:-}" ] || { echo "ERROR: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING is not set — compose interpolates it even for down; export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING=\$(cat estate/forgejo/.token-gsj-staging-read) first" >&2; exit 1; }
     exec docker compose -f mcp-service/compose.yml down ;;
   serve)
     case "${2:-}" in

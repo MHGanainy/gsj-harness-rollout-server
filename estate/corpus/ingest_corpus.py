@@ -22,9 +22,13 @@ Pre-validation checks the input; post-verification checks reality.
 The pipeline touches the environment through git + HTTP only. Credentials
 come from environment variables named by the contract (never from files):
 ``GSJ_FORGEJO_TOKEN_<OWNER>`` (owner uppercased, ``-`` → ``_``) for pushes,
-``GSJ_MCP_TOKEN_SECRET`` for the reindex trigger. ``file://`` base URLs are
-a first-class rail (local bare estates for tests and rehearsals): no API,
-no token — repos are bare-initialized under ``<path>/<owner>/``.
+``GSJ_FORGEJO_READ_TOKEN_<OWNER>`` for verify's clone-back (CP-58 — the
+read-scoped token ``create_owner.sh`` mints, the same variable the rollout
+YAML's ``clone_credential_env`` names; unset = anonymous read, which an
+estate requiring sign-in refuses), ``GSJ_MCP_TOKEN_SECRET`` for the reindex
+trigger. ``file://`` base URLs are a first-class rail (local bare estates
+for tests and rehearsals): no API, no token — repos are bare-initialized
+under ``<path>/<owner>/``.
 
 Determinism: commit identity + dates are fixed in corpus.yaml (the CP-02
 recipe), so an unchanged tree reproduces identical commit SHAs on every
@@ -92,6 +96,13 @@ PRE_SPLIT_CASES_MSG = (
 
 def token_env_name(owner: str) -> str:
     return "GSJ_FORGEJO_TOKEN_" + owner.upper().replace("-", "_")
+
+
+def read_token_env_name(owner: str) -> str:
+    """The read-scoped clone credential for verify (CP-58): the variable
+    create_owner.sh prints beside the push one and rollout.h200.yaml's
+    clone_credential_env names — one token, every read consumer."""
+    return "GSJ_FORGEJO_READ_TOKEN_" + owner.upper().replace("-", "_")
 
 
 class PipelineError(Exception):
@@ -777,8 +788,29 @@ def push_repo(corpus: Corpus, base_url: str, case_id: str, repo: Path,
              {"default_branch": "main"})
 
 
-def ls_remote_heads(base_url: str, owner: str, case_id: str) -> dict[str, str]:
-    url = clone_url(base_url, owner, case_id)
+def credentialed_url(url: str, owner: str, token: str | None) -> str:
+    """``http(s)://owner:token@host/…`` — the userinfo form Forgejo accepts
+    a token in (CP-56 measured it); file:// and a None token pass through.
+    Never printed: every caller redacts the token from what it reports."""
+    if token is None or not url.startswith(("http://", "https://")):
+        return url
+    scheme, rest = url.split("://", 1)
+    return f"{scheme}://{owner}:{token}@{rest}"
+
+
+def resolve_read_auth(corpus: Corpus, base_url: str) -> str | None:
+    """verify's clone-back credential (CP-58), from the contract's read
+    variable — optional, unlike the push token: unset reads anonymously,
+    the eval-estate default; an estate requiring sign-in then fails the
+    clone with a finding that names the variable. file:// needs none."""
+    if _is_file_url(base_url):
+        return None
+    return os.environ.get(read_token_env_name(corpus.owner)) or None
+
+
+def ls_remote_heads(base_url: str, owner: str, case_id: str,
+                    token: str | None = None) -> dict[str, str]:
+    url = credentialed_url(clone_url(base_url, owner, case_id), owner, token)
     out = subprocess.run(
         ["git", "ls-remote", "--heads", url], check=True,
         capture_output=True, text=True,
@@ -1119,21 +1151,38 @@ def _branch_files(clone: Path, branch: str) -> dict[str, str]:
 
 def verify_case_clone(corpus: Corpus, case: CaseTree, base_url: str,
                       lock_case: dict, tmp: Path,
-                      findings: list[Finding]) -> None:
+                      findings: list[Finding],
+                      token: str | None = None) -> None:
     case_id = case.case_id
-    url = clone_url(base_url, corpus.owner, case_id)
+    url = clone_url(base_url, corpus.owner, case_id)   # the URL as reported
     clone = tmp / case_id
+
+    def redacted(text: str) -> str:
+        return text.replace(token, "***") if token else text
+
     try:
-        subprocess.run(["git", "clone", "-q", url, str(clone)], check=True,
-                       capture_output=True, text=True,
+        subprocess.run(["git", "clone", "-q",
+                        credentialed_url(url, corpus.owner, token), str(clone)],
+                       check=True, capture_output=True, text=True,
                        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except subprocess.CalledProcessError as error:
-        findings.append(Finding(case_id, "clone", False,
-                                f"git clone {url} failed: {error.stderr.strip()}",
-                                case.split))
+        hint = ("" if token or _is_file_url(base_url) else
+                f" (anonymous read — an estate requiring sign-in needs "
+                f"{read_token_env_name(corpus.owner)} exported)")
+        findings.append(Finding(
+            case_id, "clone", False,
+            f"git clone {url} failed: {redacted(error.stderr.strip())}{hint}",
+            case.split))
         return
 
-    live = ls_remote_heads(base_url, corpus.owner, case_id)
+    try:
+        live = ls_remote_heads(base_url, corpus.owner, case_id, token)
+    except subprocess.CalledProcessError as error:
+        findings.append(Finding(
+            case_id, "refs", False,
+            f"git ls-remote {url} failed: {redacted(error.stderr.strip())}",
+            case.split))
+        return
     if live != lock_case.get("refs"):
         findings.append(Finding(
             case_id, "refs", False,
@@ -1305,6 +1354,11 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                  skip_mcp: bool = False, only: list[str] | None = None) -> int:
     lock = load_lock(corpus.root, required=True)
     findings: list[Finding] = []
+    token = resolve_read_auth(corpus, base_url)
+    if not _is_file_url(base_url):
+        print(f"== verify: cloning back "
+              f"{'with ' + read_token_env_name(corpus.owner) if token else 'anonymously'}"
+              f" from {base_url} ==")
 
     lock_cases = lock.get("cases")
     lock_cases = lock_cases if isinstance(lock_cases, dict) else {}
@@ -1320,7 +1374,7 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                                         corpus.cases[case_id].split))
                 continue
             verify_case_clone(corpus, corpus.cases[case_id], base_url,
-                              lock_cases[case_id], Path(tmp), findings)
+                              lock_cases[case_id], Path(tmp), findings, token)
         if not only:
             stray = sorted(set(lock_cases) - set(corpus.cases))
             if stray:

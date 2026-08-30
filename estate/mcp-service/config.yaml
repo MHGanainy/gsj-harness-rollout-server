@@ -10,14 +10,19 @@ source:
   # corpus freeze record is estate/corpus/staging/corpus.lock.json). The CP-29 gsj-admin
   # repos remain live and byte-identical (the predecessor's
   # staging/dataset.frozen.json) but are no longer this service's source.
-  # Anonymous read; auth_token_env names an env var only if the deployment
-  # ever needs an authenticated pull.
+  # CP-58 (gap row 2): the estate requires sign-in for read, so the index
+  # build clones with the read-scoped token estate.sh owner gsj-staging mints
+  # (estate/forgejo/.token-gsj-staging-read) — the SAME variable the rollout
+  # YAML's clone_credential_env and the pipeline's verify read. The env var
+  # NAME only; compose.yml passes the value through, never a file. Startup
+  # fails fast when it is unset (config.py source_token). Set this back to
+  # null only on an estate that serves anonymous read.
   base_url: http://172.28.9.10:3000
   owner: gsj-staging
   repos: [case_0001, case_0002, case_0003, case_0004]
   ref_main: main
   ref_pattern: "timestep-{T}"
-  auth_token_env: null
+  auth_token_env: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING
   clone_cache_dir: ./data/clones
 
 embedding:

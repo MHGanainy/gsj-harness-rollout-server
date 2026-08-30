@@ -10,17 +10,22 @@
 #   - episode containers reach it at http://host.docker.internal:8790
 #     (--add-host host-gateway, the pinned ADR-0034(d) channel).
 #
-# Secret: GSJ_MCP_TOKEN_SECRET must be present in the invoking environment —
-# compose passes the NAME through; the value never lands in a file.
+# Secrets: GSJ_MCP_TOKEN_SECRET and GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING (CP-58:
+# the read credential config.yaml's source.auth_token_env names — the estate
+# requires sign-in for read) must be present in the invoking environment;
+# compose passes the NAMES through, the values never land in a file.
 name: gsj-mcp-service
 services:
   mcp:
-    image: gsj-mcp-service:0.3.0   # 0.3.0 = CP-15, the ChromaDB backend
+    image: gsj-mcp-service:0.4.0   # 0.4.0 = CP-58: CP-57's configurable encoder +
+                                   # the store identity, config.yaml with the read
+                                   # credential baked (0.3.0 = CP-15, ChromaDB)
     container_name: gsj-mcp-service
     network_mode: host
     user: "1000:1000"
     environment:
       GSJ_MCP_TOKEN_SECRET: ${GSJ_MCP_TOKEN_SECRET:?set GSJ_MCP_TOKEN_SECRET in the environment}
+      GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING: ${GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING:?export the read token (cat estate/forgejo/.token-gsj-staging-read) — the index build clones with it}
     volumes:
       - ./data:/app/data          # clone cache + index survive restarts
     restart: unless-stopped

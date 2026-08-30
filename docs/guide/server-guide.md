@@ -209,9 +209,9 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 | verb | runs |
 | --- | --- |
 | `up` | Forgejo compose up, health wait (90 s), admin `gsj-admin`, API token → `forgejo/.token` |
-| `owner <name>` | pipeline owner + push token → `forgejo/.token-<name>`; prints the export line |
+| `owner <name>` | pipeline owner + push token → `forgejo/.token-<name>` + read-scoped clone token → `forgejo/.token-<name>-read` (CP-56); prints both export lines |
 | `down [--wipe]` | compose down; `--wipe` also deletes `forgejo-data/` and `.token` |
-| `mcp-up` / `mcp-down` | retrieval service compose up/down; refuses without `GSJ_MCP_TOKEN_SECRET` exported |
+| `mcp-up` / `mcp-down` | retrieval service compose up/down; refuses without `GSJ_MCP_TOKEN_SECRET` and `GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING` exported (the index build clones under sign-in, CP-58) |
 | `serve <0.6b\|llama31>` | vLLM via SSH to the serving host |
 | `serve-updated <dir>` | serve a trainer's HF-format export under the same served name |
 | `health` | `/health`, `/v1/models`, one full tool round trip |
@@ -223,7 +223,12 @@ Bring-up order (steps 3 and 5 are the corpus pipeline, not verbs):
 cd estate
 ./estate.sh up && ./estate.sh owner gsj-staging
 export GSJ_FORGEJO_TOKEN_GSJ_STAGING="$(cat forgejo/.token-gsj-staging)"
+export GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING="$(cat forgejo/.token-gsj-staging-read)"   # every read under sign-in (CP-58)
 export GSJ_MCP_TOKEN_SECRET='<the shared secret>'
+# FRESH or --wipe'd estate only (the H200's four repos exist — skip): scaffold's post-push
+# ls-remote still reads anonymously (not lifted at CP-58) and dies with a traceback under
+# sign-in — run it with REQUIRE_SIGNIN_VIEW: "false" in forgejo/docker-compose.yml + ./estate.sh up,
+# then restore "true" and ./estate.sh up again (recreates Forgejo closed):
 python3 corpus/ingest_corpus.py scaffold --corpus corpus/staging
 ./estate.sh mcp-up
 python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
@@ -233,7 +238,7 @@ python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
 The three networking traps:
 - **The clone happens inside the sandbox.** `clone_url_for` must resolve from the episode container; with `runtime.network` unset or wrong, every episode dies at its `git` setup step with `PiHarness setup failed` after consuming the attempt. The cure is `runtime.network: gsj-staging-net`. If the estate requires sign-in for read (below) and `clone_credential_env` is unset or its token wrong, the same setup step dies with a `git ... Authentication failed`.
 
-**Closing anonymous read (CP-56).** By default the estate serves anonymous git read, so a sandbox agent that guesses `…/gsj-staging/<case>.git` can re-clone past its cutoff. To close it: mint the read token (`estate.sh owner gsj-staging` now prints a `GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING` export beside the push one), export it, uncomment both `estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW` line and `rollout.h200.yaml`'s `clone_credential_env` key, and `estate.sh up`. **Order matters:** the pipeline's scaffold/verify and a cold MCP index all read anonymously (frozen this CP), so scaffold and build the index *first*, then flip sign-in on. The two re-clone channels then return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`).
+**Closing anonymous read (CP-56; the reference estate ships closed since CP-58).** An estate serving anonymous git read lets a sandbox agent that guesses `…/gsj-staging/<case>.git` re-clone past its cutoff. The reference estate now requires sign-in for every read (`estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW: "true"`) and every reader presents the one read-scoped token `estate.sh owner gsj-staging` mints (`GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING`): the sandbox clone via `rollout.h200.yaml`'s `clone_credential_env`, the MCP index build via `config.yaml`'s `source.auth_token_env`, and the pipeline's verify clone-back — so the bring-up is one shot, no anonymous-first phase. The two re-clone channels return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`). Not defended: the model endpoint and the retrieval service, which the agent must reach. Still anonymous, outside CP-58's lift: any *scaffold*'s (first or repeat) post-push `ls-remote` convergence check — under sign-in it is refused after the first case's push and escapes as an uncaught `CalledProcessError` traceback (`main` catches only `PipelineError`), so a fresh or wiped estate scaffolds with sign-in temporarily off (the bring-up block above); the one-argument follow-up is named in `estate/README.md`.
 - **`host.docker.internal` never resolves in an episode** — Polar's Docker runtime passes only `--network`, never `--add-host`. Address host-bound services by the compose network's gateway IP, `172.28.9.1` (not `172.17.0.1`).
 - **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`.
 
@@ -276,7 +281,7 @@ python -m gsj_rollout.ingest_corpus validate --corpus /path/to/corpus
 
 ## The retrieval service
 
-`estate/mcp-service/` (package `gsj_mcp_service`, image `gsj-mcp-service:0.3.0`, run `python -m gsj_mcp_service --config config.yaml`, shipped bind `0.0.0.0:8790`, `network_mode: host`). It indexes the **full** document of every case once (the configured, revision-pinned embedding model — MiniLM by default — → ChromaDB) and applies the cutoff at query time. Depth and the full `config.yaml` reference: [estate/mcp-service/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/mcp-service/README.md).
+`estate/mcp-service/` (package `gsj_mcp_service`, image `gsj-mcp-service:0.4.0`, run `python -m gsj_mcp_service --config config.yaml`, shipped bind `0.0.0.0:8790`, `network_mode: host`). It indexes the **full** document of every case once (the configured, revision-pinned embedding model — MiniLM by default — → ChromaDB) and applies the cutoff at query time. Depth and the full `config.yaml` reference: [estate/mcp-service/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/mcp-service/README.md).
 
 ![Three doors: /health open, /admin/reindex behind the admin token, /mcp/token behind the episode token](img/mcp-surface.png)
 
