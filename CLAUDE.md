@@ -2,12 +2,12 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.2** (wheel-only: `gsj_rollout/`, both pins sets, `ingest_corpus.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-69, next fresh id F-70). The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.4** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `bringup.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78, next fresh id F-79). The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays under 2,000 lines (raised from 1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved components (`estate/corpus/`, `estate/mcp-service/`, `estate/forgejo/` — under `estate/` since CP-50). Standing at CP-39: **1,999/2,000, headroom 1** — a checkpoint that pushes past it must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
+2. **Size budget**: our own code stays within its 2,000-line budget (raised from 1,500 at CP-12, ADR-0012); the census is `wc -l gsj_rollout/*.py` — everything else (vendored Polar, tests, all of `estate/` incl. `bringup.py` — one roof since CP-50) sits outside it. Standing at CP-62: **2,000/2,000, headroom 0** (at budget since CP-56) — a checkpoint that adds any net line must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
 3. **The predecessor is frozen — historical since CP-45.** No checkpoint CP-00–CP-44 modified `gsj-envloader`, and it reached the archive byte-untouched; CP-45 made the single permitted write (the README archive header, one commit past v0.8.0, ADR-0026) and set the GitHub repo to archived, so the freeze is platform-enforced from here. Read it and compare against it freely — it must stay readable as the goldens' collecting stack.
 4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe (`vendor/REVENDOR.md`), expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
@@ -20,7 +20,7 @@
 
 ## Workflow
 
-**The development record is untracked since CP-48** (the operator's decision, taken on CP-47's classification): `docs/prompts/`, `docs/reports/`, `docs/decisions/`, the audit, the classification, and the non-load-bearing `golden/`/`polar/` evidence are `.gitignore`d — since CP-49a no prompt is tracked (`CP-48.md`, the last one, untracked at the operator's direction). The practice otherwise continues unchanged: work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` — on disk, ignored, never committed. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below and prints it — printing is now the report's only publication; the file stays on disk, untracked. Each CP makes one commit `CP-XX: <summary>` covering tracked material only and leaves the tree clean — since CP-48 `git status --porcelain` comes back empty because the record paths are *ignored*, not because the record was committed: an empty porcelain no longer certifies the record is anywhere but this disk. The record has no remote; the operator's working tree (and whatever backup the operator keeps) is the only copy — do not delete record files, ever. **A CP ends at the remote, not the working tree: push every repo the CP touched before the report claims done (charter §8 rule 8 — written at CP-33 and then ignored three CPs running, CP-36–38, found at CP-39), and state the push outcome in the report either way — silence is non-compliance.** **Every CP updates the gap register in `docs/CHARTER.md` §7** — the charter stays tracked, so the §7 append is the one part of each CP's record that still reaches the remote. ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence — untracked like the rest of the record since CP-48.
+**The development record is untracked since CP-48** (the operator's decision, taken on CP-47's classification): `docs/prompts/`, `docs/reports/`, `docs/decisions/`, the audit, the classification, and the non-load-bearing `golden/`/`polar/` evidence are `.gitignore`d — since CP-49a no prompt is tracked (`CP-48.md`, the last one, untracked at the operator's direction). The practice otherwise continues unchanged: work happens only inside numbered CP prompts, one at a time, saved verbatim to `docs/prompts/CP-XX.md` — on disk, ignored, never committed. Each CP ends with a hard STOP wall — never begin the next CP even if obvious. Mid-CP questions: choose a best-guess default, proceed, list it under `questions:`. Every CP writes `docs/reports/CP-XX.md` in the exact template below and prints it — printing is now the report's only publication; the file stays on disk, untracked. Each CP makes one commit `CP-XX: <summary>` covering tracked material only (a release CP makes two: the release commit, tagged once its CI is green, then the record commit carrying the run ids — the CP-34/CP-60 shape) and leaves the tree clean — since CP-48 `git status --porcelain` comes back empty because the record paths are *ignored*, not because the record was committed: an empty porcelain no longer certifies the record is anywhere but this disk. The record has no remote; the operator's working tree (and whatever backup the operator keeps) is the only copy — do not delete record files, ever. **A CP ends at the remote, not the working tree: push every repo the CP touched before the report claims done (charter §8 rule 8 — written at CP-33 and then ignored three CPs running, CP-36–38, found at CP-39), and state the push outcome in the report either way — silence is non-compliance.** **Every CP updates the gap register in `docs/CHARTER.md` §7** — the charter stays tracked, so the §7 append is the one part of each CP's record that still reaches the remote. ADRs are append-only in `docs/decisions/`, one file per decision (`ADR-0001-title.md`), Context → Decision → Consequence — untracked like the rest of the record since CP-48.
 
 ```
 ### CP-XX REPORT
@@ -48,7 +48,7 @@ next: <advisory>
 ├── CLAUDE.md
 ├── README.md                    # the two-role split: server side needs an estate; trainer side is the pip library
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
-├── pyproject.toml               # 0.1.2; wheel force-includes both pins sets + ingest_corpus.py
+├── pyproject.toml               # 0.1.4; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + bringup.py
 ├── docs/
 │   ├── guide/                   # the user documentation: plain Markdown pages + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
@@ -56,12 +56,12 @@ next: <advisory>
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
 │   ├── corpus-contract.md       # the corpus tree contract
 │   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — UNTRACKED since CP-48
-│   ├── decisions/               # ADRs (0001–0026), one file per decision, append-only — UNTRACKED since CP-48
+│   ├── decisions/               # ADRs (0001–0027), one file per decision, append-only — UNTRACKED since CP-48
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — fully UNTRACKED since CP-49a (CP-48.md came out too)
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
 │   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
 │   └── polar/                   # real Polar run artifacts — only the 7 suite/CI/walk-read bodies tracked since CP-48
-├── gsj_rollout/                 # 1,999 lines — the whole server
+├── gsj_rollout/                 # 2,000 lines — the whole server
 │   ├── __init__.py              # consumer surface: RolloutClient/Trace, checks, load_config/RunConfig
 │   ├── pi_harness.py            # SERVER — our pi via Polar import_path
 │   ├── builder.py               # SERVER — ValidatingPrefixMergingBuilder, loaded by import-path string
@@ -70,17 +70,19 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 161 tests across 9 modules (CI adds corpus 58 + mcp-service 89)
-├── pins/                        # the approved sets (reference + thinking-on/) + derive scripts — single source for the wheel copies
+├── tests/                       # root suite: 164 tests across 9 modules (CI adds corpus 67 + mcp-service 107)
+├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 ├── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
 │   ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
-│   ├── estate.sh                #   the thin front door: up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
+│   ├── estate.sh                #   the thin front door: bringup | up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
+│   ├── bringup.py               #   corpus -> running estate in one command (CP-59; outside the size law; force-included into the wheel as gsj_rollout.bringup since CP-60)
+│   ├── runs/                    #   bringup.py per-run directories (.env, run.json, traces) — ignored
 │   ├── rollout.h200.yaml        #   the one YAML for the H200 estate
 │   ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
 │   ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
-│   ├── mcp-service/             #   the retrieval service — own suite (89), venv, Dockerfile, GHCR image
-│   └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (58) + staging/ (163 frozen fixture files)
+│   ├── mcp-service/             #   the retrieval service — own suite (107), venv, Dockerfile, GHCR image
+│   └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (67) + staging/ (163 frozen fixture files)
 └── spike/                       # frozen CP-06 spike evidence
 ```
 
@@ -88,11 +90,11 @@ Commands:
 
 ```
 pip install -e ".[dev]"
-pytest -q                                  # the root suite: 161
+pytest -q                                  # the root suite: 164
 gsj-rollout serve --config <yaml>          # renders topology.rendered.yaml, prints the two Polar
                                            # commands (operator-run), then runs OUR receiver
 gsj-rollout submit --config <yaml> \
   --case … --timestep … --prompt …         # or --from-bank <parquet> [--row N]
                                            # submit + poll + collect; exit 0 all / 1 partial / 2 usage / 3 unreachable
-estate/estate.sh --help                    # the estate front door (server side): each verb execs an existing script
+estate/estate.sh --help                    # the estate front door (server side): each verb execs an existing script or compose in place
 ```

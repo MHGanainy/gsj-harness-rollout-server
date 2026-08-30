@@ -4,7 +4,7 @@ import gsj_rollout
 
 
 def test_version():
-    assert gsj_rollout.__version__ == "0.1.3"
+    assert gsj_rollout.__version__ == "0.1.4"
 
 
 def test_consumer_surface():

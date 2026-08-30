@@ -2421,6 +2421,59 @@ the ride, (f)/(g) on the `cli.py` allowance with 37); 37 not fired
 commits — the report carries the hashes and the CI run. Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-63] Release 0.1.4, and CLAUDE.md — wishlist 51's wheel half DONE
+(the park fired; re-tokened on the `cli.py` allowance), row 52 annotated
+(published). Touched here: the three version literals (`pyproject.toml`,
+`gsj_rollout/__init__.py`, `tests/test_scaffold.py` — 0.1.3 → 0.1.4),
+`CLAUDE.md` (the repair below), `README.md`,
+`docs/guide/{README,trainer-guide}.md` (the three current-state 0.1.3
+literals), `docs/VERDICT.md` (rows 51/52), this §7; the demo (floors to
+`>=0.1.4`, the retired pre-guard, the README mirror recipe as history).
+NOT touched: `gsj_rollout/` source (`wc -l` 2,000/2,000 — the version
+literal replaces a line), `vendor/`, `estate/`, `pins/`, `tests/` beyond
+the version assertion, `.github/` (the CI labels did not move — 164/67/107
+stand since CP-60), the examples repo — its bare `README.md:5` "PyPI
+0.1.2" stays open for its next sitting, two releases stale now.**
+**CLAUDE.md, first** — four checkpoints stale and injected into every
+session (the CP-39 failure at a shorter interval); every claim verified
+against the tree, not the prompt's list, by a ten-agent sweep: the
+version 0.1.2 → 0.1.4 with the wheel's real contents (18 entries — the
+G2 container capture and `bringup.py` were missing from the clause); the
+census "Standing at CP-39: 1,999/2,000, headroom 1" → CP-62's
+2,000/2,000, headroom 0 (at budget since CP-56), the law's "stays under
+2,000 lines" reworded to "stays within its 2,000-line budget" with the
+census named (`wc -l gsj_rollout/*.py`) and the exclusion restated as
+all of `estate/` (the three-component enumeration under-described it by
+~2,200 Python lines); the suite counts 161/58/89 → 164/67/107 (root 9
+modules stands); the layout tree gains `estate/bringup.py` and
+`estate/runs/`, `estate.sh`'s verb list gains `bringup`, `pins/` gains
+`container/`, ADRs 0001–0026 → 0001–0027; the demo register F-54–F-69 /
+next F-70 → F-54–F-78 / next F-79 (the examples' F-01–F-53 verified
+unchanged); the one-commit workflow sentence now names the release CP's
+two-commit shape (CP-34/CP-60, applied again here); "each verb execs an
+existing script" → "… or compose in place" (`mcp-up`/`mcp-down` run
+compose directly). Verified true and left alone: POLAR_SHA
+(f0e8343a…/stable/3 patches), `checks.py` 528, staging 163, the
+predecessor, untracking and docs-shelf claims, the report template.
+Kept curated on purpose: the tree still omits `LICENSE`, `.github/` and
+`docs/README.md`. **What 0.1.4 ships** — no new force-includes; the
+content of the already-shipped `bringup.py` (CP-62: the 16.0.3 re-pin,
+`--forgejo-image`, `--polar-leg`, `--runs-dir`, the registry
+pull-when-absent, `pins_g1_check` on `checks.PINS_PATH`, the `PROG`
+strings; `ingest_corpus.py` untouched by CP-62). Proven on the built
+artifact before the push: 18 entries, the nine CP-19 exclusions and
+`estate/` absent, `twine check` PASSED, and from a scratch-venv install
+the packaged `FORGEJO_IMAGE` reads `codeberg.org/forgejo/forgejo:16.0.3`
+(digest `7c4e1db4…` and the mirror constant carried) — six proof checks
+green locally. Rule-9 scan at this commit: 70 lines by the DoD's grep
+over `docs/` on disk (38 tracked register — VERDICT 26, this file 12 —
+and 32 untracked; this paragraph spells the token without its colon);
+fired — 51 (the wheel half, as above; its 0.1.4 token was the register's
+last, row 52's being closed history). The run ids and colours, the
+rehearsal, both index install proofs and the demo's from-PyPI timing
+follow in the record commit.**
+
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

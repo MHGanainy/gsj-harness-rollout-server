@@ -20,7 +20,7 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 
 <sub>Left, the server: an estate you operate, the two Polar processes, the receiver. Right, the trainer: the wheel, `RolloutClient`, and the same `checks.py` — because nothing upstream is trusted.</sub>
 
-**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.3) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2, the estate bring-up as `python -m gsj_rollout.bringup` since 0.1.3): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
+**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.4) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2, the estate bring-up as `python -m gsj_rollout.bringup` since 0.1.3): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
 pip install gsj-harness-rollout-server
