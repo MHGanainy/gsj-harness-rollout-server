@@ -2224,8 +2224,32 @@ closed with audit M4 moved to row 50 as source work under its own
 observable event); row 40's "an operator republish … a library release
 does not force it" did not fire by its own wording, but the demo
 checkpoint's `gsj-polar` rebuild is where A-28 makes this release land.
-Frozen-side, recorded: `CLAUDE.md` (above). Tally unchanged: **21 PARITY
-· 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+**The release record** (the CP-34 two-commit shape: `d161672` is the
+tagged release, this amendment is the CP's second commit). Push of
+`d161672`: CI run 33315521689 — root suite (164) green · corpus suite
+(67) green · mcp-service suite (107) green · wheel + packaged-pins
+install proof green. Rehearsal, `workflow_dispatch` on `main` at
+`d161672`: release run 33315532707 — build green (`twine check` PASSED,
+the seven-entry tuple and the six banned prefixes asserted on the
+artifact, `findings: []` / `PROOF OK` from `$RUNNER_TEMP`) · TestPyPI
+green · PyPI **skipped** by the tag gate, as designed. TestPyPI proof,
+a scratch venv outside every repo (`--index-url test.pypi.org`,
+`--extra-index-url pypi.org` for the three deps): 18-entry wheel;
+`checks.validate_session_result` on the CP-09′ body → `[]`; both pins
+sets present; the G2 capture present and `f56e8a6e…` ∈
+`pins.system_prompt_hash`; `python -m gsj_rollout.ingest_corpus validate`
+→ `PASS (12 pass / 0 fail)`; `import gsj_rollout.bringup` → `CHECKOUT=
+False`, `INGEST` the packaged sibling, `RUNS=./runs`. Tag `v0.1.3` at
+`d161672`: release run 33315736384 — build green (`tag v0.1.3 matches
+version 0.1.3`) · TestPyPI green (skip-existing) · **PyPI green**. PyPI
+proof (CP-29's shape): a fresh venv outside every repo, `pip install
+gsj-harness-rollout-server` with no index flags and no local wheel —
+0.1.2 on the first two attempts (index propagation, ~45 s), **0.1.3 on
+the third**; the same five checks and the validate table green from the
+published wheel. Every repo the CP touched is pushed: this one only
+(`main` at the second commit, tag `v0.1.3`); the consumer repos were not
+touched. Frozen-side, recorded: `CLAUDE.md` (above). Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
