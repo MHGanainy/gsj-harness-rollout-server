@@ -12,16 +12,16 @@ It never keeps a trace, computes a reward (`reward` is always `null`), or trains
 
 ![Our eight-module shell above the five Polar packages it drives, the operator-run estate beside them; solid arrows are calls and config, and the two dashed arrows — agent.import_path and builder.strategy — are Polar importing our code by string](img/component-map.png)
 
-<sub>Three regions: our 1,999-line shell, the ~14,200-line vendored Polar layer beneath it, the estate beside both. The two dashed arrows are the only places Polar reaches into our code.</sub>
+<sub>Three regions: our 2,000-line shell, the ~14,200-line vendored Polar layer beneath it, the estate beside both. The two dashed arrows are the only places Polar reaches into our code.</sub>
 
 | role | needs | uses |
 |---|---|---|
 | **Server** | an estate (inference engine, Forgejo git host, retrieval service, ingested corpus) + this repo + Polar's venv | `gsj-rollout serve`, two Polar processes, `pi_harness.py`, `builder.py`, `receiver.py` |
 | **Trainer** | `pip install gsj-harness-rollout-server` (Python ≥ 3.12; pydantic + httpx) — no estate, no Polar | `gsj_rollout.RolloutClient`, `gsj_rollout.checks` |
 
-The published wheel serves the trainer role only — `gsj_rollout/`, both pins sets, `ingest_corpus.py`, no `vendor/` — so it cannot run an episode by itself.
+The published wheel serves the trainer role only — `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py` and (since 0.1.3) `bringup.py`, no `vendor/` — so it cannot run an episode by itself: `python -m gsj_rollout.bringup` stands an estate up from a corpus, but Polar's two processes are still the operator's.
 
-**Ours** — `gsj_rollout/`, 1,999 lines under a hard 2,000-line budget:
+**Ours** — `gsj_rollout/`, 2,000 lines under a hard 2,000-line budget (headroom 0 since CP-56):
 
 | module | side | what it does |
 |---|---|---|

@@ -4,7 +4,7 @@ Promoted from `spike/pi_harness_spike.py` (CP-06) per ADR-0006, which is
 the contract this module implements: `AgentSpec.settings` is the input
 channel (roster, clone URL, MCP base, token parameters — never argv
 literals, row 31); the per-episode cutoff token is minted host-side in
-`run_steps()` with stdlib HS256 (the `corpus/ingest_corpus.py` ADR-0041
+`run_steps()` with stdlib HS256 (the `estate/corpus/ingest_corpus.py` ADR-0041
 recipe; claims `{case_id, timestep, episode_id, exp}`, `episode_id` = the
 Polar session id) and enforced server-side by the MCP service from
 verified claims only; `postprocess()` is the only artifact exit.
@@ -75,7 +75,7 @@ def _strip_credentials(url: str) -> str:
 
 
 def _mint_episode_token(case_id: str, timestep: int, episode_id: str, ttl_s: int, secret: str) -> str:
-    """Stdlib HS256 JWT — the ADR-0041 mint recipe (`corpus/ingest_corpus.py:797-810`),
+    """Stdlib HS256 JWT — the ADR-0041 mint recipe (`estate/corpus/ingest_corpus.py` `mint_admin_token`),
     episode claim set. PyJWT deliberately not added to Polar's venv (ADR-0006, A-14)."""
 
     def b64(raw: bytes) -> bytes:

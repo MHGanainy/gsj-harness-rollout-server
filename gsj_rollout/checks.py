@@ -89,7 +89,7 @@ ALLOWED_FINISH_REASONS = frozenset({"stop", "tool_calls", "stop_sequence", "leng
 # ADR-0015: a tuple, not a frozenset — membership must not hash wire content.
 ALLOWED_SPLITS = ("train", "eval")
 
-# The binding compatibility contract (`mcp-service/README.md`; spec §G5).
+# The binding compatibility contract (`estate/mcp-service/README.md`; spec §G5).
 _PAGE_MEMBER = re.compile(r'"page"\s*:\s*(\d+)')
 _PAGE_FILE = re.compile(r"md/page_(\d{4})\.md")
 _TIMESTEP_MEMBER = re.compile(r'"timestep"\s*:\s*(\d+)')

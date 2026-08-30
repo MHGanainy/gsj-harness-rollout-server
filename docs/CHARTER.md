@@ -2145,6 +2145,88 @@ done: `bootstrap.py` should become a config-writer that calls
 release with row 44). Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP ·
 1 BETTER · 1 TBD**.
 
+**[CP-60] Release 0.1.3 — no row moves in the tally; three parks fire
+(wishlist 36, 44, 48 each waited on this CP) and the wheel goes 16 → 18
+entries (touched: `pyproject.toml` — 0.1.3, two force-includes and their
+sdist entries, the ADR-0027 sdist note; `gsj_rollout/__init__.py` — the
+literal; three `gsj_rollout/` comments rewritten in place — `wc -l`
+2,000 before and after, `checks.py` 528; `estate/corpus/ingest_corpus.py`
+— the five predecessor `ADR-0047` cites and the lock's runtime string,
+comments and strings only; `estate/bringup.py` — a two-way layout shim,
+the one declared excursion; `.github/workflows/release.yml` — the
+required tuple 5 → 7; `.github/workflows/ci.yml` — the labels 161/58/89
+→ 164/67/107; `tests/test_wheel_pipeline.py` +3, `tests/test_scaffold.py`;
+`README.md`, `docs/guide/`, ADR-0027).** The version sweep, recounted:
+41 lines carrying `0.1.2` outside the record across the three repos —
+CP-34 counted ~27 — (21 here excluding `vendor/polar/uv.lock`'s unrelated
+`mdurl`, 9 in the examples, 11 in the demo). Moved, current-state: `pyproject.toml`, `__init__.py`,
+`test_scaffold.py`, `README.md:43`, `docs/guide/{trainer-guide:9,
+README:23}`. Left, dated-historical (CP-49's footnote clause): the §3
+[CP-34] note, the §7 [CP-34]/[CP-41]–[CP-45] paragraphs, A-28's image tag
+(the published image IS still `gsj0.1.2` until the demo rebuilds it),
+wishlist 28's history, `release.yml:93`'s comment; eight of the nine
+examples literals carry "as of library CP-34" (or CP-41) and are
+historical by construction — the ninth, examples `README.md:5` ("PyPI
+0.1.2"), is a bare current-state claim that the examples repo's next CP
+moves (not lifted here). Left, **current-state and frozen-side,
+recorded**: `CLAUDE.md:5` and `:51` ("0.1.2", and their wheel-contents
+clause — both pins sets + `ingest_corpus.py`, now also the G2 capture and
+`bringup.py`), `:64` ("1,999 lines" — 2,000 since CP-56), its
+`161`/`58`/`89` counts and its layout tree (no `bringup.py`, `runs/`, or
+the `bringup` verb) — CP-59's class, one CP older. Also moved, in lifted
+paths and pre-existing: the "1,999" census in `README.md:6`,
+`docs/guide/how-it-works.md:15/:24` → 2,000 (README.md:75's audit row is
+dated and stays); `docs/guide/img/wheel-contents.png` still renders
+0.1.2's four crossings (the deck lives outside the repo — the alt text
+says so until the diagrams dir re-renders it). The demo's literals are a floor (`>=0.1.2`, satisfied by 0.1.3)
+and the image tag (`gsj0.1.2` — true of the published image; A-28 says the
+demo checkpoint rebuilds it at `LIB_VERSION=0.1.3`): neither is a lie
+today, both are the demo checkpoint's to move. **The size law, argued
+before the force-include**: §3's measure has been `wc -l gsj_rollout/*.py`
+at every budget note since CP-10; a force-include is a build-time copy
+that adds no line to it; ADR-0027 decision 3 rejected moving the
+pipeline INTO `gsj_rollout/` precisely because that would enter the
+census while the force-include's *source key* does not; and CP-59
+landed `estate/bringup.py` at 1,893 lines with the census reported
+2,000/2,000 and no ADR — the file's home was ruled outside the law when
+it was written, and packaging does not move a home. The reading holds;
+no ADR. **The finding the artifact gave**: the bring-up was not
+standalone by construction — the pre-shim 0.1.3 wheel died at `import
+gsj_rollout.bringup` (`bringup.py:72: ModuleNotFoundError: No module
+named 'ingest_corpus'`), a packaging failure, not workflow or metadata:
+the file found the pipeline (import and subprocess path) and `runs/`
+relative to `estate/`. The cure is inside the file (row 48 carries the
+inventory: `CHECKOUT`, `INGEST = ic.__file__`, `RUNS` = `./runs` from the
+wheel, the record's script name, the Polar line of the closing
+printout; after the review, the pyarrow refusal's remedy — `pip install
+pyarrow` from the wheel, where `estate/corpus/requirements.txt` does not
+exist), pinned by a root-suite test that imports the wheel layout with
+the checkout off the path; the remaining wheel-shape residuals are
+inventoried in row 48 for the demo checkpoint. **The scaffold fix rides**: CP-59's
+one-argument change to `phase_scaffold` (`resolve_read_auth` on the
+post-push read-back) has been checkout-only since 2026-08-30 and reaches
+PyPI in this wheel — the fix that lets a consumer's `bringup.py`
+scaffold a closed estate. **The CI labels**: wishlist row 46 names the
+mcp-service label as a related frozen-side item (annotated: the label
+half fixed, the cache-key half unchanged); no row named the corpus
+label (CP-55 and CP-57 recorded both in report prose and in the
+[CP-57]/[CP-58] paragraphs above); fixed here with `.github/` lifted —
+the root label moves too, 161 → 164 for the three CP-60 tests, against
+Step 5's "161 (correct)". `release.yml`'s header parenthetical ("the
+`estate/` components ship in neither artifact") was false since CP-50 —
+the sdist carries the two force-included files at their `estate/` paths
+— and is reworded in the same lifted file. **ADR-0027's
+consequence stated**: the pipeline's path inside the sdist moved at
+CP-50; publication is wheel-only, so no published artifact ever carried
+the old path. Rule-9 scan: 59 `waiting-on:` tokens; fired — 36, 44, 48
+(annotated above: 36 and 48 re-parked on the demo checkpoint F-70, 44
+closed with audit M4 moved to row 50 as source work under its own
+observable event); row 40's "an operator republish … a library release
+does not force it" did not fire by its own wording, but the demo
+checkpoint's `gsj-polar` rebuild is where A-28 makes this release land.
+Frozen-side, recorded: `CLAUDE.md` (above). Tally unchanged: **21 PARITY
+· 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

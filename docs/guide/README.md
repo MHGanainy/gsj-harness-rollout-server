@@ -6,7 +6,7 @@ The rollout server turns one task triple `(case, timestep, prompt)` into one val
 
 The server runs a pinned coding agent (pi 0.83.0) in an isolated sandbox in which everything the agent can see — the git checkout and the retrieval service — is truncated at `timestep`, captures every token and logprob the model produced, and emits one validated trace. That is the whole job: **task → sandbox → agent → trace**. It stores no traces, schedules no work, computes no rewards (every callback carries `reward: null`), and never touches weights or training — those belong to the trainer that calls it.
 
-Episode execution and trajectory reconstruction come from NVIDIA's Polar ([`NVIDIA-NeMo/ProRL-Agent-Server`](https://github.com/NVIDIA-NeMo/ProRL-Agent-Server)), vendored by SHA with three carried patches; our code is the 1,999-line shell — harness, builder, receiver, config, CLI, checks — that points Polar at our corpus, our retrieval service, our agent, and our checks. The property the server exists for is the cutoff: `timestep` is a boundary the agent cannot cross, enforced twice (a shallow checkout of branch `timestep-T`; a signed token the retrieval service verifies before filtering to pages `≤ T`) and audited after the fact from the trace alone — see [how-it-works.md](how-it-works.md).
+Episode execution and trajectory reconstruction come from NVIDIA's Polar ([`NVIDIA-NeMo/ProRL-Agent-Server`](https://github.com/NVIDIA-NeMo/ProRL-Agent-Server)), vendored by SHA with three carried patches; our code is the 2,000-line shell — harness, builder, receiver, config, CLI, checks — that points Polar at our corpus, our retrieval service, our agent, and our checks. The property the server exists for is the cutoff: `timestep` is a boundary the agent cannot cross, enforced twice (a shallow checkout of branch `timestep-T`; a signed token the retrieval service verifies before filtering to pages `≤ T`) and audited after the fact from the trace alone — see [how-it-works.md](how-it-works.md).
 
 ![The overall shape: a task enters from the training loop, Polar runs the agent in a sandbox fed by the operator's estate, and the receiver validates the resulting trace](img/overview-shape.png)
 
@@ -20,7 +20,7 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 
 <sub>Left, the server: an estate you operate, the two Polar processes, the receiver. Right, the trainer: the wheel, `RolloutClient`, and the same `checks.py` — because nothing upstream is trusted.</sub>
 
-**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.2) is the client plus the validators: no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
+**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.3) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2, the estate bring-up as `python -m gsj_rollout.bringup` since 0.1.3): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
 pip install gsj-harness-rollout-server

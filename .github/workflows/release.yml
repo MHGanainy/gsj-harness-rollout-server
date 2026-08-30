@@ -11,7 +11,8 @@
 #
 # WHAT IT DELIBERATELY DOES NOT DO — it does not re-run CI. No corpus suite, no
 # mcp-service suite, no matrix. Those guard components that are not in the
-# artifact (the `estate/` components ship in neither the wheel nor the sdist),
+# artifact (the `estate/` suites ship in neither; the two `estate/` files the
+# wheel force-includes ride the sdist at their `estate/` paths — CP-50/CP-60),
 # and re-running them here would buy a slower tag and the same answer CI already
 # gave on `main`. What this workflow re-runs is the wheel job ONLY — build,
 # exclusions, install proof — because that is the job whose subject IS the thing
@@ -91,11 +92,15 @@ jobs:
           # only guard: the in-suite tests that watch the two later entries run
           # on CI, which this workflow deliberately does not re-run (CP-39; the
           # tuple sat two short after 0.1.1's thinking-on pins and 0.1.2's
-          # ingest_corpus.py, noted one short at CP-33).
+          # ingest_corpus.py, noted one short at CP-33; seven since CP-60's
+          # G2 capture and bringup.py — extended in the SAME commit that
+          # added the force-includes, the lesson of CP-39).
           for required in ("gsj_rollout/checks.py", "gsj_rollout/client.py",
                            "gsj_rollout/pins/pins.gsj.json",
                            "gsj_rollout/pins/thinking-on/pins.gsj.json",
-                           "gsj_rollout/ingest_corpus.py"):
+                           "gsj_rollout/pins/container/system_prompt.container.derived.txt",
+                           "gsj_rollout/ingest_corpus.py",
+                           "gsj_rollout/bringup.py"):
               assert required in names, f"{required} missing from the wheel"
           print("\n".join(sorted(names)))
           PY

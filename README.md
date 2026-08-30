@@ -3,7 +3,7 @@
 [![CI](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml)
 
 A rollout server for the gsj corpus: given a task `(case, timestep, prompt)`, it runs a pinned coding agent (pi 0.83.0) in an isolated sandbox whose git checkout and retrieval are both truncated at `timestep`, captures every token and logprob the model produced, and emits one validated, training-ready trajectory — **task → sandbox → agent → trace**, nothing else (no storage, scheduling, rewards, weights, versioning, or training; those belong to the trainer that calls it).
-Episode execution and trajectory reconstruction are NVIDIA's Polar, vendored by commit with three carried patches; our own code is the 1,999-line shell that points Polar at our corpus, retrieval service, agent, and checks. The evaluation behind it ended in **ADOPT** (provisional 2026-08-09, converted 2026-08-11 on production hardware) — [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) is the standalone statement, with the conditions that would reverse it.
+Episode execution and trajectory reconstruction are NVIDIA's Polar, vendored by commit with three carried patches; our own code is the 2,000-line shell that points Polar at our corpus, retrieval service, agent, and checks. The evaluation behind it ended in **ADOPT** (provisional 2026-08-09, converted 2026-08-11 on production hardware) — [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) is the standalone statement, with the conditions that would reverse it.
 
 ![One task enters from the training loop, Polar runs the agent in a sandbox fed by the operator's estate, the trace is reconstructed, checked, and either accepted or quarantined](https://raw.githubusercontent.com/MHGanainy/gsj-harness-rollout-server/main/docs/guide/img/overview-shape.png)
 
@@ -40,7 +40,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 
 | | Server role | Trainer role |
 | --- | --- | --- |
-| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.2, wheel-only: `gsj_rollout/`, both pins sets, `ingest_corpus.py`). No `vendor/`, no Polar |
+| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.3, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `bringup.py`). No `vendor/`, no Polar |
 | You run | `gsj-rollout serve --config <yaml>`, then the two printed Polar commands yourself: `serve_rollout` (rollout API + scheduler — the trainer's `base_url`) and `serve_gateway` (gateway + capture proxy, one sandbox per episode, loading `pi_harness.py` and `builder.py` by import path) | `RolloutClient`: `submit` · `wait` · `collect` — `collect` submits, polls `GET /rollout/task/{id}`, re-runs `checks` on every result, returns the `Trace`s of clean sessions |
 | You validate | every callback: clean → `traces/`, bad → `quarantine/` with its findings — the same `checks.py` on both sides of the wire | `checks.validate_session_result(result)` — the identical validators the receiver ran, because nothing upstream is trusted |
 | Start here | [Server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md); an estate from nothing: [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) | [Trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md); a loop against an existing server: [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) + its `RUNBOOK.md` |
@@ -93,7 +93,7 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 | `vendor/polar/` | Polar at the commit in `POLAR_SHA`, patched (`vendor/patches/` P1–P3, `vendor/apply_patches.sh --verify`, re-vendor recipe `vendor/REVENDOR.md`); ships in no artifact |
 | `estate/` | this repository's test estate: `estate.sh` front door, `corpus/`, `mcp-service/`, `forgejo/`, `serving/` — outside the line budget |
 | `docs/` · `pins/` | the guide, the four normative documents, and the seven Polar run bodies CI/tests/pins-walk read; the approved sets (reference + `thinking-on/`) with derive scripts — the single source for the wheel copies |
-| `tests/` · `spike/` | the root suite (161 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/`; frozen evidence from the first feasibility spike |
+| `tests/` · `spike/` | the root suite (164 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/`; frozen evidence from the first feasibility spike |
 
 ## Where the record lives
 
@@ -101,7 +101,7 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 
 ## Licence
 
-Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact: the wheel contains `gsj_rollout/`, the two pins sets, and `ingest_corpus.py` — nothing else, asserted at build time. Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11.
+Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact: the wheel contains `gsj_rollout/`, the two pins sets, the G2 reference capture (`pins/container/system_prompt.container.derived.txt`), `ingest_corpus.py` and `bringup.py` (as `gsj_rollout.ingest_corpus` / `gsj_rollout.bringup`) — nothing else, asserted at build time (18 entries since 0.1.3). Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11.
 
 ## Provenance
 

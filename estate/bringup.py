@@ -64,12 +64,20 @@ except ImportError:
           "  pip install -e '.[dev]'   (from the checkout root)", file=sys.stderr)
     sys.exit(2)
 
-HERE = Path(__file__).resolve().parent           # estate/
+HERE = Path(__file__).resolve().parent           # estate/ — or site-packages/gsj_rollout/
 REPO = HERE.parent
-RUNS = HERE / "runs"
-INGEST = HERE / "corpus" / "ingest_corpus.py"
-sys.path.insert(0, str(HERE / "corpus"))
-import ingest_corpus as ic  # noqa: E402  — the pipeline, as a library
+# CP-60: this file also ships in the wheel as `gsj_rollout.bringup` (force-
+# included, one source). The pipeline is a sibling on both layouts — under
+# estate/corpus/ in the checkout, force-included beside this file from the
+# wheel — and the runs directory must never land inside site-packages.
+CHECKOUT = (HERE / "corpus" / "ingest_corpus.py").is_file()
+if CHECKOUT:
+    sys.path.insert(0, str(HERE / "corpus"))
+    import ingest_corpus as ic  # noqa: E402  — the pipeline, as a library
+else:
+    from gsj_rollout import ingest_corpus as ic  # noqa: E402  — the same file, from the wheel
+INGEST = Path(ic.__file__)
+RUNS = HERE / "runs" if CHECKOUT else Path.cwd() / "runs"
 
 SCHEMA = 1
 FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.2"
@@ -231,17 +239,17 @@ def localhost_to_container(url: str) -> str:
 
 def script_version() -> dict:
     head = run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
-               capture_output=True)
+               capture_output=True) if CHECKOUT else None
     dirty = run(["git", "-C", str(REPO), "status", "--porcelain", "--",
-                 "estate/bringup.py"], capture_output=True)
+                 "estate/bringup.py"], capture_output=True) if CHECKOUT else None
     try:
         import gsj_rollout
         lib = gsj_rollout.__version__
     except ImportError:
         lib = None
-    return {"script": "estate/bringup.py",
-            "commit": (head.stdout.strip() if head.returncode == 0 else None),
-            "dirty": bool(dirty.stdout.strip()),
+    return {"script": "estate/bringup.py" if CHECKOUT else "gsj_rollout.bringup",
+            "commit": (head.stdout.strip() if head and head.returncode == 0 else None),
+            "dirty": bool(dirty and dirty.stdout.strip()),
             "library": lib}
 
 
@@ -1013,7 +1021,8 @@ def cmd_up(args: argparse.Namespace) -> None:
     except ImportError:
         die("pyarrow is not importable from this python.", sys.executable,
             "the taskbank phase's parquet writer",
-            "pip install -r estate/corpus/requirements.txt  (same environment)")
+            "pip install -r estate/corpus/requirements.txt  (same environment)"
+            if CHECKOUT else "pip install pyarrow  (same environment)")
     try:
         import gsj_rollout  # noqa: F401
     except ImportError:
@@ -1252,7 +1261,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         if owner != yaml_owner:
             cmd += ["--owner-override", owner]
         cmd += list(extra)
-        PH.start(phase, f"estate/corpus/ingest_corpus.py {phase}")
+        PH.start(phase, f"{INGEST.name} {phase}")
         penv = {**os.environ, **{k: v for k, v in run_.env.items()
                                  if k in (push_env, read_env, MCP_SECRET_ENV)}}
         proc = run(cmd, env=penv)
@@ -1709,7 +1718,9 @@ def cmd_up(args: argparse.Namespace) -> None:
         for c in changed:
             print(f"    changed:    {c}")
     rel = os.path.relpath(rundir, Path.cwd())
-    polar = REPO / "vendor" / "polar" / ".venv" / "bin" / "polar"
+    # The checkout's Polar venv, with the checkout on PYTHONPATH so Polar's
+    # import_path finds gsj_rollout; from the wheel both are the consumer's.
+    polar = f"PYTHONPATH={REPO} {REPO / 'vendor' / 'polar' / '.venv' / 'bin' / 'polar'}" if CHECKOUT else "polar"
     gsjr = Path(sys.executable).parent / "gsj-rollout"
     gsjr_cmd = str(gsjr) if gsjr.exists() else f"{sys.executable} -m gsj_rollout.cli"
     print(f"""
@@ -1723,8 +1734,8 @@ def cmd_up(args: argparse.Namespace) -> None:
 next — the receiver and Polar's two processes, on this host (three terminals; each sources .env first):
   set -a; . {rel}/.env; set +a
   {gsjr_cmd} serve --config {rel}/rollout.yaml
-  PYTHONPATH={REPO} {polar} serve_rollout -c {rel}/topology.rendered.yaml
-  PYTHONPATH={REPO} {polar} serve_gateway -c {rel}/topology.rendered.yaml
+  {polar} serve_rollout -c {rel}/topology.rendered.yaml
+  {polar} serve_gateway -c {rel}/topology.rendered.yaml
 then one episode (the config's whole claim):
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0
 what stands / stop what this run created:

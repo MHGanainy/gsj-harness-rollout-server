@@ -6,11 +6,11 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 
 ## Install
 
-`pip install gsj-harness-rollout-server` — version **0.1.2**, Python **≥ 3.12**, wheel-only and `py3-none-any`. Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` needs a checkout.
+`pip install gsj-harness-rollout-server` — version **0.1.3**, Python **≥ 3.12**, wheel-only and `py3-none-any`. Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` needs a checkout.
 
-![Four paths cross from the checkout into the wheel — the gsj_rollout package, two pins files, ingest_corpus.py — and a red never-ships row (vendor, estate, spike, tests, docs, .github) crosses nothing](img/wheel-contents.png)
+![Paths cross from the checkout into the wheel — the gsj_rollout package, two pins files, the G2 capture, ingest_corpus.py, bringup.py — and a red never-ships row (vendor, the rest of estate, spike, tests, docs, .github) crosses nothing. The render still shows 0.1.2's four crossings: the deck it comes from lives outside the repo](img/wheel-contents.png)
 
-<sub>What `pip install` delivers: the package plus three data files, force-included at build time; nothing else in the checkout ever ships.</sub>
+<sub>What `pip install` delivers: the package plus five force-included files — three data files (both pins sets and the G2 reference capture under `gsj_rollout/pins/`) and two modules (`gsj_rollout.ingest_corpus`, `gsj_rollout.bringup` — the corpus pipeline and the estate bring-up, whose homes stay `estate/`); nothing else in the checkout ever ships.</sub>
 
 | in the wheel | why |
 | --- | --- |
@@ -18,8 +18,10 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 | `gsj_rollout/pins/pins.gsj.json` | the reference (thinking-off) approved sets, so the trainer leg validates on install |
 | `gsj_rollout/pins/thinking-on/pins.gsj.json` | the thinking-on set, data only — a target for `GSJ_PINS_PATH` on a pip-only estate |
 | `gsj_rollout/ingest_corpus.py` | validate a corpus tree with no clone: `python -m gsj_rollout.ingest_corpus validate --corpus <root>` |
+| `gsj_rollout/pins/container/system_prompt.container.derived.txt` | the G2 reference capture (since 0.1.3) — the singleton whose sha256 IS `pins.system_prompt_hash`; derive your estate's G2 prompt from it instead of a copied file |
+| `gsj_rollout/bringup.py` | corpus → estate with no clone (since 0.1.3): `python -m gsj_rollout.bringup up --corpus <root>` — needs Docker and `pip install pyarrow`; runs land in `./runs/<name>/` |
 
-Never in the wheel: `vendor/`, `estate/`, `tests/`, `docs/`, `spike/`, `.github/`. Inspect one yourself: `pip download gsj-harness-rollout-server --no-deps && unzip -l gsj_harness_rollout_server-*.whl`.
+Never in the wheel: `vendor/`, `estate/` (except the two modules above, force-included under `gsj_rollout/`), `tests/`, `docs/`, `spike/`, `.github/`. Inspect one yourself: `pip download gsj-harness-rollout-server --no-deps && unzip -l gsj_harness_rollout_server-*.whl`.
 
 > [!WARNING]
 > **The pins trap.** The wheel ships the *reference estate's* approved sets, not neutral defaults — on any other estate every hash gate fails `*_not_approved`. From a bare wheel, importing `gsj_rollout.checks` warns once at import:

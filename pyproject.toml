@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gsj-harness-rollout-server"
-version = "0.1.2"
+version = "0.1.3"
 description = "Rollout server for the gsj corpus: task -> sandbox -> agent -> trace, built on NVIDIA Polar."
 readme = "README.md"
 # CP-19 (ADR-0020): Apache-2.0, the same licence the vendored Polar carries, so
@@ -98,6 +98,23 @@ packages = ["gsj_rollout"]
 # with the pipeline (estate/corpus/ingest_corpus.py since CP-50): single source, copied at build time exactly like
 # the pins files above; nothing in gsj_rollout/*.py changed to carry it.
 "estate/corpus/ingest_corpus.py" = "gsj_rollout/ingest_corpus.py"
+# CP-60 (wishlist 36): the G2 reference capture — the docker-mode /workspace
+# SINGLETON whose sha256 IS `pins.system_prompt_hash` — rides beside the pins
+# files, data only, so a bring-your-own estate derives its own G2 prompt from
+# the installed wheel instead of a tripwired copy (the demo carried one from
+# CP-34). Same subdirectory as in `pins/`:
+#   site-packages/gsj_rollout/pins/container/system_prompt.container.derived.txt
+"pins/container/system_prompt.container.derived.txt" = "gsj_rollout/pins/container/system_prompt.container.derived.txt"
+# CP-60 (wishlist 48): the estate bring-up rides the wheel the same way, so a
+# consumer can stand an estate up from a corpus with NO repo clone:
+#   python -m gsj_rollout.bringup up --corpus <root> [--answers <yaml>]
+# Its home stays estate/ (outside the size law — CHARTER §3 counts
+# `wc -l gsj_rollout/*.py`, and a build-time copy adds no line to it; the
+# same reading CP-34 gave ingest_corpus.py and ADR-0027 kept). Unlike the
+# pipeline it was NOT standalone by construction: it found the pipeline and
+# its runs directory relative to the checkout, so the file carries a two-way
+# shim (checkout layout, else the wheel's — CP-60, measured on the artifact).
+"estate/bringup.py" = "gsj_rollout/bringup.py"
 
 # CP-19: the sdist root set is stated EXPLICITLY because the backend's default is
 # "every tracked path", measured here at 4.6 MB / 835 files including
@@ -112,7 +129,11 @@ packages = ["gsj_rollout"]
 # `vendor/polar/LICENSE`, `vendor/polar/pyproject.toml` and 20 vendored
 # `README.md` files. Measured, not assumed (CP-19 Step 3). `only-include`
 # narrows the root set instead of extending it, and the result is
-# `gsj_rollout/` + the one pins file + the root README/LICENSE/pyproject.
+# `gsj_rollout/` + the force-included files + the root README/LICENSE/pyproject.
+# ADR-0027: the pipeline's path INSIDE the sdist moved at CP-50
+# (`corpus/ingest_corpus.py` → `estate/corpus/ingest_corpus.py`); the wheel's
+# entry (`gsj_rollout/ingest_corpus.py`) did not. 0.1.3 is the first release
+# past that move, and publication is still wheel-only.
 #
 # `pins/pins.gsj.json` is listed because the force-include above reads it from
 # the project ROOT — `python -m build` with no flags builds the wheel FROM the
@@ -125,6 +146,8 @@ only-include = [
     "pins/pins.gsj.json",
     "pins/thinking-on/pins.gsj.json",
     "estate/corpus/ingest_corpus.py",
+    "pins/container/system_prompt.container.derived.txt",
+    "estate/bringup.py",
 ]
 
 # Bare `pytest` runs the repo's own suite only; the moved components' suites

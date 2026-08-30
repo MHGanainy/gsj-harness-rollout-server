@@ -1,9 +1,9 @@
 # gsj-harness-rollout-server — continuous integration (CP-18, M5a).
 #
 # WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
-#   * the root suite (161)                  — gsj_rollout/, fixtures, no estate
-#   * the corpus suite (58)                 — the pipeline over its file:// rail
-#   * the mcp-service suite (89)            — Chroma + the pinned MiniLM, localhost
+#   * the root suite (164)                  — gsj_rollout/, fixtures, no estate
+#   * the corpus suite (67)                 — the pipeline over its file:// rail
+#   * the mcp-service suite (107)           — Chroma + the pinned MiniLM, localhost
 #   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
 #   Deliberately NOT here: vendor/polar's own suite, including the four
 #   carried-patch tests REVENDOR.md makes mandatory — those belong to the
@@ -37,7 +37,7 @@ on:
 
 jobs:
   root:
-    name: root suite (161)
+    name: root suite (164)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,7 +48,7 @@ jobs:
       - run: pytest -q
 
   corpus:
-    name: corpus suite (58)
+    name: corpus suite (67)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,7 +67,7 @@ jobs:
         working-directory: estate/corpus
 
   mcp-service:
-    name: mcp-service suite (89)
+    name: mcp-service suite (107)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
