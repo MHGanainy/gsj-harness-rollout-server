@@ -1,6 +1,6 @@
 # gsj-mcp-service image (CP-29, ADR-0040(a)).
 #
-# Self-contained for egress-restricted hosts: the pinned MiniLM snapshot is
+# Self-contained for egress-restricted hosts: the configured embedding model's snapshot is
 # baked at build time and the container runs fully offline (HF_HUB_OFFLINE;
 # Chroma telemetry is disabled in code — Settings(anonymized_telemetry=False)).
 # Build on the workstation, ship with the CP-26 recipe (0.3.0 = CP-15: the
@@ -28,14 +28,18 @@ RUN http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= \
     pip install --no-cache-dir -r requirements.txt \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Bake the pinned embedding model; keep in sync with config.yaml
-# embedding.revision. The runtime never downloads anything.
+# Bake the pinned embedding model; keep BOTH args in sync with config.yaml
+# embedding.model / embedding.revision (CP-57: the model is configuration —
+# a different model is a build arg, not a Dockerfile edit). The runtime
+# never downloads anything: HF_HUB_OFFLINE below, so a config naming a
+# model this image did not bake fails at startup with the id named.
 ENV HF_HOME=/opt/hf-cache
-ARG MINILM_REVISION=1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+ARG EMBEDDING_REVISION=1110a243fdf4706b3f48f1d95db1a4f5529b4d41
 RUN http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= \
     python -c "from huggingface_hub import snapshot_download; \
-    snapshot_download('sentence-transformers/all-MiniLM-L6-v2', \
-    revision='${MINILM_REVISION}')" \
+    snapshot_download('${EMBEDDING_MODEL}', \
+    revision='${EMBEDDING_REVISION}')" \
     && chmod -R a+rX /opt/hf-cache
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 

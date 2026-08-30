@@ -222,3 +222,33 @@ def test_missing_config_file_is_config_error(tmp_path):
     with pytest.raises(ConfigError) as excinfo:
         load_config(tmp_path / "nope.yaml")
     assert "not found" in str(excinfo.value)
+
+
+def test_embedding_revision_must_be_a_full_commit_sha(tmp_path):
+    """A branch or tag is an unpinned identity: HuggingFace can move it
+    under a built index and the fingerprint would never know. The store
+    records the SHA that built it (CP-57), so the config must name one."""
+    for revision in ("main", "v1", REVISION[:7], REVISION.upper()):
+        doc = base_doc()
+        doc["embedding"]["revision"] = revision
+        with pytest.raises(ConfigError) as excinfo:
+            load_config(dump(tmp_path, doc, name=f"config-{revision}.yaml"))
+        assert "revision" in str(excinfo.value)
+        assert "40-hex" in str(excinfo.value)
+
+
+def test_embedding_model_must_look_like_an_hf_id(tmp_path):
+    """The id's SHAPE is validated at config load (`namespace/name` or a bare
+    name); whether it resolves is the encoder's startup check, which names
+    the id — never a first-query failure."""
+    for model in ("", "not a model id", "/leading-slash", "a/b/c",
+                  "sentence-transformers/"):
+        doc = base_doc()
+        doc["embedding"]["model"] = model
+        with pytest.raises(ConfigError) as excinfo:
+            load_config(dump(tmp_path, doc, name="config-bad-model.yaml"))
+        assert "embedding.model" in str(excinfo.value)
+    doc = base_doc()
+    doc["embedding"]["model"] = "BAAI/bge-small-en-v1.5"
+    config = load_config(dump(tmp_path, doc, name="config-other-model.yaml"))
+    assert config.embedding.model == "BAAI/bge-small-en-v1.5"

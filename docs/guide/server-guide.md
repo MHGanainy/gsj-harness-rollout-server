@@ -276,7 +276,7 @@ python -m gsj_rollout.ingest_corpus validate --corpus /path/to/corpus
 
 ## The retrieval service
 
-`estate/mcp-service/` (package `gsj_mcp_service`, image `gsj-mcp-service:0.3.0`, run `python -m gsj_mcp_service --config config.yaml`, shipped bind `0.0.0.0:8790`, `network_mode: host`). It indexes the **full** document of every case once (pinned MiniLM → ChromaDB) and applies the cutoff at query time. Depth and the full `config.yaml` reference: [estate/mcp-service/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/mcp-service/README.md).
+`estate/mcp-service/` (package `gsj_mcp_service`, image `gsj-mcp-service:0.3.0`, run `python -m gsj_mcp_service --config config.yaml`, shipped bind `0.0.0.0:8790`, `network_mode: host`). It indexes the **full** document of every case once (the configured, revision-pinned embedding model — MiniLM by default — → ChromaDB) and applies the cutoff at query time. Depth and the full `config.yaml` reference: [estate/mcp-service/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/mcp-service/README.md).
 
 ![Three doors: /health open, /admin/reindex behind the admin token, /mcp/token behind the episode token](img/mcp-surface.png)
 
@@ -294,7 +294,7 @@ The compatibility contract for any replacement backend:
 - **The G5 result shape.** Every `search_case` hit carries `"page"` as an integer under exactly that key and `"file"` exactly `md/page_NNNN.md`; `checks.py` re-reads results with `"page"\s*:\s*(\d+)` and `md/page_(\d{4})\.md` — renaming either blinds the gate without failing it.
 - **The cutoff, filter-before-rank,** with T from the verified token claims only.
 - **The exemptions are fixed** — `search_decisions`/`decision_stats` exempt, `case_status` reports the token's scope.
-- **The pinned embedder, never the backend's own** — stored vectors must equal the pinned MiniLM revision's output.
+- **The configured, pinned embedder, never the backend's own** — stored vectors must be the configured model's output at its pinned revision (to the measured bound); the store records which model built it and refuses to serve under another until an explicit re-embed (`estate/mcp-service/README.md`, *Indexing, fingerprints and reindex*).
 
 Rule reasoning: [docs/checks-spec.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).
 

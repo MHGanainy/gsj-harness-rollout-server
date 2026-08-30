@@ -21,6 +21,15 @@ source:
   clone_cache_dir: ./data/clones
 
 embedding:
+  # The encoder is configuration (CP-57): any sentence-transformers-loadable
+  # HuggingFace model id, pinned by its full commit SHA (a branch or tag is
+  # refused — it can move under the index). The store records which model
+  # built it (fingerprint.json: embedding {model, revision, dimension}, and
+  # every collection's metadata; a store from before CP-57 is assumed the
+  # MiniLM pin below) and a change here REFUSES to serve until an explicit
+  # re-embed — start once with index.rebuild: always (ADR-0016, CP-57). The default
+  # MiniLM is the model every oracle bound was measured against; a
+  # production re-pin owes its own measurement (A-31).
   model: sentence-transformers/all-MiniLM-L6-v2
   revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41   # HF pin, 2026-08-07
   device: cpu
@@ -28,7 +37,10 @@ embedding:
   normalize: true
 
 chunking:
-  max_tokens: 220        # < MiniLM's 256-token window incl. specials
+  max_tokens: 220        # must fit embedding.model's window minus its specials,
+                         # with headroom: a chunk re-tokenizes a few tokens longer
+                         # than its window — checked at startup and on the real
+                         # chunks after ingest (CP-57); 220 leaves 34 under 256
   overlap: 40
   respect_page_boundaries: true   # contract — false is not a supported mode
 

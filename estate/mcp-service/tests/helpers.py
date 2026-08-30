@@ -38,7 +38,20 @@ CORPUS_ROOT = ESTATE_DIR / "corpus" / "staging"
 BARES_DIR = TESTS_DIR / ".corpus-bares"
 FACT_RE = re.compile(r"^FACT-(?P<case>[a-z0-9_]+)-(?P<page>\d{4})-(?P<k>\d+): .*$")
 
+# The default model — the one every bound in test_backend.py was MEASURED
+# against (ADR-0016 as amended at CP-55/CP-57).
+DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+# The second model (CP-57's proof that the model follows the config): small,
+# CPU-friendly, sentence-transformers-native, and DIFFERENT on both axes the
+# service reads off a model — 768 dims (so the dimension is proven to follow
+# the model, not the 384 the record used to assume) and a 100-token window
+# (so the shipped 220-token chunking is refused for it, and chunking is
+# proven model-dependent). Retrieval quality is not the point.
+SECOND_MODEL = "sentence-transformers/paraphrase-albert-small-v2"
+SECOND_REVISION = "9d490b476eb5291c7885bb6d4961318740493cf2"
+SECOND_DIMENSION = 768
+SECOND_MAX_TOKENS, SECOND_OVERLAP = 96, 16   # 100-token window minus 2 specials
 # >= 32 bytes so PyJWT's HS256 key-length warning never fires.
 SECRET = "gsj-mcp-test-secret-0123456789abcdef0123456789abcdef"
 WRONG_SECRET = "gsj-mcp-wrong-secret-fedcba9876543210fedcba9876543210"
@@ -57,13 +70,27 @@ SERVICE_MODULES = ["gsj_mcp_service", "gsj_mcp_service.config",
 
 sys.path.insert(0, str(SERVICE_DIR))
 
-# Hermetic + fast: the pinned snapshot is on disk, so skip HF network
-# round-trips (only when the snapshot really is cached — never break a
-# cold-cache machine).
-_snapshot = (Path.home() / ".cache" / "huggingface" / "hub" /
-             "models--sentence-transformers--all-MiniLM-L6-v2" / "snapshots" /
-             REVISION)
-if _snapshot.exists():
+# Hermetic + fast: the suite runs OFFLINE once both pinned snapshots are on
+# disk — every model load then makes zero hub requests (before CP-57 a warm
+# machine made none; a load that does reach the hub retries each optional
+# file 5x with backoff and, with the hub unreachable, takes ~2 minutes —
+# the CP-57 review's measurement). The second model is fetched ONCE here,
+# at import, when it is missing and the environment is not already
+# offline (~45 MB — CI's HF cache key is MiniLM-only and never re-saved,
+# so CI pays this per run); the first model still downloads on first
+# embed on a cold-cache machine, as it always has.
+def _snapshot_cached(model: str, revision: str) -> bool:
+    return (Path.home() / ".cache" / "huggingface" / "hub" /
+            f"models--{model.replace('/', '--')}" / "snapshots" /
+            revision).exists()
+
+
+if (not _snapshot_cached(SECOND_MODEL, SECOND_REVISION)
+        and os.environ.get("HF_HUB_OFFLINE", "0") not in ("1", "true", "yes")):
+    from huggingface_hub import snapshot_download
+    snapshot_download(SECOND_MODEL, revision=SECOND_REVISION)
+if (_snapshot_cached(DEFAULT_MODEL, REVISION)
+        and _snapshot_cached(SECOND_MODEL, SECOND_REVISION)):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -137,7 +164,8 @@ BARES_URL = _ensure_bares()
 def write_config(dst_dir: Path, *, repos: list[str], clone_cache_dir,
                  index_path, port: int = 8790, rebuild: str = "if-stale",
                  base_url: str = BARES_URL, max_tokens: int = 220,
-                 overlap: int = 40, name: str = "config.yaml") -> Path:
+                 overlap: int = 40, model: str = DEFAULT_MODEL,
+                 revision: str = REVISION, name: str = "config.yaml") -> Path:
     """A complete, valid config.yaml mirroring the service's own, pointed at
     the local deterministic bares (owner: null => ownerless file:// URLs)."""
     doc = {
@@ -145,8 +173,7 @@ def write_config(dst_dir: Path, *, repos: list[str], clone_cache_dir,
                    "ref_main": "main", "ref_pattern": "timestep-{T}",
                    "auth_token_env": None,
                    "clone_cache_dir": str(clone_cache_dir)},
-        "embedding": {"model": "sentence-transformers/all-MiniLM-L6-v2",
-                      "revision": REVISION, "device": "cpu",
+        "embedding": {"model": model, "revision": revision, "device": "cpu",
                       "batch_size": 32, "normalize": True},
         "chunking": {"max_tokens": max_tokens, "overlap": overlap,
                      "respect_page_boundaries": True},
@@ -164,8 +191,8 @@ def write_config(dst_dir: Path, *, repos: list[str], clone_cache_dir,
 
 def make_state(config_path: Path, encoder=None):
     """Build an AppState in-process (blocking initialize). ``encoder`` lets
-    tests share one loaded MiniLM across states — pure test economy; the
-    Encoder is config-identical in every use."""
+    tests share one loaded model across states — pure test economy; the
+    shared Encoder's model + revision equal the config's in every use."""
     from gsj_mcp_service.config import load_config
     from gsj_mcp_service.state import AppState
     state = AppState(load_config(config_path))

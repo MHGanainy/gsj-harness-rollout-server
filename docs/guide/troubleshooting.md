@@ -73,6 +73,18 @@ The first token of each finding names its family; the complete vocabulary and ea
 > [!WARNING]
 > Pins are read on the first `approved_set()` call and cached for the life of the process. Fixing the file or `GSJ_PINS_PATH` takes effect only on restart — of the receiver *and* the trainer.
 
+## The retrieval service stays `error`
+
+`curl -s <mcp_url_base>/health` answers `{"state": "error", "error": …}` and every tool call gets a `503`. The service refuses at startup rather than serving wrong vectors (all three are named startup errors since CP-57; the service's own reference is `estate/mcp-service/README.md`):
+
+| `error` starts with | Cause → fix |
+|---|---|
+| `StoreMismatchError: EMBEDDING MODEL MISMATCH — refusing to serve. The stored index at … was built by '<model>' @ '<revision>' (<d> dims), but the config names embedding.model …` | `embedding.model`/`revision` changed against an existing store — a re-pin, not staleness. To re-embed with the configured model start once with `index.rebuild: always` (or delete `index.path`); to keep the store, restore the model and revision that built it |
+| `StoreMismatchError: <case>: chroma collection holds <n>-dim vectors but the configured embedding.model embeds at <d> dims` | the store's vectors are another model's (a lost or forged identity record) — same two fixes |
+| `EmbeddingModelError: embedding.model '…' @ embedding.revision '…' could not be loaded (…)` | the id does not exist or is not sentence-transformers-loadable, the revision is not a commit of that repo, or the deployment runs offline (`HF_HUB_OFFLINE=1`, the H200 image) and that snapshot was not baked — rebuild the image with `EMBEDDING_MODEL`/`EMBEDDING_REVISION` |
+| `EmbeddingModelError: chunking.max_tokens <n> does not fit embedding.model '…': its window is <w> tokens including <s> specials` | lower `chunking.max_tokens` well below `w − s`, or configure a model with a larger window — the shipped 220 was sized for MiniLM's 256 |
+| `EmbeddingModelError: <case>: <k> of <n> chunks re-tokenize past embedding.model '…''s <w>-token window (worst: chunk <i>, <t> tokens with specials)` | the static bound passed but the real chunks overflow — a chunk is a character slice that re-tokenizes a few tokens longer than its window; lower `chunking.max_tokens` to leave headroom (220 leaves 34 under 256; a 100-token window wants ≈ 96) |
+
 ## During the episode
 
 A sandbox failure surfaces twice: `Agent execution failed for session <id>` in the gateway log, and a callback session with `status: "ERROR"`, `traces: []`, and the exception in `error` prefixed `agent execution failed: ` — quarantined as `ADM1:status_not_completed:ERROR` + `ADM4:no_traces` + `G7:missing_evidence:reconstruction_stats`. Read `session_result.error` first:

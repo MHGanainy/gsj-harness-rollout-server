@@ -13,13 +13,27 @@ tools need regardless of the vector store: ``<case_id>/chunks.json``
 ``<index.path>/fingerprint.json`` holds the corpus fingerprint that gates
 reuse-vs-rebuild on restart (ADR-0040(c)); since CP-15 it carries the
 Chroma version, so a Chroma upgrade rebuilds loudly instead of failing
-silently (ADR-0016).
+silently (ADR-0016); since CP-57 it also carries the STORE'S IDENTITY —
+``embedding: {model, revision, dimension}``, which model built these
+vectors — read back at every startup and compared with the configured
+model before anything loads (``state.py``): a mismatch is refused, not
+rebuilt over. The same shape as the pins document recording the engine:
+identity written next to the artifact it produced.
 
-Embeddings are ALWAYS supplied explicitly by the pinned MiniLM encoder
-(``embedding.py``); Chroma's own embedding machinery is disabled by a
-raising embedding function on every collection handle — Chroma's default
-EF is a DIFFERENT MiniLM (ONNX) at the same 384 dims, so a silent
-substitution would be plausible-but-wrong (ADR-0016, test-asserted).
+Embeddings are ALWAYS supplied explicitly by the configured encoder
+(``embedding.py``; MiniLM by default, any model since CP-57); Chroma's own
+embedding machinery is disabled by a raising embedding function on every
+collection handle. With the model configurable there are two ways to be
+wrong — Chroma's default EF (an fp32 ONNX export of the default MiniLM
+checkpoint, 384 dims) substituted for the configured model, or a store
+built by one configured model served under another — and both are
+guarded: the first structurally (below) plus the oracle's bound, the
+second by the identity record — written to ``fingerprint.json`` AND
+stamped into every collection's metadata, so it travels with the vectors
+themselves — and, as the belt under those braces, a load-time check that
+each collection's stamp and its stored vectors' width are the loaded
+model's (``_check_collection_identity``) — Chroma would otherwise accept
+the collection and fail at the first query, or not at all.
 
 Result shape (the compatibility requirement any future backend must keep —
 G5's transcript backstop parses it via the library's
@@ -49,19 +63,39 @@ from .ingest import CaseSource, Chunk
 INDEX_FORMAT = 2  # 1 = vectors.npy + numpy scan, retired at CP-15 (ADR-0016)
 CHROMA_VERSION = chromadb.__version__
 
+# The one pin any store written before CP-57 was built by: the model id was
+# the config default in every deployment and the revision the shipped one
+# (the H200 estate's store, the CI stores, every recorded build). A store
+# with no identity record is assumed to be this — so a changed model is
+# refused against it rather than rebuilt over (CP-57 review) — and gets the
+# record backfilled on its first matching reuse.
+PRE_CP57_STORE_IDENTITY = {
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "dimension": 384,
+}
+
 _HNSW_COSINE = {"hnsw": {"space": "cosine"}}  # normalized vecs: score = 1 - d
+
+
+class StoreMismatchError(Exception):
+    """The stored index was built by a model other than the configured one
+    (CP-57): the identity record disagrees, or the vectors' width is not the
+    loaded model's. Refused loudly — never rebuilt over, never served."""
 
 
 class _NoTextOps:
     """Refuses Chroma's text-side embedding paths. Without an explicit
     embedding function, ``get_collection``'s DEFAULT parameter attaches
-    Chroma's bundled ONNX MiniLM — 384 dims, same as ours — and a stray
-    text op would silently mix two different MiniLM implementations
-    (ADR-0016). Embeddings come only from the pinned encoder."""
+    Chroma's bundled ONNX MiniLM — 384 dims, the default model's own width,
+    so under the default model a stray text op would silently mix two
+    implementations of the same checkpoint (ADR-0016); under any other
+    configured model it would mix two unrelated models. Embeddings come
+    only from the configured, revision-pinned encoder."""
 
     _MESSAGE = ("text ops are disabled on this collection — embeddings are "
-                "supplied explicitly by the pinned MiniLM encoder "
-                "(embedding.py; ADR-0016)")
+                "supplied explicitly by the pinned encoder configured at "
+                "embedding.model (embedding.py; ADR-0016)")
 
     def name(self) -> str:
         return "gsj-no-text-ops"
@@ -133,14 +167,25 @@ def _chunk_id(chunk: Chunk) -> str:
     return f"p{chunk.page:04d}c{chunk.chunk_idx:04d}"
 
 
-def _recreate_collection(client, name: str):
-    """The rebuild path: drop any existing collection, create fresh."""
+def _collection_stamp(identity: dict) -> dict:
+    """The identity as collection metadata — next to the vectors themselves,
+    so it survives an out-of-band copy of ``chroma/`` that the sidecar's
+    record would not know about (CP-57 review)."""
+    return {"gsj_model": identity["model"],
+            "gsj_revision": identity["revision"],
+            "gsj_dimension": int(identity["dimension"])}
+
+
+def _recreate_collection(client, name: str, identity: dict):
+    """The rebuild path: drop any existing collection, create fresh —
+    stamped with the model that is about to fill it."""
     try:
         client.delete_collection(name)
     except NotFoundError:
         pass
     return client.create_collection(
         name, configuration=dict(_HNSW_COSINE),
+        metadata=_collection_stamp(identity),
         embedding_function=_NoTextOps())
 
 
@@ -215,7 +260,8 @@ class DecisionsIndex:
 
 def build_case_index(client, encoder: Encoder, source: CaseSource) -> CaseIndex:
     vectors = encoder.encode_corpus([c.text for c in source.chunks])
-    collection = _recreate_collection(client, source.case_id)
+    collection = _recreate_collection(client, source.case_id,
+                                      encoder.identity())
     collection.add(
         ids=[_chunk_id(c) for c in source.chunks],
         embeddings=vectors,
@@ -239,7 +285,41 @@ def save_case_index(root: Path, index: CaseIndex) -> None:
     }, ensure_ascii=False))
 
 
-def load_case_index(client, root: Path, case_id: str) -> CaseIndex:
+def _check_collection_identity(collection, name: str, identity: dict) -> None:
+    """The collection against the loaded model (CP-57): its stamp — which
+    model filled it; absent only on a collection written before CP-57,
+    whose fingerprint match stands in — and one stored vector's width.
+    Chroma fixes a collection's dimension at the first add and would accept
+    the handle, then raise at the first query; both checks move that to
+    startup and name it as what it is: a store built by another model."""
+    stamp = collection.metadata or {}
+    if "gsj_model" in stamp and (
+            stamp.get("gsj_model") != identity["model"]
+            or stamp.get("gsj_revision") != identity["revision"]):
+        raise StoreMismatchError(
+            f"{name}: chroma collection was filled by "
+            f"{stamp.get('gsj_model')!r} @ {stamp.get('gsj_revision')!r} "
+            f"({stamp.get('gsj_dimension')} dims) but the config names "
+            f"embedding.model {identity['model']!r} @ embedding.revision "
+            f"{identity['revision']!r} — a store built by a different "
+            f"model (ADR-0016 as amended at CP-57); refusing to serve it. "
+            f"Re-embed with index.rebuild: always, or restore the model "
+            f"that built it")
+    peek = collection.get(limit=1, include=["embeddings"])
+    if not peek["ids"]:
+        return
+    stored = len(peek["embeddings"][0])
+    if stored != identity["dimension"]:
+        raise StoreMismatchError(
+            f"{name}: chroma collection holds {stored}-dim vectors but the "
+            f"configured embedding.model embeds at {identity['dimension']} "
+            f"dims — the store was built by a different model (ADR-0016 as "
+            f"amended at CP-57); refusing to serve it. Re-embed with "
+            f"index.rebuild: always, or restore the model that built it")
+
+
+def load_case_index(client, root: Path, case_id: str,
+                    identity: dict) -> CaseIndex:
     doc = json.loads((root / case_id / "chunks.json").read_text())
     chunks = [Chunk(**c) for c in doc["chunks"]]
     pages = {int(p): t for p, t in doc["pages"].items()}
@@ -250,6 +330,7 @@ def load_case_index(client, root: Path, case_id: str) -> CaseIndex:
             f"{case_id}: chroma collection holds {collection.count()} "
             f"vectors, sidecar records {len(chunks)} chunks — stored index "
             f"corrupt")
+    _check_collection_identity(collection, case_id, identity)
     return CaseIndex(case_id, collection, chunks, pages, doc["refs"],
                      doc["timesteps"])
 
@@ -259,7 +340,7 @@ def build_decisions_index(client, encoder: Encoder,
     vectors = encoder.encode_corpus(
         [f"{d['decision_id']} {d['court']} {d['year']} {d['text']}"
          for d in corpus])
-    collection = _recreate_collection(client, "decisions")
+    collection = _recreate_collection(client, "decisions", encoder.identity())
     collection.add(
         ids=[d["decision_id"] for d in corpus],
         embeddings=vectors,
@@ -274,7 +355,8 @@ def save_decisions_index(root: Path, index: DecisionsIndex) -> None:
         json.dumps(index.corpus, ensure_ascii=False))
 
 
-def load_decisions_index(client, root: Path) -> DecisionsIndex:
+def load_decisions_index(client, root: Path,
+                         identity: dict) -> DecisionsIndex:
     corpus = json.loads((root / "decisions" / "corpus.json").read_text())
     collection = client.get_collection("decisions",
                                        embedding_function=_NoTextOps())
@@ -282,18 +364,42 @@ def load_decisions_index(client, root: Path) -> DecisionsIndex:
         raise ValueError(
             f"decisions: chroma collection holds {collection.count()} "
             f"vectors, sidecar records {len(corpus)} — stored index corrupt")
+    _check_collection_identity(collection, "decisions", identity)
     return DecisionsIndex(collection, corpus)
 
 
-def read_fingerprint(root: Path) -> str | None:
+def _read_fingerprint_doc(root: Path) -> dict:
     try:
-        return json.loads((root / "fingerprint.json").read_text())["fingerprint"]
-    except (FileNotFoundError, KeyError, json.JSONDecodeError):
-        return None
+        doc = json.loads((root / "fingerprint.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
 
 
-def write_fingerprint(root: Path, fingerprint: str) -> None:
+def read_fingerprint(root: Path) -> str | None:
+    return _read_fingerprint_doc(root).get("fingerprint")
+
+
+def read_store_identity(root: Path) -> dict | None:
+    """The ``embedding`` block — which model built this store (CP-57).
+    None for no store, and for a store written before CP-57 (its
+    fingerprint still hashes model + revision, so a reuse under the same
+    model backfills the block; a different model mismatches the
+    fingerprint exactly as before)."""
+    identity = _read_fingerprint_doc(root).get("embedding")
+    return identity if isinstance(identity, dict) else None
+
+
+def write_fingerprint(root: Path, fingerprint: str | None,
+                      embedding: dict) -> None:
+    """The fingerprint plus the store's identity: the model, revision and
+    dimension that produced these vectors, next to the artifact (CP-57).
+    ``fingerprint=None`` is the record a rebuild writes BEFORE it destroys
+    anything: identity of the model about to fill the store, no reusable
+    fingerprint — an interrupted rebuild is then refused under the old
+    model and rebuilt under the new, never served."""
     root.mkdir(parents=True, exist_ok=True)
     (root / "fingerprint.json").write_text(
         json.dumps({"fingerprint": fingerprint, "index_format": INDEX_FORMAT,
-                    "chroma_version": CHROMA_VERSION}))
+                    "chroma_version": CHROMA_VERSION,
+                    "embedding": dict(embedding)}))

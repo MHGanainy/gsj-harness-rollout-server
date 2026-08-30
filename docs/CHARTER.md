@@ -389,6 +389,7 @@ this one's.
 | A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced. **[CP-51, audit W3] QUALIFIED**: "multi-arch" holds for `gsj-polar` only — `gsj-mcp-service:0.3.0` and `gsj-pi-harness:pi0.83.0-3` publish linux/amd64 only (F-54, CP-36; live manifest probe 2026-08-27 unchanged, no newer tags); ARM hosts pull `--platform linux/amd64` (the demo bootstrap's cure). The intent stands; the fact was false when written. `waiting-on: the operator republish wishlist row 40 names — nothing schedules one` |
 | A-29 | a trace's contiguous `loss_mask==1` runs correspond one-to-one, in order, with its `response_messages` assistant turns — added at CP-35, where the demo reader's thinking decode rests on it | measured, never assumed blind: runs == assistant-message count on every real body inspected (the CP-09 fidelity body, CP-34's 71-turn episode, CP-35's two, the 153 CP-32 archives sampled, and — added CP-41, audit S14 — CP-38's Llama-3.1 body, the strongest point: 8 mask-1 spans == 8 assistant turns == 8 merged completions on the first non-Qwen, two-terminator family), and it is how the prefix-merging builder works — one sampled span per completion, tool/glue spans masked. The REASON the demo needs it: message-side reasoning is LOST in the archive (vLLM's reasoning parser strips `<think>` from `content` into `reasoning_content`, which Polar's message capture does not map — its `reasoning` field is null in all 156 bodies measured), so thinking-on reasoning survives ONLY in the token arrays and rendering it means decoding the k-th mask-1 run as turn k | the demo's `read.py` REFUSES rather than guesses — a run/turn count mismatch decodes nothing and the transcript says the archive's own evidence is inconsistent; no library surface depends on this assumption (wishlist row 39 is the durable message-side fix). **[CP-51]** wishlist row 39 FOLDED here: message-side reasoning is a tokenizer dependency by design until a served vLLM's response field is measured — and the "null in all bodies" evidence has an on-disk counter-example (`docs/polar/thinking-on/episode-on.accepted.json`, CP-30: `reasoning_content` populated on all three assistant messages), so the dependency is vLLM-version-bound, not universal. `waiting-on: a measured vLLM response field on the served stack — a carry-patch row then` |
 | A-30 | a chat template's turn terminator — the first non-whitespace token it emits after assistant content — is also the id the engine stops generation on, so deriving `builder.end_of_turn_token_id` from a template render is sound — added at CP-37, where the demo bootstrap derives it from a foreign endpoint's `/tokenize`+`/detokenize` | the derived id, on every family probed: Qwen3 `<\|im_end\|>`=151645 (the snapshot config.json's scalar `eos_token_id`, and a member of its generation_config.json's `[151645, 151643]`), Qwen2.5-Coder 151645, Llama-3.1 official template `<\|eot_id\|>`=128009 (a member of its config's `[128001, 128008, 128009]`), and a wild simplified Llama mirror (the first-non-whitespace rule survives its unconditional trailing generation prompt where last-non-whitespace does not — the CP-37 heuristic correction); the STOP half of the assumption is measured live on the reference stack only — elsewhere it rests on the eos-membership cross-checks above; the demo's preflight re-derives and FAILs loudly when the effective id disagrees. **[CP-38] the STOP half measured FALSE on the first live foreign family — and harmless, which sharpens the assumption**: Llama-3.1 under tools STOPS tool-call turns at `<\|eom_id\|>`=128008 (Meta's ipython protocol; observed as `stop_reason` on every tool-call completion and as the last mask-1 id of every tool-call span in the accepted CP-38 episode) while its template re-renders those turns closed with `<\|eot_id\|>`=128009 — and the derived 128009 is still the RIGHT id, because the vendored merge is canonical-vs-canonical: the builder matches `end_of_turn_token_id` against the NEXT prompt's render to slice the interstitial, never against the engine's stop token, and the sampled `<\|eom_id\|>` rides the merged stream as mask-1 data followed by the canonical `<\|eot_id\|>` at mask-0 (`chains_total: 1`, 8/8 merged, zero findings). A-30's sound core is narrower than drafted: derive the RENDER-side closer; the engine's stop id need not equal it | a family whose template closes turns with plain text, or an engine with custom stop ids, derives a wrong split id — reconstruction mis-splits every multi-turn episode; the named cure is the config override (`end_of_turn_token_id`, explicit-wins, disagreement WARNed at `up`) plus the snapshot's `generation_config.json` cross-check documented in the demo's MODEL-SURFACE page |
+| A-31 | the benign-drift end of the encoder oracle's bound scales with a unit vector's component magnitude — 1/√d for a normalized d-dimensional vector — so the MiniLM-measured max|Δ| 4e-08 at 384 dims transposes to 4e-08·√(384/d) for a configured model of dimension d (added at CP-57, where `embedding.model` became configuration; `estate/mcp-service/tests/test_backend.py: encoder_max_abs_delta`) | reasoned, not measured: float32 drift is relative to magnitude (ULPs), the rms component of a unit vector is exactly 1/√d (measured 0.0510 at 384, 0.0361 at 768), and at the default model the transposition is the CP-55 constant bit for bit (√1 = 1) so the measured path is unchanged; the same-process re-encode under the second model (`paraphrase-albert-small-v2`, 768) measured max|Δ| 0 — no cross-host drift data exists for any non-default model | a non-default model's benign drift exceeds the transposed bound on some host → the oracle FIRES there, loudly (the message prints max\|Δ\| and cosine against the bound — the CP-55 shape), and the bound is re-argued for that model from its own numbers (wishlist row 46 parks this on the first production re-pin). It cannot fail silent in the dangerous direction: for a non-default model the substitution class is the cross-model class — cosine 0.23–0.31 measured at CP-57 (MiniLM vs bge-small, same 384 dims, same texts), or a width the store refuses before any bound is consulted — which the 0.999 floor and the load-time width check catch independently of \|Δ\| |
 
 ## 5. What we are testing
 
@@ -1965,6 +1966,60 @@ Row 2's status is unchanged (PARITY was never the residual's question),
 its cell records the close and the two-phase, and its `waiting-on` token
 is re-pointed at the H200 frozen-consumer lift. Demo F-69 gets the same
 disposition, cross-referenced. Tally unchanged: **21 PARITY · 7 DROPPED ·
+2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-57] No row moves; the embedding model is configuration, and
+everything that was pinned about the embedder follows the config
+(touched: `estate/mcp-service/` — `embedding.py`, `index.py`, `state.py`,
+`config.py`, `config.yaml`, `Dockerfile`, `README.md`, `tests/`; `docs/**`;
+`gsj_rollout/` untouched at 2,000/2,000).** Step 1 found the id itself was
+never hardcoded — `embedding.model` has carried it, MiniLM-defaulted and
+fingerprint-hashed, since CP-01 — what assumed MiniLM was everything
+downstream: the oracle's `shape == (384,)` and its two MiniLM-measured
+ends, the Dockerfile's bake by name (`MINILM_REVISION`), the chunk window
+sized for 256 by a YAML comment, and a store that recorded only the
+opaque hash — a mismatch detectable, never nameable. The corpus lock and
+census are page-byte/git-SHA derived (no vector enters them; the lock's
+sha256 unmoved). Decided (ADR-0016 amendment): **refuse, not rebuild** — a
+model change against an existing store is a re-pin, not staleness, so the
+store now records `embedding: {model, revision, dimension}` beside its
+fingerprint (the pins-document shape) and a startup — or `/admin/reindex`
+— under a different model/revision lands in `state: error` naming both
+models and the fix (`index.rebuild: always` is the explicit re-embed ask
+and skips the gate; a pre-CP-57 store backfills the record on its first
+matching reuse), before the model even loads; the identity is
+also stamped into every collection's metadata and the vectors' width
+cross-checked at load (a forged record over foreign vectors, or a
+`chroma/` restored out-of-band, is refused at startup, where Chroma alone
+raises at the first query); a pre-CP-57 store — every store that exists
+today — is assumed the one pin that built those and refused under any
+other; a rebuild writes the new identity before it drops anything, so an
+interrupted re-pin is never served; `embedding.revision` must be a full
+commit SHA; the chunk window is checked statically against the model's
+window minus its specials AND exactly on the real chunks after ingest
+(the review measured 127/814 staging chunks overflowing a 100-token
+window at the static boundary — a character slice re-tokenizes longer);
+an unresolvable id fails at startup with the id, revision and three
+checks named. Four of those guards are the adversarial review's (an
+interrupted same-width re-pin rolled back served the wrong model; the
+pre-CP-57 rebuild-over; the backfill inside the corrupt-rebuild catch;
+the boundary overflow), fixed in-CP and each test-pinned. **How the bound survives:** the |Δ| end transposes by component
+scale, 4e-08·√(384/d) — the CP-55 constant bit for bit at the default
+model, a reasoned extrapolation elsewhere (A-31); the hazard end is the
+cross-model class for any non-default model — measured at CP-57, MiniLM
+vs bge-small at the same 384 dims: cosine 0.23–0.31, which the 0.999
+floor fails by ~0.7 — or a width the store refuses. Proven on real server
+processes with `paraphrase-albert-small-v2` (768 dims, 100-token window,
+chunking 96/16): the default path unchanged (mcp suite 107 = 90 + 17,
+root 161, fingerprint identity recorded, corpus lock unmoved); the second
+model indexed and served with the oracle green at 768; the model change
+refused verbatim with the store untouched; the bogus id named at startup.
+Frozen-side notes: `.github/`'s HF cache key is MiniLM-only and never
+re-saved, so the second model (~45 MB) downloads once per CI run at suite
+import (after which the suite runs offline); the CI job label,
+CLAUDE.md:73/82 and the root README's dated proven-claims row
+(README.md:76) still say 89. Wishlist row 46 opened (the per-model measurement, parked on
+the first training re-pin). Tally unchanged: **21 PARITY · 7 DROPPED ·
 2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |

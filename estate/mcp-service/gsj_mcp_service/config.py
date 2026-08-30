@@ -71,13 +71,45 @@ class SourceConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
+    """The encoder is configuration (CP-57): a HuggingFace model id plus
+    the full commit SHA that pins it. The store records both (with the
+    dimension the model turned out to have) and refuses to serve under any
+    other pair — a change here is a deliberate re-embed, never a silent
+    swap (ADR-0016 as amended at CP-57)."""
     model_config = _FORBID
 
-    model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    revision: str  # required: the model pin is part of the corpus fingerprint
+    model: str = "sentence-transformers/all-MiniLM-L6-v2"  # HF id, any ST-loadable
+    revision: str  # required: the full commit SHA — part of the corpus fingerprint
     device: str = "cpu"
     batch_size: int = Field(default=32, ge=1)
     normalize: bool = True
+
+    @field_validator("model")
+    @classmethod
+    def _model_is_an_hf_id(cls, value: str) -> str:
+        # `namespace/name` (or a bare legacy name): the shape huggingface_hub
+        # resolves. Whether it EXISTS is the encoder's startup check, which
+        # names the id and what to look at (embedding.py).
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?",
+                            value):
+            raise ValueError(
+                f"embedding.model {value!r} is not a HuggingFace model id "
+                f"(`namespace/name`, e.g. sentence-transformers/all-MiniLM-L6-v2)")
+        return value
+
+    @field_validator("revision")
+    @classmethod
+    def _revision_is_a_commit(cls, value: str) -> str:
+        # A branch or tag ("main") is an unpinned identity: HuggingFace can
+        # move it under a built index and the fingerprint would never know.
+        # The store records the SHA that built it (CP-57), so the config
+        # must name one.
+        if not re.fullmatch(r"[0-9a-f]{40}", value):
+            raise ValueError(
+                f"embedding.revision {value!r} must be the model repo's full "
+                f"40-hex commit SHA — a branch or tag can move under the "
+                f"built index (CP-57)")
+        return value
 
     @field_validator("normalize")
     @classmethod
