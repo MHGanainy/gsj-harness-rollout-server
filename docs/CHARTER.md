@@ -2469,9 +2469,45 @@ green locally. Rule-9 scan at this commit: 70 lines by the DoD's grep
 over `docs/` on disk (38 tracked register — VERDICT 26, this file 12 —
 and 32 untracked; this paragraph spells the token without its colon);
 fired — 51 (the wheel half, as above; its 0.1.4 token was the register's
-last, row 52's being closed history). The run ids and colours, the
-rehearsal, both index install proofs and the demo's from-PyPI timing
-follow in the record commit.**
+last, row 52's being closed history). **The record** — push `b4541ab` →
+CI run **33336280250**: root suite (164) green · corpus suite (67) green
+· mcp-service suite (107) green · wheel + packaged-pins install proof
+green — no red job; row 26 did not fire. Rehearsal (`workflow_dispatch`
+at `b4541ab`) → **33336284589**: build green (`twine check` PASSED, the
+18 names under the assertions) · TestPyPI green · PyPI **skipped** by
+the tag gate. **TestPyPI proof** (a scratch venv outside every repo,
+`==0.1.4` with the extra-index for deps): six checks green — the CP-09′
+body validates to `[]`, both pins sets present, the G2 capture's sha
+`f56e8a6e…` ∈ `system_prompt_hash`, `python -m gsj_rollout.ingest_corpus
+validate` → PASS (12/12), `gsj_rollout.bringup` imports on the wheel
+layout (`CHECKOUT False`, the packaged `INGEST`, `RUNS` under cwd, the
+three verbs), and the packaged `FORGEJO_IMAGE` reads
+`codeberg.org/forgejo/forgejo:16.0.3`. Tag `v0.1.4` at `b4541ab` → run
+**33336519222**: tag-matches-version, build green · TestPyPI green ·
+**PyPI green**. **PyPI proof** (a fresh venv, no index flags): 0.1.3 on
+attempt 1 (~20 s of index lag — and one method error said so it is not
+repeated: the first version check ran with the checkout as cwd, where
+`import gsj_rollout` binds to the source tree and reported 0.1.4 while
+pip had fetched 0.1.3; re-measured from a neutral cwd), **0.1.4 on
+attempt 2**; `pip show -f` lists all four ride-alongs; the same six
+checks green. **The demo, from PyPI — the release's claim measured**: a
+fresh clone of `ea048d8`, `pip install 'gsj-harness-rollout-server>=0.1.4'
+pyarrow` from PyPI (4.3 s, no index flags) → 0.1.4, the three config
+values, the daemon holding **no 16.x Forgejo image**: `validate` PASS;
+`./bootstrap.py up` with defaults exit 0 in **80.9 s** wall (the
+bring-up 73.0 s; the Forgejo phase 50.0 s with the pull its own step —
+`…16.0.3 is absent on this daemon — pulling it` → `pulled; sign-in ON`)
+— **no mirror step**; `pins — every skill card (1) is in the approved
+set at …/work/estate/pins.gsj.json (GSJ_PINS_PATH)` (no false G1
+warning, its correction line retired), no Polar port scan (`--gateway-host
+(not probed)`, gateway `http://polar-gateway:8200`); the README
+one-liner episode collected 1/1 in **15.4 s**, accepted
+(`case_orchard@t2`, turns 1, `stop`); `down` clean, data under `work/`.
+Push: this repo `main` at the record commit (`b4541ab` beneath it, tag
+`v0.1.4` at `b4541ab`); the demo `main` at `ea048d8` (a from-GitHub
+clone of it validated — PASS). What a stranger gets now: `pip install`,
+clone, three values, `./bootstrap.py up` — the pull, the flag, the named
+pins, no recipe.**
 
 
 | # | capability | gsj-envloader | here | status | notes |
