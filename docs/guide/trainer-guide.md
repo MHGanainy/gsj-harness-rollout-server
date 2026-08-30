@@ -19,7 +19,7 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 | `gsj_rollout/pins/thinking-on/pins.gsj.json` | the thinking-on set, data only — a target for `GSJ_PINS_PATH` on a pip-only estate |
 | `gsj_rollout/ingest_corpus.py` | validate a corpus tree with no clone: `python -m gsj_rollout.ingest_corpus validate --corpus <root>` |
 | `gsj_rollout/pins/container/system_prompt.container.derived.txt` | the G2 reference capture (since 0.1.3) — the singleton whose sha256 IS `pins.system_prompt_hash`; derive your estate's G2 prompt from it instead of a copied file |
-| `gsj_rollout/bringup.py` | corpus → estate with no clone (since 0.1.3): `python -m gsj_rollout.bringup up --corpus <root>` — needs Docker and `pip install pyarrow`; runs land in `./runs/<name>/` |
+| `gsj_rollout/bringup.py` | corpus → estate with no clone (since 0.1.3): `python -m gsj_rollout.bringup up --corpus <root>` — needs Docker and `pip install pyarrow`; runs land in `./runs/<name>/`. From 0.1.4 (CP-62): `--runs-dir` puts them elsewhere, and the Forgejo and retrieval-service images are pulled when absent (`--forgejo-image` / `--mcp-image` name others) — 0.1.3's bring-up pins a Forgejo tag codeberg no longer serves and never pulls the retrieval image (`--mcp-image` must name one that is present) |
 
 Never in the wheel: `vendor/`, `estate/` (except the two modules above, force-included under `gsj_rollout/`), `tests/`, `docs/`, `spike/`, `.github/`. Inspect one yourself: `pip download gsj-harness-rollout-server --no-deps && unzip -l gsj_harness_rollout_server-*.whl`.
 

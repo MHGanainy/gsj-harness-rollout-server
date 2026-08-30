@@ -77,11 +77,27 @@ if CHECKOUT:
 else:
     from gsj_rollout import ingest_corpus as ic  # noqa: E402  — the same file, from the wheel
 INGEST = Path(ic.__file__)
-RUNS = HERE / "runs" if CHECKOUT else Path.cwd() / "runs"
+RUNS = HERE / "runs" if CHECKOUT else Path.cwd() / "runs"   # --runs-dir overrides (CP-62)
+PROG = "estate/bringup.py" if CHECKOUT else "python -m gsj_rollout.bringup"
 
 SCHEMA = 1
-FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.2"
-MCP_IMAGE = "gsj-mcp-service:0.4.0"       # CP-58: the store identity + the read credential
+# CP-62: the pin is a TAG on the canonical registry, with the index digest it
+# resolved to when measured (2026-08-30, both platforms pull) — a re-cut tag
+# is warned about after a pull, a loaded image (no RepoDigests) is not. Why
+# not pin by digest: a `docker save | docker load` on a host that cannot
+# reach registries (the H200) carries no digest, so a digest reference would
+# never match the loaded image and compose would try to pull. 16.0.2, the
+# pin CP-59 measured on, lost both platform manifests on codeberg (wishlist
+# 52; the mirror code.forgejo.org still serves it at the same digest) —
+# hence --forgejo-image: any registry event is routed around with one flag.
+FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.3"
+FORGEJO_IMAGE_DIGEST = "sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
+FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, measured digest-equal
+MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.4.0"   # the two-platform index (CP-61)
+# CP-58: the store identity + the read credential. From the checkout the
+# local build tag (the H200 loads it out-of-band; nothing pulls there); from
+# the wheel the published index, pulled when absent (wishlist 51 (b)).
+MCP_IMAGE = "gsj-mcp-service:0.4.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
@@ -237,6 +253,10 @@ def localhost_to_container(url: str) -> str:
                   r"\1host.docker.internal", url.rstrip("/"))
 
 
+def eurl_is_loopback(url: str) -> bool:
+    return re.match(r"^https?://(localhost|127\.\d+\.\d+\.\d+|\[::1\])(?=[:/]|$)", url) is not None
+
+
 def script_version() -> dict:
     head = run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
                capture_output=True) if CHECKOUT else None
@@ -360,20 +380,25 @@ def built_heads(corpus) -> dict[str, dict[str, str]]:
 
 
 def pins_g1_check(corpus) -> dict:
-    """Which of this corpus's skill cards the packaged approved set (G1)
-    already carries — episodes on the others quarantine until the pins
-    walk re-derives (pins/derive_pins.py); a warning, not a refusal."""
+    """Which of this corpus's skill cards the approved set the library will
+    actually validate against (G1) already carries — the document `checks`
+    selected: `GSJ_PINS_PATH`, else the checkout's source set, else the
+    packaged reference set (CP-62: the same resolver, so an estate whose own
+    pins are named is not warned about the packaged ones — wishlist 51 (c)).
+    Episodes on the others quarantine until the pins walk re-derives
+    (pins/derive_pins.py); a warning, not a refusal."""
     try:
-        from importlib.util import find_spec
-        pins = REPO / "pins" / "pins.gsj.json"          # the checkout's source set
-        if not pins.is_file():                          # an installed wheel's copy
-            pins = Path(find_spec("gsj_rollout").origin).parent / "pins" / "pins.gsj.json"
+        from gsj_rollout import checks
+        pins = checks.PINS_PATH
+        source = ("GSJ_PINS_PATH" if os.environ.get("GSJ_PINS_PATH")
+                  else "packaged" if pins == checks.PACKAGED_PINS else "checkout")
         approved = set(json.loads(pins.read_text())["pins"]["skill_card_hash"])
     except Exception:  # noqa: BLE001 — a probe, not a gate
         return {"checked": False}
     cards = {name: sha256_file(card) for name, card in sorted(corpus.skills.items())}
     missing = sorted(n for n, h in cards.items() if h not in approved)
-    return {"checked": True, "cards": len(cards), "not_in_packaged_pins": missing}
+    return {"checked": True, "cards": len(cards), "pins_path": str(pins),
+            "pins_source": source, "not_in_approved_set": missing}
 
 
 # ------------------------------------------------------------ the run dir
@@ -417,7 +442,7 @@ class Run:
                     "restore .env from your backup — re-minting would "
                     "silently invalidate the running retrieval service's "
                     "secret and every token the record names; or start "
-                    "over: `estate/bringup.py down --name "
+                    f"over: `{PROG} down --name "
                     f"{self.name} --wipe` then `up`")
         if envf.is_file():
             for line in envf.read_text().splitlines():
@@ -429,10 +454,10 @@ class Run:
         self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.dir.chmod(0o700)
         envf = self.dir / ".env"
-        body = ("# estate/runs/%s/.env — every secret of this run, KEY='value'.\n"
+        body = ("# %s — every secret of run %s, KEY='value'.\n"
                 "# Source it (set -a; . %s; set +a) or point compose at it\n"
                 "# (--env-file). Never commit; never paste values on a command line.\n"
-                % (self.name, envf))
+                % (envf, self.name, envf))
         for k, v in sorted(self.env.items()):
             if "\n" in v or "\r" in v:
                 die(f"the value of {k} contains a newline.", "a multi-line secret",
@@ -491,13 +516,51 @@ def image_present(image: str) -> bool:
                capture_output=True).returncode == 0
 
 
+def image_has_registry(image: str) -> bool:
+    """A reference with a path (`registry/…`, or Docker Hub's `user/repo`) is
+    pullable; a bare single-component build tag (`gsj-mcp-service:0.4.0`)
+    exists only on the daemon that built it — Docker would look it up under
+    `library/` on Docker Hub, where it does not exist."""
+    return "/" in image
+
+
+def image_tag(image: str) -> str:
+    """The tag of a reference, from its LAST path component (a registry port
+    is not a tag); `<tag>` for a digest reference or an untagged one."""
+    last = image.rsplit("/", 1)[-1]
+    return last.split(":", 1)[1] if ":" in last and "@" not in last else "<tag>"
+
+
+def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
+    """One pull, said out loud (compose's own progress is on stderr); the
+    caller decides what a failure means."""
+    say(phase, f"{image} is absent on this daemon — pulling it")
+    return run(["docker", "pull", image], capture_output=True)
+
+
+def image_identity(image: str) -> dict:
+    """What the daemon holds under this reference: the image id and the
+    registry digests it was pulled by (a `docker load`ed image has none)."""
+    proc = run(["docker", "image", "inspect", "--format",
+                "{{.Id}} {{json .RepoDigests}} {{.Os}}/{{.Architecture}}", image],
+               capture_output=True)
+    if proc.returncode != 0:
+        return {}
+    ident, digests, plat = proc.stdout.strip().split(" ", 2)
+    try:
+        digests = json.loads(digests)
+    except ValueError:
+        digests = []
+    return {"id": ident, "repo_digests": digests, "platform": plat}
+
+
 def compose(rundir: Path, *args: str, **kw) -> subprocess.CompletedProcess:
     return run(["docker", "compose", "-f", str(rundir / "compose.yaml"),
                 "--env-file", str(rundir / ".env"), *args], **kw)
 
 
 COMPOSE_HEAD = """\
-# GENERATED by estate/bringup.py for run {run} — do not edit; re-run `up`.
+# GENERATED by {prog} for run {run} — do not edit; re-run `up`.
 # Only the services this run CREATED are here; adopted ones live elsewhere.
 # Secrets are interpolated from the run's .env (compose --env-file), never
 # written into this file.
@@ -657,21 +720,51 @@ class Forgejo:
 
 
 def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
-                   network: str, external_net: bool) -> Forgejo:
+                   network: str, external_net: bool, image: str) -> Forgejo:
     container = f"gsj-{run.name}-forgejo"
     uid = os.getuid() if platform.system() == "Linux" else 1000
     gid = os.getgid() if platform.system() == "Linux" else 1000
     (rundir / "forgejo-data").mkdir(exist_ok=True)
     run.record.setdefault("compose", {})["forgejo"] = {
-        "image": FORGEJO_IMAGE, "container": container, "port": port,
+        "image": image, "container": container, "port": port,
         "data": str(rundir / "forgejo-data"), "signin": signin, "uid": uid, "gid": gid}
     write_compose(rundir, run, network, external_net)
-    PH.start("forgejo", f"docker compose up ({container}, 127.0.0.1:{port}, "
+    PH.start("forgejo", f"docker compose up ({container}, {image}, 127.0.0.1:{port}, "
                         f"sign-in {'ON' if signin else 'OFF'} from the first start)")
+    pulled = False
+    if not image_present(image):
+        # the pull is compose's own step; done here first so a registry
+        # failure is THIS refusal (wishlist 52) and not a compose stack trace
+        pulled = True
+        pull = image_pull(image, "forgejo")
+        if pull.returncode != 0:
+            tag = image_tag(image)
+            die(f"the Forgejo image {image} could not be pulled.",
+                (pull.stderr.strip().splitlines() or ["no error text"])[-1],
+                "a pullable image (both platform manifests served — a registry "
+                "cleanup can drop them while the tag's index still lists them: "
+                "16.0.2 on codeberg, measured 2026-08-30)",
+                f"pass --forgejo-image <ref> naming a live one — another tag "
+                f"(the pin {FORGEJO_IMAGE} was measured pullable 2026-08-30), the "
+                f"mirror {FORGEJO_IMAGE_MIRROR}:{tag} (measured then to serve the "
+                f"16.0.x tags at codeberg's own digests), or name@sha256:<digest> to "
+                f"pin bytes — or, on a host that cannot reach registries, load "
+                f"{image} out-of-band (docker save | docker load) and re-run")
     if compose(rundir, "up", "-d", "forgejo").returncode != 0:
         die("`docker compose up forgejo` failed.", "the compose error above",
-            None, f"if the pull failed and this host cannot reach registries, "
-                  f"load {FORGEJO_IMAGE} out-of-band (docker save/load) and re-run")
+            None, "the compose error is authoritative (the image is present: "
+                  f"{image}); `docker logs {container}` if the container started")
+    ident = image_identity(image)
+    run.record["compose"]["forgejo"].update(
+        {"image_id": ident.get("id"), "image_repo_digests": ident.get("repo_digests"),
+         "image_platform": ident.get("platform"), "image_pulled_by_run": pulled})
+    if image == FORGEJO_IMAGE and ident.get("repo_digests") and not any(
+            d.endswith("@" + FORGEJO_IMAGE_DIGEST) for d in ident["repo_digests"]):
+        warn("forgejo", f"{image} resolved to {ident['repo_digests']}, not the index "
+             f"this script measured ({FORGEJO_IMAGE_DIGEST[:19]}…, 2026-08-30) — the "
+             "tag was re-cut on its registry; the admin-CLI/token/sign-in behaviour "
+             "below was measured on the pinned bytes, so read this run's phases "
+             "critically (pin bytes with --forgejo-image name@sha256:…)")
     url = f"http://127.0.0.1:{port}"
     deadline = time.time() + 120
     while time.time() < deadline:
@@ -712,13 +805,13 @@ def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
     fj = Forgejo(url, f"http://{container}:3000",
                  (ADMIN_USER, run.env[ADMIN_PASSWORD_ENV]), "created")
     fj.probe()
-    PH.done(f"healthy at {url} (containers: {fj.container_url}); "
-            f"sign-in {'ON' if fj.signin else 'OFF'}")
+    PH.done(f"healthy at {url} (containers: {fj.container_url}); {image}"
+            f"{' pulled' if pulled else ' present'}; sign-in {'ON' if fj.signin else 'OFF'}")
     return fj
 
 
 def write_compose(rundir: Path, run: Run, network: str, external_net: bool) -> None:
-    parts = [COMPOSE_HEAD.format(run=run.name, project=f"gsj-{run.name}")]
+    parts = [COMPOSE_HEAD.format(prog=PROG, run=run.name, project=f"gsj-{run.name}")]
     cf = run.record.get("compose", {}).get("forgejo")
     if cf:
         parts.append(COMPOSE_FORGEJO.format(
@@ -742,7 +835,7 @@ def write_compose(rundir: Path, run: Run, network: str, external_net: bool) -> N
 # ------------------------------------------------------------------- mcp
 
 MCP_CONFIG = """\
-# GENERATED by estate/bringup.py for run {run} — do not edit; re-run `up`.
+# GENERATED by {prog} for run {run} — do not edit; re-run `up`.
 # Schema: estate/mcp-service/config.yaml (README.md#configuration-reference).
 source:
   base_url: {forgejo_url}
@@ -1033,7 +1126,9 @@ def cmd_up(args: argparse.Namespace) -> None:
         die("`git` is not on PATH.", None, None, "install git")
 
     # ---- the corpus, validated before anything runs
-    corpus_path = Path(A.get("corpus", "corpus root", str(HERE / "corpus" / "staging"))).expanduser().resolve()
+    # the checkout's staging corpus is the default; the wheel has none (--corpus is required there)
+    corpus_path = Path(A.get("corpus", "corpus root", str(HERE / "corpus" / "staging") if CHECKOUT else None,
+                             required=True)).expanduser().resolve()
     if not (corpus_path / "corpus.yaml").is_file():
         load_corpus(corpus_path, None)          # the refusal, before any prompt
     try:
@@ -1100,6 +1195,31 @@ def cmd_up(args: argparse.Namespace) -> None:
     retarget("the owner", prev.get("corpus", {}).get("owner"), owner)
     retarget("the docker network", prev.get("network", {}).get("name"), network)
 
+    # ---- where Polar's leg runs (CP-62, wishlist 51 (a)/(h)) — decided
+    # before anything is pulled, because a container leg needs one answer
+    # only the consumer has: on this host the config binds loopback and the
+    # three ports are scanned free here; in containers of the consumer's own
+    # the conventional ports are written unscanned, the rollout API and the
+    # receiver bind 0.0.0.0, and the gateway's public address is answered,
+    # not probed (the probe measures THIS host's interfaces)
+    prev_leg = (prev.get("polar_leg") or "host") if prev else None   # a pre-CP-62 record is a host leg
+    leg = str(A.get("polar_leg", "Polar's leg: on this host, or in containers",
+                    prev_leg or "host", choices=("host", "container")))
+    leg_moved = prev_leg is not None and prev_leg != leg
+    if leg_moved:
+        changed.append(f"polar_leg: {prev_leg!r} -> {leg!r} (the binds and the ports' meaning)")
+    explicit_ghost = A.get("gateway_host", None, None)
+    if leg == "container":
+        explicit_ghost = explicit_ghost or (prev.get("gateway_host") if not leg_moved else None)
+        if not explicit_ghost:
+            die("--polar-leg container needs --gateway-host.", "no --gateway-host answer",
+                "the ONE address your rollout-API container and every sandbox dial the "
+                "gateway on (a compose DNS name such as polar-gateway, or an address you "
+                "publish) — CP-03's one-URL rule",
+                "pass --gateway-host <name-or-address>; the host-address probe this "
+                "script runs for a host leg measures this host, which is not where your "
+                "gateway runs")
+
     # ---- Forgejo
     def _choice(section: str) -> str:   # the record says created/adopted
         return "adopt" if prev.get(section, {}).get("mode") == "adopted" else "create"
@@ -1157,12 +1277,25 @@ def cmd_up(args: argparse.Namespace) -> None:
         fport = (pick_port(pf["port"], 3000, "--forgejo-port", check=False) if pf
                  else pick_port(A.get("forgejo_port", "Forgejo host port", "auto"),
                                 3000, "--forgejo-port"))
-        if prev.get("compose", {}).get("forgejo"):
+        # the image: an answer since CP-62 — the run's record on a re-run,
+        # else the pin; a changed answer recreates the container (compose
+        # sees the service definition change; Forgejo migrates its data
+        # forward on start and refuses a downgrade itself)
+        fimage = str(A.get("forgejo_image", "Forgejo image (a pullable reference)",
+                           pf["image"] if pf else FORGEJO_IMAGE))
+        if pf and fimage != pf["image"]:
+            changed.append(f"the Forgejo image: {pf['image']!r} -> {fimage!r} (the container "
+                           "recreated on the new image)")
+        elif pf:
             reused.append(f"forgejo container gsj-{name}-forgejo (compose up -d is idempotent)")
-        fj = create_forgejo(rundir, run_, fport, signin, network, external_net)
+        fj = create_forgejo(rundir, run_, fport, signin, network, external_net, fimage)
     rec["forgejo"] = {"mode": fj.mode, "url": fj.url, "container_url": fj.container_url,
                       "admin_user": fj.admin[0], "admin_credential_env": ADMIN_PASSWORD_ENV,
                       "require_signin_view": fj.signin}
+    # the record lands NOW, not only at the end: a later phase that dies must
+    # not leave the next `up` defaulting to an image this run already moved
+    # away from (Forgejo migrates forward and refuses a downgrade)
+    run_.write_record()
 
     # ---- the owner and its two tokens
     PH.start("owner", f"{owner!r} on {fj.url}")
@@ -1363,24 +1496,47 @@ def cmd_up(args: argparse.Namespace) -> None:
     else:
         check_docker()
         pm = prev.get("compose", {}).get("mcp")
-        image_default = pm["image"] if pm else MCP_IMAGE
-        if not pm and daemon_arch() in ("arm64", "aarch64") and \
-                image_present(f"{MCP_IMAGE}-{daemon_arch()}"):
-            image_default = f"{MCP_IMAGE}-{daemon_arch()}"     # the native build, if present
-            say("mcp", f"this daemon is {daemon_arch()}: defaulting to the native image "
-                       f"{image_default} (the amd64 one dies under qemu — wishlist 49)")
-        image = A.get("mcp_image", "retrieval service image", image_default)
+        arch = daemon_arch()
+        native = f"{MCP_IMAGE}-{arch}"     # a local native build of the checkout's tag
+        image_default = pm["image"] if pm else (
+            native if CHECKOUT and arch in ("arm64", "aarch64") and image_present(native)
+            else MCP_IMAGE)
+        image = str(A.get("mcp_image", "retrieval service image", image_default))
+        if not pm and image == native and image != MCP_IMAGE:
+            # said AFTER the answer is read (wishlist 51 (d)): the line is
+            # true only when the native build is what runs
+            say("mcp", f"this daemon is {arch}: the native image {image} runs (the "
+                       "amd64 local build dies under qemu — wishlist 49)")
         if pm and image != pm["image"]:
             changed.append(f"the retrieval service image: {pm['image']!r} -> {image!r}")
         if not image_present(image):
-            arch = daemon_arch()
-            die(f"the retrieval service image {image} is not present on this daemon.",
-                "docker image inspect failed", "the image loaded",
-                "build it from estate/mcp-service/ (`DOCKER_DEFAULT_PLATFORM=linux/amd64 "
-                f"docker build -t {image} estate/mcp-service`), or `docker load` the "
-                f"tarball the estate ships; --mcp-image names another"
-                + (" (this daemon is arm64: an amd64 image runs under emulation)"
-                   if arch in ("arm64", "aarch64") else ""))
+            # wishlist 51 (b): a registry reference is pulled once; a bare
+            # build tag has nowhere to come from but this daemon
+            pull = image_pull(image, "mcp") if image_has_registry(image) else None
+            if pull is None or pull.returncode != 0:
+                native_arch = 'arm64' if arch in ('arm64', 'aarch64') else 'amd64'
+                if pull is not None:        # a registry reference that did not come
+                    fix = (f"the registry refused or is unreachable from this host: on a "
+                           f"host that cannot reach registries, load {image} out-of-band "
+                           f"(docker save | docker load); otherwise --mcp-image names another "
+                           f"reference"
+                           + ("" if image == MCP_IMAGE_PUBLISHED else
+                              f" (the published two-platform index is {MCP_IMAGE_PUBLISHED})"))
+                else:                       # a bare build tag
+                    fix = (f"--mcp-image {MCP_IMAGE_PUBLISHED} (the published two-platform "
+                           "index, pulled when absent)"
+                           + (f", or build it from estate/mcp-service/ (`docker build "
+                              f"--platform linux/{native_arch} -t {image} estate/mcp-service`), "
+                              "or `docker load` the tarball the estate ships" if CHECKOUT
+                              else ", or `docker load` an image so tagged"))
+                die(f"the retrieval service image {image} is not present on this daemon"
+                    + (" and could not be pulled." if pull is not None else
+                       " (a local build tag — nothing to pull)."),
+                    (pull.stderr.strip().splitlines() or ["no error text"])[-1]
+                    if pull is not None else "docker image inspect failed",
+                    "the image present, or pullable", fix
+                    + (" (this daemon is arm64: an amd64 image dies under qemu at the "
+                       "embed step — wishlist 49)" if arch in ("arm64", "aarch64") else ""))
         secret = run_.env.get(MCP_SECRET_ENV)
         if secret:
             reused.append(f"MCP token secret ({MCP_SECRET_ENV})")
@@ -1450,7 +1606,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         if chunk_prev and (chunk_max, chunk_overlap) != (chunk_prev["max_tokens"], chunk_prev["overlap"]):
             changed.append(f"chunking: {chunk_prev} -> {{'max_tokens': {chunk_max}, 'overlap': {chunk_overlap}}}")
         cfg.write_text(MCP_CONFIG.format(
-            run=name, forgejo_url=fj.container_url, owner=owner,
+            prog=PROG, run=name, forgejo_url=fj.container_url, owner=owner,
             repos=", ".join(case_ids), read_env=read_env, model=model,
             revision=revision, chunk_max=chunk_max, chunk_overlap=chunk_overlap,
             rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV))
@@ -1607,31 +1763,50 @@ def cmd_up(args: argparse.Namespace) -> None:
         rec["corpus"]["sandbox_image_present"] = (shutil.which("docker") is not None
                                                   and image_present(corpus.sandbox_image))
 
-    # ---- pins: which skill cards the packaged approved set already carries
+    # ---- pins: which skill cards the approved set in force already carries
     g1 = pins_g1_check(corpus)
     rec["pins"] = g1
-    if g1.get("checked") and g1["not_in_packaged_pins"]:
-        warn("pins", f"{len(g1['not_in_packaged_pins'])}/{g1['cards']} skill card(s) are not "
-             f"in the packaged approved set (G1): {g1['not_in_packaged_pins']} — episodes "
-             "on them quarantine until the pins walk re-derives (pins/derive_pins.py); "
-             "this script does not write pins")
+    if g1.get("checked") and g1["not_in_approved_set"]:
+        warn("pins", f"{len(g1['not_in_approved_set'])}/{g1['cards']} skill card(s) are not "
+             f"in the approved set the library validates against (G1: {g1['pins_path']}, "
+             f"{'the packaged REFERENCE set — set GSJ_PINS_PATH to your own' if g1['pins_source'] == 'packaged' else 'via ' + g1['pins_source']}): "
+             f"{g1['not_in_approved_set']} — episodes on them quarantine until the pins "
+             "walk re-derives (pins/derive_pins.py); this script does not write pins")
+    elif g1.get("checked"):
+        say("pins", f"every skill card ({g1['cards']}) is in the approved set at "
+                    f"{g1['pins_path']} ({g1['pins_source']})")
 
     # ---- rollout.yaml — the config the rollout server needs
     PH.start("config", "rollout.yaml")
     pp = prev.get("ports", {})
-    rport = pick_port(A.get("rollout_port", None, pp.get("rollout", "auto")), 8080,
-                      "--rollout-port", check="rollout" not in pp)
-    gport = pick_port(A.get("gateway_port", None, pp.get("gateway", "auto")), 8200,
-                      "--gateway-port", check="gateway" not in pp)
-    xport = pick_port(A.get("receiver_port", None, pp.get("receiver", "auto")), 8300,
-                      "--receiver-port", check="receiver" not in pp)
+
+    def leg_port(key: str, default: int, flag: str) -> int:
+        want = A.get(f"{key}_port", None, pp.get(key, "auto"))
+        if leg == "container":
+            return int(default if want in (None, "auto") else want)
+        # a recorded host port is kept unchecked (this run's own process may
+        # hold it) — unless the leg just moved to this host, where nothing did
+        return pick_port(want, default, flag, check=key not in pp or leg_moved)
+
+    rport = leg_port("rollout", 8080, "--rollout-port")
+    gport = leg_port("gateway", 8200, "--gateway-port")
+    xport = leg_port("receiver", 8300, "--receiver-port")
+    bind = "0.0.0.0" if leg == "container" else "127.0.0.1"
     probe_image = (corpus.sandbox_image if rec["corpus"].get("sandbox_image_present")
                    else None)
-    ghost, ghow, gprobe = gateway_host(network, gport, A.get("gateway_host", None, None),
+    if leg == "container":
+        if eurl_is_loopback(eurl):
+            warn("config", f"the engine URL {eurl} is loopback — inside your gateway's "
+                 "container that is the container itself; re-address "
+                 "estate.serving_base_url to an address the gateway container can dial "
+                 "(host.docker.internal on Docker Desktop, the compose network's gateway "
+                 "IP on Linux) before it starts — the closing block lists the keys")
+    ghost, ghow, gprobe = gateway_host(network, gport, explicit_ghost,
                                        probe_image, prev.get("gateway_host"))
     if prev.get("gateway_host") and prev["gateway_host"] != ghost:
         changed.append(f"the gateway host: {prev['gateway_host']!r} -> {ghost!r} ({ghow})")
     rec["ports"] = {"rollout": rport, "gateway": gport, "receiver": xport}
+    rec["polar_leg"] = leg
     rec["gateway_host"] = ghost
     rec["gateway_host_derived_from"] = ghow
     rec["gateway_host_probe"] = gprobe
@@ -1652,10 +1827,10 @@ def cmd_up(args: argparse.Namespace) -> None:
                     "context_window": int(A.get("context_window", None, hp.get("context_window", 32768))),
                     "max_tokens": int(A.get("max_tokens", None, hp.get("max_tokens", 8192))),
                     "thinking": str(A.get("thinking", None, hp.get("thinking", "off")))},
-        "polar": {"rollout": {"host": "127.0.0.1", "port": rport},
+        "polar": {"rollout": {"host": bind, "port": rport},
                   "gateway": {"id": f"gsj-{name}", "host": "0.0.0.0", "port": gport,
                               "public_url": f"http://{ghost}:{gport}", "engine": "vllm"}},
-        "receiver": {"host": "127.0.0.1", "port": xport, "traces_dir": str(rundir / "traces")},
+        "receiver": {"host": bind, "port": xport, "traces_dir": str(rundir / "traces")},
     }
     if eot is not None:
         cfg["builder"] = {"end_of_turn_token_id": int(eot)}
@@ -1663,13 +1838,19 @@ def cmd_up(args: argparse.Namespace) -> None:
     for key in ("context_window", "max_tokens", "thinking", "end_of_turn_token_id"):
         if hp and key in hp and hp[key] != rec["harness"].get(key):
             changed.append(f"harness.{key}: {hp[key]!r} -> {rec['harness'].get(key)!r}")
-    head = (f"# GENERATED by estate/bringup.py for run {name} — do not edit (run.json dates it);\n"
-            f"# re-run `estate/bringup.py up --name {name}`. Schema: gsj_rollout/config.py\n"
+    head = (f"# GENERATED by {PROG} for run {name} — do not edit (run.json dates it);\n"
+            f"# re-run `{PROG} up --name {name}`. Schema: gsj_rollout/config.py\n"
             f"# (the one YAML). Secrets are named by variable and live in {rundir / '.env'}:\n"
             f"# source it before `gsj-rollout serve|submit` and Polar's serve_gateway.\n"
             f"# Sandbox-side addresses ({fj.container_url}, {mcp.container_url}) resolve on\n"
             f"# the docker network {network!r}; host-side ones ({fj.url}, {mcp.url}) are\n"
-            f"# recorded in run.json.\n")
+            f"# recorded in run.json. Polar's leg: {leg}"
+            + (" — the rollout API and the receiver bind 0.0.0.0 on unscanned ports;\n"
+               "# re-address polar.rollout.public_url, receiver.public_url, receiver.traces_dir\n"
+               "# and harness.artifacts_dir for your containers (only you know their names);\n"
+               "# polar.gateway.public_url is your --gateway-host answer; estate.serving_base_url\n"
+               "# must be dialable from the gateway's container (a loopback engine URL is not).\n"
+               if leg == "container" else " (this host: loopback, ports scanned free).\n"))
     ry = rundir / "rollout.yaml"
     ry.write_text(head + yaml.safe_dump(cfg, sort_keys=False))
     render = run([sys.executable, "-m", "gsj_rollout.cli", "serve", "--config", str(ry),
@@ -1723,6 +1904,30 @@ def cmd_up(args: argparse.Namespace) -> None:
     polar = f"PYTHONPATH={REPO} {REPO / 'vendor' / 'polar' / '.venv' / 'bin' / 'polar'}" if CHECKOUT else "polar"
     gsjr = Path(sys.executable).parent / "gsj-rollout"
     gsjr_cmd = str(gsjr) if gsjr.exists() else f"{sys.executable} -m gsj_rollout.cli"
+    if leg == "container":
+        nxt = f"""
+next — Polar's leg is yours, in containers (--polar-leg container): rollout.yaml binds the rollout
+  API and the receiver on 0.0.0.0:{rport}/{xport} (unscanned) and the gateway on 0.0.0.0:{gport} with
+  public_url http://{ghost}:{gport} (your --gateway-host answer, unprobed — the address your rollout-API
+  container AND every sandbox dial); before your containers read it, re-address what only you know:
+    polar.rollout.public_url     the rollout API as your submit reaches it
+    receiver.public_url          the receiver as the rollout API's callback reaches it
+    receiver.traces_dir          the traces directory INSIDE the receiver's container
+    harness.artifacts_dir        the artifacts directory INSIDE the rollout API's container
+    estate.serving_base_url      {eurl}{' — LOOPBACK: inside the gateway container that is itself; use an address it can dial' if eurl_is_loopback(eurl) else ' — as the gateway container dials it'}
+  (gsj-rollout-demo's bootstrap.py `containerize_rollout_yaml` is the worked example), then run
+  `gsj-rollout serve`, `polar serve_rollout` and `polar serve_gateway` in them with .env's variables.
+then one episode (the config's whole claim), from a container on {network!r}:
+  gsj-rollout submit --config <your rollout.yaml> --from-bank <the taskbank> --row 0"""
+    else:
+        nxt = f"""
+next — the receiver and Polar's two processes, on this host (three terminals; each sources .env first):
+  set -a; . {rel}/.env; set +a
+  {gsjr_cmd} serve --config {rel}/rollout.yaml
+  {polar} serve_rollout -c {rel}/topology.rendered.yaml
+  {polar} serve_gateway -c {rel}/topology.rendered.yaml
+then one episode (the config's whole claim):
+  {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
     print(f"""
 == run {name} == {rel}/
   rollout.yaml       the rollout server's config (validated; topology.rendered.yaml beside it)
@@ -1730,16 +1935,9 @@ def cmd_up(args: argparse.Namespace) -> None:
   run.json           the record — {fj.mode} Forgejo {fj.url}, {mcp.mode} MCP {mcp.url}, owner {owner!r},
                      embedding {(h.get('embedding') or {}).get('model')}, engine {eurl} ({'ok' if probe['model_served'] else 'NOT OK'})
   .env               {len(run_.env)} secret(s), mode 0600 — the only place a value lives
-
-next — the receiver and Polar's two processes, on this host (three terminals; each sources .env first):
-  set -a; . {rel}/.env; set +a
-  {gsjr_cmd} serve --config {rel}/rollout.yaml
-  {polar} serve_rollout -c {rel}/topology.rendered.yaml
-  {polar} serve_gateway -c {rel}/topology.rendered.yaml
-then one episode (the config's whole claim):
-  {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0
+{nxt}
 what stands / stop what this run created:
-  estate/bringup.py status --name {name}    |    estate/bringup.py down --name {name} [--wipe]""")
+  {PROG} status --name {name}    |    {PROG} down --name {name} [--wipe]""")
 
 
 # ------------------------------------------------------- status and down
@@ -1748,7 +1946,8 @@ def _load_run(name: str) -> Run:
     r = Run(name)
     if not (r.dir / "run.json").is_file():
         die(f"no run named {name!r}.", f"{r.dir} has no run.json",
-            "a run this script created", "estate/bringup.py up --name " + name)
+            "a run this script created", f"{PROG} up --name {name} (or --runs-dir "
+            "naming the directory that holds it)")
     r.load()
     return r
 
@@ -1776,17 +1975,25 @@ def cmd_status(args: argparse.Namespace) -> None:
     probe = probe_engine(e.get("url", ""), e.get("model", ""))
     print(f"engine   operator {e.get('url')}  reachable={probe['reachable']}  "
           f"model_served={probe['model_served']}")
-    print(f"receiver 127.0.0.1:{rec.get('ports', {}).get('receiver')}  "
-          f"{'listening' if port_busy(rec.get('ports', {}).get('receiver', 0)) else 'not listening'}"
-          f"  | rollout 127.0.0.1:{rec.get('ports', {}).get('rollout')}  "
-          f"{'listening' if port_busy(rec.get('ports', {}).get('rollout', 0)) else 'not listening'}")
+    ports = rec.get("ports", {})
+    if rec.get("polar_leg") == "container":
+        print(f"receiver :{ports.get('receiver')}  | rollout :{ports.get('rollout')}  | gateway "
+              f":{ports.get('gateway')} — in your containers (--polar-leg container; not "
+              f"probed from this host); gateway public URL http://{rec.get('gateway_host')}:"
+              f"{ports.get('gateway')}")
+    else:
+        print(f"receiver 127.0.0.1:{ports.get('receiver')}  "
+              f"{'listening' if port_busy(ports.get('receiver', 0)) else 'not listening'}"
+              f"  | rollout 127.0.0.1:{ports.get('rollout')}  "
+              f"{'listening' if port_busy(ports.get('rollout', 0)) else 'not listening'}")
 
 
 def cmd_down(args: argparse.Namespace) -> None:
     r = Run(args.name)          # a run that died before its record exists, or whose
     if not r.dir.is_dir():      # .env/run.json are gone, must still come down
         die(f"no run named {args.name!r}.", f"{r.dir} does not exist",
-            "a run this script created", "estate/bringup.py up --name " + args.name)
+            "a run this script created", f"{PROG} up --name {args.name} (or --runs-dir "
+            "naming the directory that holds it)")
     try:
         r.record = json.loads((r.dir / "run.json").read_text())
     except (OSError, ValueError):
@@ -1825,12 +2032,21 @@ def cmd_down(args: argparse.Namespace) -> None:
 # ------------------------------------------------------------------- main
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
+    global RUNS
+    # the docstring is the checkout's; from the wheel the same words name the
+    # module and the cwd-relative runs directory (wishlist 51 (e))
+    doc = (__doc__ if CHECKOUT else __doc__.replace("estate/bringup.py", PROG)
+           .replace("`estate/runs/<name>/`", "`./runs/<name>/` (--runs-dir)"))
+    ap = argparse.ArgumentParser(description=doc,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
     sub = ap.add_subparsers(dest="command", required=True)
-    up = sub.add_parser("up", help="corpus -> running estate + taskbank + rollout.yaml")
-    up.add_argument("--corpus", help="corpus root (default: estate/corpus/staging)")
-    up.add_argument("--name", help="run name -> estate/runs/<name>/ (default: the corpus name)")
+    up = sub.add_parser("up", parents=[common],
+                        help="corpus -> running estate + taskbank + rollout.yaml")
+    up.add_argument("--corpus", help="corpus root" + (" (default: estate/corpus/staging)"
+                                                      if CHECKOUT else " (no default)"))
+    up.add_argument("--name", help="run name -> <runs-dir>/<name>/ (default: the corpus name)")
     up.add_argument("--answers", help="YAML of answers, keyed by flag name (skips every prompt)")
     up.add_argument("-y", "--defaults", action="store_true",
                     help="no prompts: every unset value takes its default")
@@ -1852,6 +2068,11 @@ def main() -> None:
     fg.add_argument("--forgejo-admin-password-file",
                     help=f"adopt: file holding the admin password (or export {ADMIN_PASSWORD_ENV})")
     fg.add_argument("--forgejo-port", help="create: host port (default auto: 3000 upward)")
+    fg.add_argument("--forgejo-image",
+                    help=f"create: the image (default {FORGEJO_IMAGE}, measured 2026-08-30 as "
+                         f"{FORGEJO_IMAGE_DIGEST[:19]}…; a re-run keeps its record's); any "
+                         "pullable reference — another tag, the mirror "
+                         f"{FORGEJO_IMAGE_MIRROR}:<tag>, or name@sha256:… to pin bytes")
     fg.add_argument("--anonymous-read", action="store_true", default=None,
                     help="create: leave REQUIRE_SIGNIN_VIEW off (an evaluation estate only)")
     mg = up.add_argument_group("retrieval service (MCP)")
@@ -1860,7 +2081,9 @@ def main() -> None:
     mg.add_argument("--mcp-sandbox-url", help="adopt: the service as a sandbox reaches it")
     mg.add_argument("--mcp-secret-file", help=f"adopt: file holding its token secret (or export {MCP_SECRET_ENV})")
     mg.add_argument("--mcp-port", help="create: host port (default auto: 8790 upward)")
-    mg.add_argument("--mcp-image", help=f"create: image (default {MCP_IMAGE})")
+    mg.add_argument("--mcp-image", help=f"create: image (default {MCP_IMAGE}; a registry "
+                                        "reference is pulled when absent, a local build tag "
+                                        "must be present)")
     mg.add_argument("--embedding-model", help=f"HF id (default {DEFAULT_EMBEDDING_MODEL})")
     mg.add_argument("--embedding-revision", help="full commit SHA (default: the shipped MiniLM pin)")
     mg.add_argument("--hf-cache", help="create: a HuggingFace cache dir holding a non-default model")
@@ -1879,20 +2102,28 @@ def main() -> None:
     eg.add_argument("--max-tokens", type=int)
     eg.add_argument("--thinking", help="pi thinking level (default off)")
     eg.add_argument("--gateway-host", help="the address BOTH the host and sandboxes dial the gateway on")
-    eg.add_argument("--rollout-port", help="default auto: 8080 upward")
-    eg.add_argument("--gateway-port", help="default auto: 8200 upward")
-    eg.add_argument("--receiver-port", help="default auto: 8300 upward")
+    eg.add_argument("--polar-leg", choices=("host", "container"),
+                    help="where Polar's two processes and the receiver run (default host: "
+                         "loopback binds, ports scanned free here; container: 0.0.0.0 binds, "
+                         "the ports below unscanned, the public URLs and paths yours to "
+                         "re-address — the closing block names the keys)")
+    eg.add_argument("--rollout-port", help="default auto: 8080 upward (container leg: 8080)")
+    eg.add_argument("--gateway-port", help="default auto: 8200 upward (container leg: 8200)")
+    eg.add_argument("--receiver-port", help="default auto: 8300 upward (container leg: 8300)")
     eg.add_argument("--skip-sandbox-image", action="store_true", default=None,
                     help="do not refuse when the sandbox image is absent")
     up.set_defaults(func=cmd_up)
-    st = sub.add_parser("status", help="what stands for a run")
+    st = sub.add_parser("status", parents=[common], help="what stands for a run")
     st.add_argument("--name", required=True)
     st.set_defaults(func=cmd_status)
-    dn = sub.add_parser("down", help="stop the services a run created (data survives)")
+    dn = sub.add_parser("down", parents=[common],
+                        help="stop the services a run created (data survives)")
     dn.add_argument("--name", required=True)
-    dn.add_argument("--wipe", action="store_true", help="also delete estate/runs/<name>/")
+    dn.add_argument("--wipe", action="store_true", help="also delete <runs-dir>/<name>/")
     dn.set_defaults(func=cmd_down)
     args = ap.parse_args()
+    if args.runs_dir:
+        RUNS = Path(args.runs_dir).expanduser().resolve()
     try:
         args.func(args)
     except KeyboardInterrupt:

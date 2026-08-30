@@ -1,10 +1,24 @@
 # Staging Forgejo — the frozen case dataset's git host (the predecessor's CP-29, M7a).
 #
 # The predecessor's CP-02 recipe re-instantiated for staging on the H200:
-# same pinned image (16.0.2 — bump deliberately, never :latest), own
-# project/container names, own network, own data dir. The predecessor's dev
-# instance (workstation, 127.0.0.1:3939, container gsj-envloader-forgejo)
-# is never touched.
+# a pinned image (bump deliberately, never :latest), own project/container
+# names, own network, own data dir. The predecessor's dev instance
+# (workstation, 127.0.0.1:3939, container gsj-envloader-forgejo) is never
+# touched.
+#
+# The pin (CP-62): 16.0.3 — index sha256:7c4e1db440be… on codeberg, both
+# platform manifests measured pullable 2026-08-30. It replaces 16.0.2, the
+# tag CP-59's bring-up measurements were taken on, whose amd64/arm64
+# manifests codeberg's registry dropped while still serving the index
+# (wishlist 52; the mirror code.forgejo.org/forgejo/forgejo:16.0.2 still
+# serves it at the same digest). The H200's LIVE instance runs the 16.0.2 it
+# holds locally: this file's re-pin takes effect there at the next `up`
+# after the 16.0.3 image is loaded out-of-band (`skopeo copy` as uid 1000,
+# estate/README.md's trainer-side row — dockerd's own pulls are firewalled);
+# Forgejo migrates its data directory forward at start and refuses a
+# downgrade, so the order is load, then `down`/`up`. bringup.py pins the same
+# tag (FORGEJO_IMAGE) and takes `--forgejo-image` to route around the next
+# registry event.
 #
 # H200 topology note (the predecessor's CP-29, measured): the host firewall scopes egress by
 # uid — docker-proxy (root) cannot reach container subnets, so PUBLISHED
@@ -25,7 +39,7 @@
 name: gsj-envloader-staging
 services:
   forgejo:
-    image: codeberg.org/forgejo/forgejo:16.0.2
+    image: codeberg.org/forgejo/forgejo:16.0.3
     container_name: gsj-staging-forgejo
     environment:
       # on Linux hosts export FORGEJO_UID/GID=$(id -u)/$(id -g) before up.sh

@@ -2345,6 +2345,82 @@ older). Rule-9 scan: 66 `waiting-on:` tokens; fired — 36, 48, 49
 own condition. Push: the demo's `main` at `949fa4e` (one commit, `CP-61: the demo on the wheel`, amended once with the measured numbers before the push; a from-GitHub clone validated afterwards); this repo's `main` at this CP's commit — the report carries its hash and the CI run. Tally unchanged: **21 PARITY · 7 DROPPED ·
 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-62] The Forgejo pin, and the residuals — no row moves in the
+tally; wishlist 52 CLOSED, row 51's bring-up residuals taken, (f)/(g)
+recorded. Touched here: `estate/bringup.py` (+~170 lines, outside the
+size law), `estate/forgejo/docker-compose.yml`, `estate/README.md`,
+`docs/guide/{troubleshooting,trainer-guide}.md`, `docs/VERDICT.md`
+(rows 37/51/52), this §7; the demo (`bootstrap.py`, `README.md`,
+`FINDINGS.md`). NOT touched: `gsj_rollout/` (`wc -l` 2,000/2,000),
+`vendor/`, `estate/mcp-service/`, `estate/corpus/staging/`, `pins/`,
+`tests/`, `.github/`, the examples repo — the DoD diff on the frozen list
+EMPTY; the root suite 164, the corpus suite 67.** **Re-measured first**
+(2026-08-30 16:51 UTC, an anonymous registry token, both platforms):
+`codeberg.org/forgejo/forgejo:16.0.2` — index served, amd64 and arm64
+manifests 404, `docker pull` failing with either `--platform`; `16.0.1`,
+`16.0.3`, `16.0`, `16` (one index, `sha256:7c4e1db440be…`), `15.0.3`,
+`16.0.3-rootless` pullable; no `16.0.4`/`17`. One method error on the
+way, said so it is not repeated: the first per-manifest probe of the
+morning-style loop mis-split lines whose platform has no variant and
+reported every amd64/arm64 child 404 — `docker pull` was the ground
+truth that caught it, and the measurement was redone in Python. **A
+finding beside the measurement**: the Forgejo project's mirror
+`code.forgejo.org/forgejo/forgejo` serves `16.0.2` at codeberg's exact
+index digest (`2fdfe28b…`) with both platform manifests 200 — the CP-59
+bytes are still pullable, and a PyPI 0.1.3 stranger has a cure with no
+second host (`docker pull` the mirror's tag, `docker tag` it as
+codeberg's: the same digest, no provenance lie — the demo README's
+recipe). **The route around, first** (Step 2): `--forgejo-image <ref>`
+— an answer and a flag, default the pin, a re-run's default its record,
+recorded in `run.json` with the image id, RepoDigests, platform and
+`image_pulled_by_run`; the pull is the script's own step now, so a dead
+tag is a refusal naming the flag, the mirror, `name@sha256:…` and the
+out-of-band load (measured with `…:16.0.4`, a tag that does not exist).
+**The re-pin** (Step 3): `codeberg.org/forgejo/forgejo:16.0.3` in the
+script (with `FORGEJO_IMAGE_DIGEST`, checked after a pull — a re-cut tag
+warns), the compose file and the estate README — by tag, not digest,
+because the H200 only ever `docker load`s (no RepoDigests to match; a
+digest reference would make compose pull on a firewalled host). The four
+CP-59 measurements repeated on `16.0.3+gitea-1.22.0`, each unchanged:
+the CLI's `--random-password` parsed by the create path; a token for the
+owner under an admin token `401 auth method not allowed`, under basic
+auth 201; anonymous `/api/v1/version` 403 and `ls-remote` 401 closed,
+200 and the refs on a `--anonymous-read` instance of the same tag,
+the credentialed read listing four refs; the healthz, owner, repos and
+branches shapes as before. **Row 51** (Step 4): (a) `--polar-leg
+host|container` (a container leg needs `--gateway-host` — the probe
+measures this host — and warns on a loopback engine URL) plus the
+documented keys, `estate.serving_base_url` among them; (b) a registry reference
+pulled when absent, the wheel's default the published index; (c)
+`pins_g1_check` on `checks.PINS_PATH` — the false warning gone at the
+source; (d) the native-image line after the answer; (e) `--runs-dir`
+and `PROG` in every generated header and refusal; (h) unscanned ports
+for a container leg; (f)/(g) recorded — `cli.py` lines at 2,000/2,000,
+row 37 not touched. **Proven** (Step 5, this arm64 Mac, the vllm-metal
+engine on 8100): the image removed from the daemon, `bringup.py up`
+from nothing 79.4 s with the pull inside Forgejo's 27.4 s; the re-run
+25.1 s `reused: 8`; `--forgejo-image …:16.0.1` (absent → pulled) under
+`--runs-dir` 60.1 s, `forgejo version 16.0.1` in the container, the
+record saying so; one episode accepted in 24.6 s, the trace holding no
+secret value and a userinfo-free `clone_url`. The demo legs are in the
+report (a PyPI 0.1.3 clone with the mirror recipe; the same clone on
+this commit's library, the default pulling by itself). **Frozen-side,
+recorded**: `estate/forgejo/down.sh:18` still names `16.0.2` for its
+root-owned wipe helper; `tests/fixtures/golden-mac/MANIFEST.md` is
+historical; the H200's live instance keeps its local 16.0.2 until
+16.0.3 is `skopeo copy`'d there (the compose comment names the order).
+Rule-9 scan: 69 lines by the DoD's grep over `docs/` on disk (38 in the
+tracked register — VERDICT 26, this file 12 — and 31 in the untracked
+record: the prompts and reports name the token; rows 51 and 52 carry
+their new tokens on their existing lines; CP-62's prompt and report are
+the +2 over CP-61's 66, the third the [CP-61] paragraph's own mention —
+this one spells the token without its colon);
+fired — 52 (closed), 51 (the wheel half taken, re-tokened on 0.1.4 for
+the ride, (f)/(g) on the `cli.py` allowance with 37); 37 not fired
+(annotated). Push: this repo's `main` and the demo's at this CP's
+commits — the report carries the hashes and the CI run. Tally unchanged:
+**21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
