@@ -3,12 +3,14 @@
 # Self-contained for egress-restricted hosts: the configured embedding model's snapshot is
 # baked at build time and the container runs fully offline (HF_HUB_OFFLINE;
 # Chroma telemetry is disabled in code — Settings(anonymized_telemetry=False)).
-# Build on the workstation, ship with the CP-26 recipe (0.3.0 = CP-15: the
-# ChromaDB backend, ADR-0016 — expect ≈ +310 MB installed vs 0.2.0, the
-# measured chromadb dependency delta; 0.2.0 = CP-33: /admin/reindex +
-# source.owner gsj-staging):
-#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.3.0 .
-#   docker save gsj-mcp-service:0.3.0 | ssh h200-admin docker load
+# Build on the workstation, ship with the CP-26 recipe (0.4.0 = CP-58: CP-57's
+# configurable encoder + the store identity, config.yaml with the read
+# credential; published multi-arch on GHCR at CP-61 — the amd64 half IS the
+# H200's image, the arm64 half the CP-59 native build; 0.3.0 = CP-15: the
+# ChromaDB backend, ADR-0016 — ≈ +310 MB installed vs 0.2.0; 0.2.0 = CP-33:
+# /admin/reindex + source.owner gsj-staging):
+#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.4.0 .
+#   docker save gsj-mcp-service:0.4.0 | ssh h200-admin docker load
 FROM python:3.12-slim
 
 # git: the ingester clones the case repos. Build-network hardening as in the

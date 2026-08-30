@@ -386,7 +386,7 @@ this one's.
 | A-26 | the slime v0.3.0 `Sample` surface the vendored adapter constructs against (`group_index`/`index`/`prompt`/`tokens`/`response`/`response_length`/`group_id`/`reward`/`loss_mask`/`rollout_log_probs`/`status` incl. `Status.FAILED`/`remove_sample`/`session_id`/`metadata`) is the real installed surface — **RESOLVED at CP-17: HOLDS.** With real slime importable on-estate, `bridge.load_sample_type()` returned `slime.utils.types.Sample` and the first conversion of a real collected body constructed one with every field accepted: `tokens=5783 response_length=2818 mask1=233 status=Status.COMPLETED group_id=0 session_id='sk-polar-0692…' reward={'score': 0.0}`. The four fields examples-repo F-04 flagged as unverifiable off-estate — `session_id`, `group_id`, `remove_sample`, `Status.FAILED` — are all present on the installed dataclass. 35 conversions across two collections, zero TypeErrors, zero shape workarounds. The loop's rollout function additionally asserts `type(sample).__module__.startswith("slime.")` per sample, so the local double could not have stood in silently | the vendored `slime_bridge/adapter.py` constructs exactly this against slime v0.3.0 + the router-tokens patch (its own install recipe); unverifiable off-estate at CP-16 — slime was not importable there (examples-repo FINDINGS F-03/F-04), so the bridge mirrored the usage and tested on a local double. **CP-17 verified it against the installed surface** (`docs/reports/CP-17.md`) | n/a (resolved). The prediction held exactly: the check was cheap, loud, and trainer-side — and it passed |
 
 | A-27 | **RESOLVED — HOLDS (CP-21).** The verl surface the CP-20 bridge was written against — the padded classic-trainer batch contract (`prompts`/`responses`/`response_mask`+`loss_mask`/`input_ids`/`attention_mask`/`position_ids`/`rollout_log_probs`/`rm_scores`, uid-grouped advantages, all-zero-mask zero-gradient) at verl `1ae945592754cbeb1350cbe092fe6117070fd4c7` — IS the surface CP-21 trained with: every key was consumed by verl's own fit-loop path on a real batch of 110 (`extract_reward` read `rm_scores`; GRPO grouped by `uid`; `ppo_loss` trained under `response_mask`; the decoupled rollout correction consumed `rollout_log_probs` as sequence-TIS weights; `check_consistency` and the engine's own asserts all passed first try). The fit-loop consumption half — the one thing off-estate tests could not verify — is now measured (`docs/reports/CP-21.md` §4). Two surface findings landed in the external register, neither a batch-contract miss: F-12 (the v0 conversion helper hard-requires flash-attn) and F-13 (chunked entropy dead on the non-rmpad branch) | the SHA is uni-agent's own submodule pin (the pair the predecessor's path was built for), exported as `bridge.VERL_SHA`; the contract is read from verl's own agent-loop worker and executed in the bridge's tests against REAL verl code (`DataProto`, `compute_grpo_outcome_advantage`, `agg_loss` — no double, unlike slime's A-26 situation, so the constructor-surface half is already verified off-estate). What off-estate tests cannot verify: the fit-loop *consumption* of a bridge-fed batch on a GPU estate, and the trainer-generation fork (examples-repo F-11: the pin's DEFAULT trainer is the v1 TransferQueue pipeline, which cannot ingest external batches at all — the bridge targets the classic path) | CP-21's first step either consumes the batch or names the key it missed — loudly, since `check_consistency` and the fit loop's own asserts fail fast; if the classic path is removed at a newer verl, the pin holds until CP-21 chooses the fork deliberately (run book item 1) |
-| A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced. **[CP-51, audit W3] QUALIFIED**: "multi-arch" holds for `gsj-polar` only — `gsj-mcp-service:0.3.0` and `gsj-pi-harness:pi0.83.0-3` publish linux/amd64 only (F-54, CP-36; live manifest probe 2026-08-27 unchanged, no newer tags); ARM hosts pull `--platform linux/amd64` (the demo bootstrap's cure). The intent stands; the fact was false when written. `waiting-on: the operator republish wishlist row 40 names — nothing schedules one` |
+| A-28 | the demo estate's published images track the library release: `ghcr.io/mhganainy/gsj-polar` (Polar at `POLAR_SHA` from the public repo's vendored, patched tree + the PyPI wheel, one interpreter — tag encodes both, `f0e8343a-gsj0.1.2`) and `ghcr.io/mhganainy/gsj-mcp-service` (the mcp-service image as shipped, `0.3.0`) are rebuilt/republished, **multi-arch**, whenever a release changes what they carry — added at CP-34 (demo-repo external ADR-0001) | the demo repo (`gsj-rollout-demo`) is built ONLY from published artifacts (PyPI wheel, GHCR images, the public library repo at a pinned ref) — nothing of ours by path; the images are therefore load-bearing artifacts of the consumer surface exactly like the wheel. Polar's dependency bounds are floors (no lockfile), so each image build resolves them fresh and the image tag IS the effective pin. Single-platform builds measured fatal at the CP-34 smoke: an Apple-Silicon build died `exec format error` on the amd64 estate box — hence multi-arch is part of the assumption, not a nicety | a stale `gsj-polar` image serves an old wheel to every demo estate silently (the bootstrap pins the tag, so it fails STALE, not loud); the cure is mechanical — rebuild with `LIB_REF`/`LIB_VERSION` at the new release and re-push — but nothing enforces it yet; wishlist row 34's visibility flip and any future release checklist item are where it becomes enforced. **[CP-51, audit W3] QUALIFIED**: "multi-arch" holds for `gsj-polar` only — `gsj-mcp-service:0.3.0` and `gsj-pi-harness:pi0.83.0-3` publish linux/amd64 only (F-54, CP-36; live manifest probe 2026-08-27 unchanged, no newer tags); ARM hosts pull `--platform linux/amd64` (the demo bootstrap's cure). The intent stands; the fact was false when written. `waiting-on: the operator republish wishlist row 40 names — nothing schedules one` **[CP-61]** `gsj-polar` rebuilt multi-arch at `LIB_REF=v0.1.3`/`LIB_VERSION=0.1.3` — tag `f0e8343a-gsj0.1.3`, index `ae64cf2c…`, `issubclass(PiHarness, BaseHarness)` and `import gsj_rollout.bringup` verified on both platforms; `gsj-mcp-service:0.4.0` published two-platform (wishlist 40 [CP-61]). "Multi-arch" now holds for two of the three images; the harness image remains the qualifier. `waiting-on: the harness republish wishlist row 40 names — nothing schedules one` |
 | A-29 | a trace's contiguous `loss_mask==1` runs correspond one-to-one, in order, with its `response_messages` assistant turns — added at CP-35, where the demo reader's thinking decode rests on it | measured, never assumed blind: runs == assistant-message count on every real body inspected (the CP-09 fidelity body, CP-34's 71-turn episode, CP-35's two, the 153 CP-32 archives sampled, and — added CP-41, audit S14 — CP-38's Llama-3.1 body, the strongest point: 8 mask-1 spans == 8 assistant turns == 8 merged completions on the first non-Qwen, two-terminator family), and it is how the prefix-merging builder works — one sampled span per completion, tool/glue spans masked. The REASON the demo needs it: message-side reasoning is LOST in the archive (vLLM's reasoning parser strips `<think>` from `content` into `reasoning_content`, which Polar's message capture does not map — its `reasoning` field is null in all 156 bodies measured), so thinking-on reasoning survives ONLY in the token arrays and rendering it means decoding the k-th mask-1 run as turn k | the demo's `read.py` REFUSES rather than guesses — a run/turn count mismatch decodes nothing and the transcript says the archive's own evidence is inconsistent; no library surface depends on this assumption (wishlist row 39 is the durable message-side fix). **[CP-51]** wishlist row 39 FOLDED here: message-side reasoning is a tokenizer dependency by design until a served vLLM's response field is measured — and the "null in all bodies" evidence has an on-disk counter-example (`docs/polar/thinking-on/episode-on.accepted.json`, CP-30: `reasoning_content` populated on all three assistant messages), so the dependency is vLLM-version-bound, not universal. `waiting-on: a measured vLLM response field on the served stack — a carry-patch row then` |
 | A-30 | a chat template's turn terminator — the first non-whitespace token it emits after assistant content — is also the id the engine stops generation on, so deriving `builder.end_of_turn_token_id` from a template render is sound — added at CP-37, where the demo bootstrap derives it from a foreign endpoint's `/tokenize`+`/detokenize` | the derived id, on every family probed: Qwen3 `<\|im_end\|>`=151645 (the snapshot config.json's scalar `eos_token_id`, and a member of its generation_config.json's `[151645, 151643]`), Qwen2.5-Coder 151645, Llama-3.1 official template `<\|eot_id\|>`=128009 (a member of its config's `[128001, 128008, 128009]`), and a wild simplified Llama mirror (the first-non-whitespace rule survives its unconditional trailing generation prompt where last-non-whitespace does not — the CP-37 heuristic correction); the STOP half of the assumption is measured live on the reference stack only — elsewhere it rests on the eos-membership cross-checks above; the demo's preflight re-derives and FAILs loudly when the effective id disagrees. **[CP-38] the STOP half measured FALSE on the first live foreign family — and harmless, which sharpens the assumption**: Llama-3.1 under tools STOPS tool-call turns at `<\|eom_id\|>`=128008 (Meta's ipython protocol; observed as `stop_reason` on every tool-call completion and as the last mask-1 id of every tool-call span in the accepted CP-38 episode) while its template re-renders those turns closed with `<\|eot_id\|>`=128009 — and the derived 128009 is still the RIGHT id, because the vendored merge is canonical-vs-canonical: the builder matches `end_of_turn_token_id` against the NEXT prompt's render to slice the interstitial, never against the engine's stop token, and the sampled `<\|eom_id\|>` rides the merged stream as mask-1 data followed by the canonical `<\|eot_id\|>` at mask-0 (`chains_total: 1`, 8/8 merged, zero findings). A-30's sound core is narrower than drafted: derive the RENDER-side closer; the engine's stop id need not equal it | a family whose template closes turns with plain text, or an engine with custom stop ids, derives a wrong split id — reconstruction mis-splits every multi-turn episode; the named cure is the config override (`end_of_turn_token_id`, explicit-wins, disagreement WARNed at `up`) plus the snapshot's `generation_config.json` cross-check documented in the demo's MODEL-SURFACE page |
 | A-31 | the benign-drift end of the encoder oracle's bound scales with a unit vector's component magnitude — 1/√d for a normalized d-dimensional vector — so the MiniLM-measured max|Δ| 4e-08 at 384 dims transposes to 4e-08·√(384/d) for a configured model of dimension d (added at CP-57, where `embedding.model` became configuration; `estate/mcp-service/tests/test_backend.py: encoder_max_abs_delta`) | reasoned, not measured: float32 drift is relative to magnitude (ULPs), the rms component of a unit vector is exactly 1/√d (measured 0.0510 at 384, 0.0361 at 768), and at the default model the transposition is the CP-55 constant bit for bit (√1 = 1) so the measured path is unchanged; the same-process re-encode under the second model (`paraphrase-albert-small-v2`, 768) measured max|Δ| 0 — no cross-host drift data exists for any non-default model | a non-default model's benign drift exceeds the transposed bound on some host → the oracle FIRES there, loudly (the message prints max\|Δ\| and cosine against the bound — the CP-55 shape), and the bound is re-argued for that model from its own numbers (wishlist row 46 parks this on the first production re-pin). It cannot fail silent in the dangerous direction: for a non-default model the substitution class is the cross-model class — cosine 0.23–0.31 measured at CP-57 (MiniLM vs bge-small, same 384 dims, same texts), or a width the store refuses before any bound is consulted — which the 0.999 floor and the load-time width check catch independently of \|Δ\| |
@@ -2250,6 +2250,100 @@ published wheel. Every repo the CP touched is pushed: this one only
 (`main` at the second commit, tag `v0.1.3`); the consumer repos were not
 touched. Frozen-side, recorded: `CLAUDE.md` (above). Tally unchanged:
 **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
+**[CP-61] The demo on the wheel — no row moves in the tally; four parks
+fire (wishlist 36, 48, 49 each waited on this CP's demo checkpoint F-70;
+row 40's mcp half on the image cut) and one row reopens (37, on the
+container-user register row it asked for). Touched here: `docs/VERDICT.md`
+(rows 36/40/47/48/49 annotated, 37 reopened, row 51 new), this §7, A-28,
+`estate/mcp-service/{Dockerfile,README.md}` (the version header CP-58
+left at 0.3.0 → 0.4.0 — the one lifted `estate/` path); NOT touched:
+`gsj_rollout/` (`wc -l` 2,000/2,000), `vendor/`, `pins/`, `tests/`,
+`.github/`, the examples repo — the DoD diff on the frozen list EMPTY,
+the root suite 164.** **The image decision, first**: `gsj-mcp-service`
+0.4.0 is published multi-arch this CP — not by a fresh `buildx`
+(row 40's own warning: a rebuild resolves different layers than the
+measured artifacts) but by pushing the two MEASURED single-arch images
+and composing an index with `buildx imagetools create`: the amd64 half
+is the local build `6e27f067…` the H200 loaded at CP-58 byte-for-byte,
+the arm64 half is CP-59's native build `32a78aae…`; verified by anonymous
+`docker pull` on this arm64 daemon with no `--platform` (F-54's exact
+failing step) and with `--platform linux/amd64`, and by an anonymous
+registry-token fetch of the index. Row 47 was NOT folded in: the lift
+covered the Dockerfile/README header only, not `ingest.py` or the
+service's suite, so the cut carries the same `clone_or_fetch` — re-measured
+on the demo's fresh estate (the read token in 2/2 bare-clone configs,
+the run directory 0700) and re-tokened on an observable event (a tag
+above 0.4.0 on GHCR). `gsj-pi-harness` stays amd64-only (row 40's
+harness half; the demo keeps the `--platform linux/amd64` cure for it
+alone). **A-28 fires**: `gsj-polar` rebuilt multi-arch at
+`LIB_REF=v0.1.3`/`LIB_VERSION=0.1.3` (`f0e8343a-gsj0.1.3`, index
+`ae64cf2c…`; `issubclass(PiHarness, BaseHarness)` and `import
+gsj_rollout.bringup` verified in both platforms' interpreters).
+**The demo (F-70)**: `bootstrap.py` 1,241 → 1,163 lines and a READER —
+config.yaml's three values → `work/bringup-answers.yaml` → `python -m
+gsj_rollout.bringup up --answers … -y`, run from `work/` so the run lands
+at `work/runs/demo/` (compose project `gsj-demo`, network `gsj-demo-net`
+— the demo's old names, now the bring-up's), with `GSJ_PINS_PATH` naming
+the demo's pins derived FIRST (the import-time warning's honest cure);
+what remains is the demo's own — the three-value reader, the pins
+derivation (G1/G2/G6), the Polar leg as three containers of one image
+(`work/estate/rollout.yaml` re-addressed from the bring-up's host-run
+shape: `0.0.0.0` + compose-DNS `public_url`s, `/estate/traces`,
+`/estate/artifacts`; the receiver gets a byte-copy in its own directory
+because `serve` re-renders the topology beside its config at every
+start) — and not one function of `bringup.py` re-implemented (the
+`validate` verb is the pipeline's). The four survivals: the three-input
+promise (every other answer is the tool's default); the arm64 cure
+(`ensure_image`, now for the sandbox image alone, gated to it); the
+measured expectations (re-measured below); Polar and the receiver.
+**Retired duplicates**: `estate/system_prompt.reference.txt` (sha
+`f56e8a6e…`, byte-equal to the wheel's `gsj_rollout/pins/container/
+system_prompt.container.derived.txt`, tripwired against the packaged
+`system_prompt_hash` on read) and — CP-35's second copy — `estate/
+AGENTS.reference.md` (sha `5308b28e…`): pi embeds the workspace
+AGENTS.md between `<project_instructions path="/workspace/AGENTS.md">`
+and `</project_instructions>` markers, and the span so sliced from the
+packaged capture is byte-equal to the copy (1,244 bytes, once), so the
+G2 byte-substitution is unchanged with one source; `make_corpus.py`
+writes the worked example's AGENTS.md from the same slice.
+`clone_credential_env` is used as designed: named in both configs, its
+value only in the run's `.env`, spliced by `submit` (the recipe sources
+`.env` in a subshell and passes the variable by name — `docker run
+--env-file` keeps the bring-up's quotes literally, compose strips them),
+absent from both archived traces. **Measured** (this Mac, arm64, the
+vllm-metal engine on 8100): working tree with images present — `up`
+51.2 s (the bring-up 41.9 s; the native first embed 21.6 s vs ~2 min
+emulated), warm 13.3 s (`reused: 8; backfilled: 0`), `down` 5.5 s, `up`
+after `down` 33.7 s; the from-nothing run (a fresh clone, a fresh venv,
+`pip install` from PyPI, the images removed) — clone 1.7 s (GitHub), venv + `pip install gsj-harness-rollout-server pyarrow` 5.5 s, the three GHCR pulls ~90 s, then the refusal above; resumed with the loaded Forgejo image, `up` 134.4 s (the bring-up 126.2 s: Forgejo's first start 31.3 s, scaffold 27.2 s and verify 20.9 s all under emulation, the native first embed 27.6 s; the working tree measured the same bring-up at 41.9 s with the native Forgejo) — the daemon grew 5.4 GB for the four images; one accepted
+episode (`case_orchard@2`, 2 turns, `commit 48499faa81` — CP-36's
+transcript's commit) in 21 s / 19 s / 21.6 s (working tree, working tree after the review's fixes, the from-nothing clone), `./read.py show` reading it.
+**Findings the run produced** (the demo's F-70–F-77; the library halves in
+row 51): the bring-up's `rollout.yaml` is host-run-Polar-only (51 a);
+`--mcp create` never pulls and defaults to a local tag (b); its G1 check
+reads the PACKAGED set even under `GSJ_PINS_PATH` — a false `WARNING` on
+every demo `up` (c); the arm64 native-image default is announced before
+the answer is read (d); the wheel's `estate/…` strings and no `--runs-dir`
+(e); the client's fixed `--task-id gsj-task` → an opaque `409 Conflict` on
+a second concurrent submit (f, cli.py); `serve` re-renders the topology
+beside its config on every start, receiver included (g, cli.py); the
+host-port scan for a container leg (h). **One blocking finding the run produced, a row of its own (52)**: `codeberg.org/forgejo/forgejo:16.0.2` — the bring-up's pin, which the demo cannot override — is dead on its registry: the tag's index is served, both platform manifests it lists answer 404 (16.0.1/16.0.3/16.0/16 answer 200 on both platforms); every estate so far had the image locally, the from-nothing run was the first to pull it and died at `compose up forgejo` (F-78); the run then executed the bring-up's own cure (`ssh h200-admin docker save … | docker load`, the box's amd64 image, emulated here) and continued. Two observations, not rows: the
+0.6B floor model looped 463 turns on the skill-card row (`read
+/workspace` → `EISDIR`, pi compacting at the window) until stopped —
+`timeout_seconds` 900 s is the ceiling the README now states, and the
+receiver quarantined it as `ADM1:status_not_completed:ERROR`; and the
+pre-push review (six lenses, 88 agents, two refuters per finding: 41
+findings, 27 confirmed, every one fixed in-CP — the stale-record
+regression on re-run answers, the corpus-driven sandbox pull, the env
+scrub, the forwarded flags, the receiver's own config directory, the
+subshell recipe, the `make_corpus` ordering). **Frozen-side, recorded**:
+`CLAUDE.md` (0.1.2, 1,999, 161/58/89, the tree — CP-59's class, two CPs
+older). Rule-9 scan: 66 `waiting-on:` tokens; fired — 36, 48, 49
+(closed), 40 (the mcp half closed, the harness half re-tokened), 47 (its
+"next lift" wording replaced by an observable event); 37 reopened by its
+own condition. Push: the demo's `main` at `949fa4e` (one commit, `CP-61: the demo on the wheel`, amended once with the measured numbers before the push; a from-GitHub clone validated afterwards); this repo's `main` at this CP's commit — the report carries its hash and the CI run. Tally unchanged: **21 PARITY · 7 DROPPED ·
+2 GAP · 1 BETTER · 1 TBD**.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
