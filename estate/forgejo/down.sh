@@ -15,7 +15,7 @@ if [ "${1:-}" = "--wipe" ]; then
     # delete with the same image rather than requiring sudo
     docker run --rm --entrypoint /bin/sh \
       -v "$(pwd)/forgejo-data:/wipe" \
-      codeberg.org/forgejo/forgejo:16.0.2 \
+      codeberg.org/forgejo/forgejo:16.0.3 \
       -c 'rm -rf /wipe/* /wipe/.[!.]*' 2>/dev/null || true
     rmdir ./forgejo-data 2>/dev/null || rm -rf ./forgejo-data
   fi

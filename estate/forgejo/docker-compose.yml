@@ -11,14 +11,15 @@
 # tag CP-59's bring-up measurements were taken on, whose amd64/arm64
 # manifests codeberg's registry dropped while still serving the index
 # (wishlist 52; the mirror code.forgejo.org/forgejo/forgejo:16.0.2 still
-# serves it at the same digest). The H200's LIVE instance runs the 16.0.2 it
-# holds locally: this file's re-pin takes effect there at the next `up`
-# after the 16.0.3 image is loaded out-of-band (`skopeo copy` as uid 1000,
-# estate/README.md's trainer-side row — dockerd's own pulls are firewalled);
-# Forgejo migrates its data directory forward at start and refuses a
-# downgrade, so the order is load, then `down`/`up`. bringup.py pins the same
-# tag (FORGEJO_IMAGE) and takes `--forgejo-image` to route around the next
-# registry event.
+# serves it at the same digest). Applied on the H200 at CP-64 in the
+# documented order — load out-of-band first (`skopeo copy` as uid 1000,
+# estate/README.md's trainer-side row — dockerd's own pulls are firewalled),
+# then `down`/`up`: Forgejo migrates its data directory forward at start and
+# refuses a downgrade, so the image must be present before the recreate. The
+# live instance runs 16.0.3 (amd64 id sha256:f02d6cf9…) on its migrated
+# forgejo-data; the admin token survived the migration. bringup.py pins the
+# same tag (FORGEJO_IMAGE) and takes `--forgejo-image` to route around the
+# next registry event.
 #
 # H200 topology note (the predecessor's CP-29, measured): the host firewall scopes egress by
 # uid — docker-proxy (root) cannot reach container subnets, so PUBLISHED
