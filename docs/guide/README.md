@@ -66,5 +66,5 @@ Four tracked documents are normative; this guide is the consumer view of them.
 ## See also
 
 - [Repository README](../../README.md) — the front door: the shape, the cutoff, the two roles, what has been measured, the licence.
-- [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) — trainer side: a training loop against an existing server, including the slime and verl bridges.
+- [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) — trainer side: the verl bridge and the multi-step training loop against an existing server (the slime bridge: at tag [`slime-cp17`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples/tree/slime-cp17/slime_bridge) since its CP-69).
 - [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) — bring-your-own estate: from a fresh machine to the first accepted episode.
