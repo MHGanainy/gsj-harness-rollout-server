@@ -7,7 +7,7 @@
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays within its 2,000-line budget (raised from 1,500 at CP-12, ADR-0012); the census is `wc -l gsj_rollout/*.py` — everything else (vendored Polar, tests, all of `estate/` incl. `bringup.py` — one roof since CP-50) sits outside it. Standing at CP-62: **2,000/2,000, headroom 0** (at budget since CP-56) — a checkpoint that adds any net line must stop and justify, and a new `checks.py` line additionally needs an ADR-0021 allowance.
+2. **Size budget**: our own code stays within its 2,016-line budget (raised from 1,500 at CP-12, ADR-0012; re-set to the landed size exactly at CP-65, ADR-0028); the census is `wc -l gsj_rollout/*.py` — everything else (vendored Polar, tests, all of `estate/` incl. `bringup.py` — one roof since CP-50) sits outside it. Standing at CP-65: **2,016/2,016, headroom 0 by design**, machine-checked as a suite equality (`test_size_law_census_is_machine_checked`) — a checkpoint that adds any net line must stop and justify AND move the equality test with its ADR, and a new `checks.py` line additionally needs an ADR-0021 allowance.
 3. **The predecessor is frozen — historical since CP-45.** No checkpoint CP-00–CP-44 modified `gsj-envloader`, and it reached the archive byte-untouched; CP-45 made the single permitted write (the README archive header, one commit past v0.8.0, ADR-0026) and set the GitHub repo to archived, so the freeze is platform-enforced from here. Read it and compare against it freely — it must stay readable as the goldens' collecting stack.
 4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe (`vendor/REVENDOR.md`), expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
@@ -61,7 +61,7 @@ next: <advisory>
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
 │   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
 │   └── polar/                   # real Polar run artifacts — only the 7 suite/CI/walk-read bodies tracked since CP-48
-├── gsj_rollout/                 # 2,000 lines — the whole server
+├── gsj_rollout/                 # 2,016 lines — the whole server
 │   ├── __init__.py              # consumer surface: RolloutClient/Trace, checks, load_config/RunConfig
 │   ├── pi_harness.py            # SERVER — our pi via Polar import_path
 │   ├── builder.py               # SERVER — ValidatingPrefixMergingBuilder, loaded by import-path string
@@ -70,7 +70,7 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 164 tests across 9 modules (CI adds corpus 67 + mcp-service 107)
+├── tests/                       # root suite: 169 tests across 9 modules (CI adds corpus 67 + mcp-service 107)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 ├── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
@@ -90,7 +90,7 @@ Commands:
 
 ```
 pip install -e ".[dev]"
-pytest -q                                  # the root suite: 164
+pytest -q                                  # the root suite: 169
 gsj-rollout serve --config <yaml>          # renders topology.rendered.yaml, prints the two Polar
                                            # commands (operator-run), then runs OUR receiver
 gsj-rollout submit --config <yaml> \

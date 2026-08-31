@@ -23,11 +23,13 @@ pi, and our checks.
 trace. Nothing else. If it stores, schedules, scores, weights, versions,
 or trains — it's out."
 
-**Size budget**: our own code stays under **2,000 lines** (raised from
-1,500 at CP-12, ADR-0012), excluding vendored Polar, tests, and the moved
-components (`estate/corpus/`, `estate/mcp-service/`, `estate/forgejo/` —
-under `estate/` since CP-50). A checkpoint that
-pushes past it must stop and justify.
+**Size budget**: our own code stays within **2,016 lines** (raised from
+1,500 at CP-12, ADR-0012; re-set to the landed size exactly at CP-65,
+ADR-0028 — zero headroom by design, machine-checked as an equality in
+the suite), excluding vendored Polar, tests, and the moved components
+(`estate/corpus/`, `estate/mcp-service/`, `estate/forgejo/` — under
+`estate/` since CP-50). A checkpoint that adds any net line must stop
+and justify, and the equality test moves only with an ADR.
 
 ## 2. Why this repo exists
 
@@ -77,7 +79,8 @@ lines, ADR-0002 is the boundary):
 | `client.py` | ~80 |
 | `cli.py` | ~60 |
 
-Sum 490–740 — the 1,500 ceiling (2,000 since ADR-0012) is headroom, not
+Sum 490–740 — the 1,500 ceiling (2,000 since ADR-0012, 2,016 since
+ADR-0028) is headroom, not
 a target.
 
 **[CP-10] Budget status: 1,480 / 1,500, and the headroom is gone.**
@@ -336,6 +339,33 @@ component this section has excluded since [CP-01]; copying it into the
 artifact at build time moves no line into `gsj_rollout/` and the count
 stands as CP-33 left it. Root suite 159 → 161 (+2, the mapping test and
 the wheel-layout PASS-table proof, both in `tests/`).
+
+**[CP-65] Budget status: 2,016 / 2,016 — the law re-set to the landed
+size and machine-checked (ADR-0028).** The `cli.py` allowance CP: rows
+51 (f)/(g) and 37 priced at the file, then re-priced after the CP's own
+adversarial review hardened the first cut — (f) **+2** (the 409 hint as
+a conditional; CP-62's zero-line estimate priced an UNCONDITIONAL edit,
+which the CP-27 message standard rejects), (g) **+7** (the render
+guard, never-raise: a bytes compare under EAFP — an undecodable or
+vanished file re-renders instead of crashing serve — a pid-unique tmp
+name so two concurrent serves cannot cross-truncate, `os.replace` for
+the landing), 37 **+7** (the `shutil.which` third-shape branch, taken
+only when the found `polar` sits BESIDE this interpreter — the
+co-installed estate-image shape; a foreign PATH polar falls through to
+the hints; `import shutil` counted). Banking was unavailable — the
+freeze-lift confines it to `cli.py`, which CP-33 banked to pointer
+form; what remains is the F-register-cited F-21/F-20 and F-45 comments.
+So the law moved instead, ADR-0021's way: 2,016 exactly, zero headroom
+by design, `tests/test_cli.py::test_size_law_census_is_machine_checked`
+asserting the census as an equality in both directions (its glob is
+`[!.]*.py` — `wc -l`'s shell-glob universe, dotfiles excluded). Total
+18 + 159 builder + 528 checks + 257 cli + 123 client + 414 config +
+322 pi_harness + 195 receiver = **2,016**, headroom 0 by design.
+`checks.py` untouched at 528/528 (ADR-0021 tripwire green). One
+citation moved, disclosed: the examples register's `cli.py:43` (the
+F-21/F-20 comment) now sits at `cli.py:51` — insertions above it, the
+comment byte-untouched; no cited line was banked. Root suite
+164 → 169.
 
 **Deliberately dropped** (and whose problem each becomes):
 
@@ -2511,6 +2541,8 @@ pins, no recipe.**
 
 **[CP-64] The H200's Forgejo, and the harness image — no row moves in the tally; wishlist 40 CLOSED (the harness half published, pins-walk-verified), row 2 re-measured on the box under the new image, A-28 annotated (multi-arch holds for all three images). Touched here: `estate/forgejo/docker-compose.yml` (the comment: the re-pin applied at CP-64), `estate/forgejo/down.sh:18` (the wipe helper's 16.0.2 → 16.0.3 — CP-62's recorded residue, taken under this CP's `estate/forgejo/` lift), `estate/README.md` (the Forgejo row), `docs/VERDICT.md` (rows 40/52), this file (A-28, row 2, this paragraph). NOT touched: `gsj_rollout/` (`wc -l` 2,000/2,000), `vendor/`, `estate/` beyond forgejo and the README, `estate/corpus/staging/`, `pins/` (Step 4 held the pins — the re-derivation clause never fired), `tests/`, `.github/` — the DoD diff on the frozen list EMPTY; the root suite 164.** **The Forgejo re-pin, on the box, in the compose comment's order**: 16.0.3 `skopeo copy`'d as uid 1000 and loaded (amd64 id `f02d6cf9…` — the registry's amd64 child config digest, predicted before the load and matched), `estate.sh down` (the bind-mounted `forgejo-data` intact before and after, 8.1 M), the checkout pulled `96b309c` → `4c2d808` (CP-62 and CP-63 arrived together), `up` — Forgejo started on its migrated data, no refusal, the admin token STILL VALID across the migration (`existing token still valid` from `up.sh`'s own probe). Measured there and then: `{"version":"16.0.3+gitea-1.22.0"}`, healthz 200, the four repos with all 16 deterministic branch SHAs (case_0001 `main 29515d3dfc` — CP-59's build values), anonymous `/api/v1/version` 403 and `info/refs` 401 with the read token's 200 and four refs (row 2's cell), and the CP-59 API measurements repeated on the box's own instance: `POST /users/gsj-staging/tokens` under an admin token 401 `auth method not allowed`, under basic auth 201 (the test token deleted, 204), the `/api/v1/user` and `/users/{owner}` shapes, the past-the-end repos page `[]`. **The harness image — Step 3's finding first, then the build it authorized**: the recipe is READABLE and COMPLETE at the archived predecessor (`sandbox/` byte-identical at v0.8.0; build context `sandbox/` itself, three allowlisted pin files; ADR-0041/0043 are sections of its `DECISIONS.md` — this repo's record never named ADR-0043, only "the archived predecessor's sandbox/"); every pinned input still obtainable (both npm pins integrity-equal to the committed lockfile, `mcp==2.0.0` on PyPI, the node base tag last re-cut 2025-06-11, BEFORE the 2026-08-06 original build); nothing on the box can rebuild it (`~/gsj-envloader` there is a dirty CP-22 checkout, no `sandbox/`). Rebuilt both platforms from the recipe on this Mac: the amd64 rebuild's `/opt/pi` tree byte-identical to the published image (a fully layer-cached build — this workstation still holds the predecessor-era layers — so the honest fresh-derivation proof is the arm64 build: of 41,052 files it differs ONLY in the four `@mariozechner/clipboard-*` platform natives, the materialized `.package-lock.json` naming them, and newer `/opt/mcp-venv` transitives, which sit outside the remote-MCP episode path). One method error, said so it is not repeated: the first amd64 "rebuild" was read as a from-scratch re-derivation until the build log's 8× CACHED said otherwise. **Proven by the pins, one episode per platform**: on the H200 through the amd64 rebuild (`sk-polar-c2b7498c…` — G2 `f56e8a6e…` ∈ approved, G3 `a7a7956b…` ∈ approved, `run_trace_checks` `[]`, `finish_reason: stop`, docker events tying the session container to the rebuild tag, the three estate tokens 0 occurrences; the engine on GPU 3 at `GSJ_VLLM_GPU_FRAC=0.078` — the crowded-card cure, 12.9 G free) and on this arm64 Mac through the arm64 build (`sk-polar-99512d4d…`, same hashes, findings `[]`, a `bringup.py` estate). G2 and G3 did NOT move; `pins/` untouched. **Published per CP-61's method** — no fresh amd64 bytes: `buildx imagetools create` composed the same tag from the EXISTING measured amd64 child `864dc885…` (byte-unchanged, so the H200's frozen load `f7a6d63a…` and every prior trace's provenance stand) plus the fresh arm64 `1dd08d75…` (`pi0.83.0-3-arm64` beside it); new index `1fc083d4…`. Verified anonymously: the credential-less manifest fetch lists both platforms with the amd64 child unchanged; after `docker logout`, `docker pull` with no `--platform` on this arm64 daemon — F-54's exact failing step — pulled native arm64, and `--platform linux/amd64` resolved; the login restored after. **A dated correction (CP-63 next (f))**: the [CP-63] paragraph's and `b4541ab`'s "four checkpoints stale" headline undercounts — the CLAUDE.md drift dated to CP-50 (the ADR range) and CP-56 (the census), its last repair being CP-52; recorded 2026-08-31, the facts around the headline unchanged. Rule-9 scan: 73 lines by the DoD's grep over `docs/` on disk (this paragraph spells the token without its colon); fired — 40 (the harness republish happened HERE: closed), A-28's both tokens (the same event: annotated, re-tokened on the release rebuild duty); rows 22 (no production bring-up this CP), 47 (no mcp cut), 51 (no `cli.py` allowance) did not fire; row 26 per the push's run in the report. Push: this repo's `main` at this CP's commit — the report carries the hash and the CI run. Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
 
+**[CP-65] The cli.py allowance — rows 51 (f)/(g) and 37 CLOSED under ADR-0028; the size law re-set to the landed size, 2,016, and machine-checked; row 53 NEW (the untracked-lift echoes). Touched here: `gsj_rollout/cli.py` (241 → 257 — the CP's only source change), `tests/test_cli.py` (+5 tests, the two install-shape tests re-pinned hermetic (`which → None`), the pipe test's subprocess PATH pinned empty, the 500-path counter-assert; root suite 164 → 169), `docs/CHARTER.md` (§1, §3 preamble + [CP-65], §8 rule 2, §9, this paragraph), `docs/VERDICT.md` (rows 37, 51, 53), `docs/guide/{README,how-it-works}.md` (the 2,000 echoes), `CLAUDE.md` (law 2's echo — the one edit outside the freeze-lift, ADR-0012's own echo duty, declared in the report). NOT touched: `checks.py` (528/528, the ADR-0021 tripwire green), every other `gsj_rollout/` module, `vendor/`, `estate/`, `pins/`, `.github/`, `README.md`, the consumer repos — the DoD diff on the frozen list EMPTY; the tracked 2,000 echoes OUTSIDE the lift (`README.md:6`, `.github/workflows/ci.yml:27`) are row 53's, parked with a token instead of fixed out-of-lift. **Priced at the file, then re-priced after the CP's own adversarial review** (six lenses, two refuters per finding, 13 confirmed — every one closed in-CP): (f) **+2** — CP-62's "in-place, no line" priced an UNCONDITIONAL string edit, which would put 409 advice on every exit-3 transport error against the CP-27 message standard; the honest conditional (`exc.response.status_code == 409`) needs its own binding, the hint prints ONLY on a 409 and lands on the `gsj-rollout:`-prefixed line BEFORE `str(exc)` (httpx's status str is two lines; a cure after its MDN link is a cure nobody greps), the 500 path asserted hint-free. (g) **+7** — `serve` renders to a string and the guard NEVER RAISES: a bytes compare under EAFP (an undecodable, unreadable, or mid-read-vanished file counts as different and re-renders — the review reproduced the naive text-read dying on non-UTF-8 where pre-CP-65 code overwrote and proceeded), byte-identical content left untouched (a receiver restart is a no-op on the shared file: same inode, same mtime), a real re-render lands via a PID-UNIQUE tmp + `os.replace` (the review demonstrated two concurrent serves cross-truncating a shared fixed `.tmp` into a 0-byte topology — the exact wound the row names), no residue. 37 **+7** — `shutil.which("polar")` when the vendored venv binary is absent, taken ONLY when the found binary sits beside `sys.executable` (the co-installed estate-image shape, F-77: bare runnable pair, no PYTHONPATH, no `<checkout>`, no NOTE); a FOREIGN PATH polar falls through to the F-45/REVENDOR hints (the review demonstrated a stub polar hijacking the printout and suppressing the actionable hint); `import shutil` counted. Total **+16**. **The budget decision**: bank was unavailable (the lift confines it to `cli.py`, banked to pointer form since CP-33 — what remains is the register-cited F-21/F-20 and F-45 comments), closing 37 again would re-litigate its own fired reopen condition, and "take only what fits" takes nothing at headroom 0 — so the law moved, ADR-0021's way: **ADR-0028**, 2,016 exactly, zero headroom by design, `tests/test_cli.py::test_size_law_census_is_machine_checked` asserting the census as an equality in both directions (growth is a stop-and-justify on every push; a shrink lowers the law in the same change; the glob is `[!.]*.py` — `wc -l`'s shell universe, so an editor's dot-lockfile cannot desync the check from the law's own command). Census: 18 + 159 builder + 528 checks + 257 cli + 123 client + 414 config + 322 pi_harness + 195 receiver = **2,016**. **One citation moved, disclosed**: the examples register's `cli.py:43` (the F-21/F-20 comment) now sits at `cli.py:51` — insertions ABOVE it; the comment is byte-untouched and no cited line was banked (the CP-50 footnote clause covers the stale number). Each change carries a test that fails with it removed — the full-suite counter-proof: `git stash push -- gsj_rollout/cli.py` → `pytest tests/test_cli.py` **7 red** (the 5 new tests fail, and the two re-pinned shape tests error on the stashed file's missing `cli.shutil`) / restored → 23 pass, the root suite 169. Rule-9 scan (the token spelled colon-free here, per the CP-64 precedent): fired — **37** and **51** (both waiting-on a cli.py allowance — the allowance is ADR-0028; both closed); rows 22 (no production bring-up), 47 (no mcp cut) did not fire; row 26 per the push's run in the report. Push: this repo's `main` at this CP's commit — the report carries the hash and the CI run. Tally unchanged: **21 PARITY · 7 DROPPED · 2 GAP · 1 BETTER · 1 TBD**.
+
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
@@ -2553,8 +2585,11 @@ The seven scope laws as operating rules:
 
 1. Own task → sandbox → agent → trace and refuse everything else: no
    storing, scheduling, scoring, weighting, versioning, or training.
-2. Count our own lines every checkpoint; crossing 2,000 (ADR-0012; 1,500
-   until CP-12) stops the work until justified in an ADR.
+2. Count our own lines every checkpoint; crossing 2,016 (ADR-0028;
+   2,000 until CP-65, 1,500 until CP-12) stops the work until justified
+   in an ADR — and since CP-65 the suite enforces the number as an
+   equality (`test_size_law_census_is_machine_checked`), so the count
+   and the law move together or every push goes red.
 3. Never touch `gsj-envloader` — read it, compare against it, but no
    checkpoint modifies it. **Historical since CP-45 (2026-08-25,
    ADR-0026).** The rule bound CP-00–CP-44 and did its job: the
@@ -2640,5 +2675,5 @@ Stated in advance so the decision isn't made under sunk cost. Any of:
 - The proxy needs a forked translation layer to speak to pi 0.83.0.
 - The cutoff cannot be injected per-episode through any sanctioned channel.
 - G5 (the page cutoff) is unreconstructable from the trace.
-- Our own code exceeds ~2,000 lines (ADR-0012; ~1,500 until CP-12) — the
-  "thin shell" premise is false.
+- Our own code exceeds ~2,016 lines (ADR-0028; ~2,000 until CP-65,
+  ~1,500 until CP-12) — the "thin shell" premise is false.

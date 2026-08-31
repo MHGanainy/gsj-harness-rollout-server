@@ -59,12 +59,13 @@ def test_unreachable_server_exits_3(tmp_path):
     assert code == 3
 
 
-def test_reachable_but_erroring_server_exits_3(tmp_path, fake_rollout_factory):
+def test_reachable_but_erroring_server_exits_3(tmp_path, fake_rollout_factory, capsys):
     server = fake_rollout_factory([], submit_status=500)
     config = _config_for(tmp_path, server.base_url)
     code = cli.main(["submit", "--config", str(config), "--case", "case_0001",
                      "--timestep", "12", "--prompt", "p"])
     assert code == 3  # an HTTP error is never conflated with exit 1's meaning
+    assert "--task-id" not in capsys.readouterr().err  # the 409 hint is 409-only
 
 
 def test_rejected_episode_exits_1(tmp_path, fake_rollout_factory, callback_body, capsys):
@@ -151,8 +152,11 @@ def test_serve_instructions_survive_a_pipe(tmp_path):
         [sys.executable, "-m", "gsj_rollout.cli", "serve", "--config", str(config)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT,
         # a parent env with PYTHONUNBUFFERED set would make this test pass
-        # without the flush — pin it off so the coverage is unconditional
-        env={**os.environ, "PYTHONUNBUFFERED": ""})
+        # without the flush — pin it off so the coverage is unconditional;
+        # PATH empty pins shutil.which("polar") to None (CP-65's third-shape
+        # branch cannot fire), so the F-21 vendored-path assert holds on a
+        # host that has a `polar` on PATH — a subprocess takes no monkeypatch
+        env={**os.environ, "PYTHONUNBUFFERED": "", "PATH": ""})
     channel: "queue.Queue[str]" = queue.Queue()
     threading.Thread(target=lambda: [channel.put(line) for line in proc.stdout],
                      daemon=True).start()
@@ -203,6 +207,7 @@ def test_serve_printout_says_which_case_when_no_polar_anywhere(tmp_path, capsys,
     is and what the other needs, with <checkout> placeholders that stay
     honest instead of a path the library cannot know."""
     config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    monkeypatch.setattr(cli.shutil, "which", lambda _: None)  # CP-65: no PATH polar here
     real_exists, real_isdir = os.path.exists, os.path.isdir
     monkeypatch.setattr(cli.os.path, "exists",
                         lambda p: False if p.endswith(os.path.join("bin", "polar"))
@@ -223,6 +228,7 @@ def test_serve_printout_hints_the_unbuilt_venv(tmp_path, capsys, monkeypatch):
     (REVENDOR.md, which includes the A-14 gsj_rollout install) instead of
     leaving the stranger an unexplained ENOENT."""
     config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    monkeypatch.setattr(cli.shutil, "which", lambda _: None)  # CP-65: no PATH polar here
     real_exists, real_isdir = os.path.exists, os.path.isdir
     monkeypatch.setattr(cli.os.path, "exists",
                         lambda p: False if p.endswith(os.path.join("bin", "polar"))
@@ -350,3 +356,91 @@ def test_from_bank_errors_name_their_cause(tmp_path, capsys, monkeypatch):
     monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
     assert cli.main(["submit", "--config", str(config), "--from-bank", str(bank)]) == 2
     assert "needs pyarrow" in capsys.readouterr().err
+
+
+# --- CP-65: the cli.py allowance (ADR-0028; rows 51 (f)/(g), 37) ----------
+
+
+def test_second_submit_conflict_names_task_id(tmp_path, fake_rollout_factory, capsys):
+    """Row 51 (f), measured at CP-61: a second submit while one runs answers an
+    opaque `409 Conflict` — the message must name --task-id as the cure."""
+    server = fake_rollout_factory([], submit_status=409)
+    config = _config_for(tmp_path, server.base_url)
+    code = cli.main(["submit", "--config", str(config), "--case", "case_0001",
+                     "--timestep", "12", "--prompt", "p"])
+    assert code == 3
+    err = capsys.readouterr().err
+    assert "409" in err and "--task-id" in err
+
+
+def test_serve_never_rewrites_an_identical_topology_render(tmp_path):
+    """Row 51 (g), measured at CP-61: Polar's container legs read the rendered
+    topology at THEIR start, and a receiver (re)start rewrote it in place.
+    Identical bytes must be left untouched (same inode, same mtime); a real
+    config change must land whole via rename, with no .tmp residue."""
+    config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
+    rendered = tmp_path / "topology.rendered.yaml"
+    first = rendered.stat()
+    assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
+    second = rendered.stat()
+    assert (second.st_mtime_ns, second.st_ino) == (first.st_mtime_ns, first.st_ino)
+    doc = yaml.safe_load(config.read_text())
+    doc["polar"]["rollout"] = {"host": "10.9.9.9", "port": 8123}
+    config.write_text(yaml.safe_dump(doc))
+    assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
+    assert "10.9.9.9" in rendered.read_text()  # a changed config DOES re-render
+    assert not list(tmp_path.glob("topology.rendered.yaml.*"))  # no tmp residue
+
+
+def test_serve_printout_third_shape_bare_polar_on_path(tmp_path, capsys, monkeypatch):
+    """Row 37 (F-77): inside the estate image the `polar` console script is on
+    PATH beside an installed gsj_rollout — the printout must give the bare
+    runnable commands, not clone-the-repo advice no container user can run."""
+    config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    real_exists = os.path.exists
+    monkeypatch.setattr(cli.os.path, "exists",
+                        lambda p: False if p.endswith(os.path.join("bin", "polar"))
+                        else real_exists(p))
+    beside = os.path.join(os.path.dirname(sys.executable), "polar")  # co-installed
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda cmd: beside if cmd == "polar" else None)
+    assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
+    out = capsys.readouterr().out
+    assert f"  {beside} serve_rollout -c " in out
+    assert f"{beside} serve_gateway -c " in out
+    assert "PYTHONPATH" not in out and "NOTE:" not in out and "<checkout>" not in out
+
+
+def test_serve_printout_foreign_path_polar_still_hints(tmp_path, capsys, monkeypatch):
+    """Row 37's discriminator: a PATH `polar` that is NOT beside this
+    interpreter (a different tool, or a Polar whose env cannot import
+    gsj_rollout) is not the co-installed shape — the F-45/REVENDOR hints
+    must survive it, and no bare command may name a foreign binary."""
+    config = _config_for(tmp_path, "http://127.0.0.1:8080")
+    real_exists, real_isdir = os.path.exists, os.path.isdir
+    monkeypatch.setattr(cli.os.path, "exists",
+                        lambda p: False if p.endswith(os.path.join("bin", "polar"))
+                        else real_exists(p))
+    monkeypatch.setattr(cli.os.path, "isdir",
+                        lambda p: True if p.endswith(os.path.join("vendor", "polar"))
+                        else real_isdir(p))
+    foreign = str(tmp_path / "polar")  # never the interpreter's own bin dir
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda cmd: foreign if cmd == "polar" else None)
+    assert cli.main(["serve", "--config", str(config), "--render-only"]) == 0
+    out = capsys.readouterr().out
+    assert "NOTE:" in out and "REVENDOR.md" in out
+    assert foreign not in out
+
+
+def test_size_law_census_is_machine_checked():
+    """ADR-0028: scope law 2 is 2,016 — the landed size EXACTLY, zero headroom
+    by design, an equality in both directions (ADR-0021's form applied to the
+    whole census). Growth is a stop-and-justify; a shrink must lower the law
+    with it. Moving this number is an ADR's decision plus this line, together.
+    (Homed here by CP-65's freeze-lift; the assertion, not the address, is the
+    decision.)"""
+    census = sum(path.read_text().count("\n")  # [!.]*: wc -l's shell glob skips dotfiles
+                 for path in sorted((REPO_ROOT / "gsj_rollout").glob("[!.]*.py")))
+    assert census == 2016, f"gsj_rollout census {census} != ADR-0028's exact 2,016"

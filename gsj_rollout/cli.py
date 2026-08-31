@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -37,25 +38,38 @@ def serve(args: argparse.Namespace) -> int:
         return EXIT_CONFIG
     topology_path = os.path.join(os.path.dirname(os.path.abspath(args.config)),
                                  "topology.rendered.yaml")
-    with open(topology_path, "w") as handle:
-        yaml.safe_dump(config_mod.render_topology(cfg), handle, sort_keys=False)
+    rendered = yaml.safe_dump(config_mod.render_topology(cfg), sort_keys=False)
+    try:  # 51(g): Polar's legs read this file — never truncate, never rewrite equal bytes
+        unchanged = open(topology_path, "rb").read() == rendered.encode()
+    except OSError:  # absent, unreadable, or vanished mid-read — a failed read re-renders
+        unchanged = False
+    if not unchanged:
+        with open(f"{topology_path}.{os.getpid()}.tmp", "w") as handle:
+            handle.write(rendered)
+        os.replace(f"{topology_path}.{os.getpid()}.tmp", topology_path)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     # F-21: absolute paths (the commands run elsewhere); F-20: flushed prints.
     polar_bin = os.path.join(repo_root, "vendor", "polar", ".venv", "bin", "polar")
+    prefix = f"PYTHONPATH={repo_root} "
     print(f"topology rendered: {topology_path} — run Polar's two processes yourself:",
           flush=True)
     if not os.path.exists(polar_bin):
-        # F-45: pip installs ship no vendor/ — say which case, never an ENOENT.
-        hint = ("this is an installed wheel — no wheel ships vendor/polar; clone "
-                "https://github.com/MHGanainy/gsj-harness-rollout-server and substitute <checkout>"
-                if not os.path.isdir(os.path.join(repo_root, "vendor", "polar")) else
-                "vendor/polar's venv is unbuilt — provision per vendor/REVENDOR.md's "
-                "recipe (it includes the A-14 gsj_rollout install), then rerun")
-        print(f"  NOTE: {polar_bin} does not exist — {hint}", flush=True)
-        repo_root, polar_bin = "<checkout>", "<checkout>/vendor/polar/.venv/bin/polar"
-    print(f"  PYTHONPATH={repo_root} {polar_bin} serve_rollout -c {topology_path}",
-          flush=True)
-    print(f"  {cfg.estate.mcp_token_secret_env}=<secret> PYTHONPATH={repo_root} "
+        which = shutil.which("polar")
+        if which and os.path.dirname(which) == os.path.dirname(sys.executable):
+            # F-77 (row 37): polar co-installed beside this interpreter — the estate
+            # image's shape; a foreign PATH polar falls through to the hints instead.
+            prefix, polar_bin = "", which
+        else:
+            # F-45: pip installs ship no vendor/ — say which case, never an ENOENT.
+            hint = ("this is an installed wheel — no wheel ships vendor/polar; clone "
+                    "https://github.com/MHGanainy/gsj-harness-rollout-server and substitute <checkout>"
+                    if not os.path.isdir(os.path.join(repo_root, "vendor", "polar")) else
+                    "vendor/polar's venv is unbuilt — provision per vendor/REVENDOR.md's "
+                    "recipe (it includes the A-14 gsj_rollout install), then rerun")
+            print(f"  NOTE: {polar_bin} does not exist — {hint}", flush=True)
+            prefix, polar_bin = "PYTHONPATH=<checkout> ", "<checkout>/vendor/polar/.venv/bin/polar"
+    print(f"  {prefix}{polar_bin} serve_rollout -c {topology_path}", flush=True)
+    print(f"  {cfg.estate.mcp_token_secret_env}=<secret> {prefix}"
           f"{polar_bin} serve_gateway -c {topology_path}", flush=True)
     print(f"callbacks: {cfg.receiver.base_url}/callbacks/session_result | traces -> "
           f"{cfg.receiver.traces_dir} | quarantine -> {cfg.receiver.resolved_quarantine_dir}",
@@ -160,8 +174,10 @@ def submit(args: argparse.Namespace) -> int:
         task_id = client.submit(request)
         results = client.wait(task_id, timeout_s=args.timeout + args.grace, on_poll=progress)
     except httpx.HTTPError as exc:  # transport failures AND 4xx/5xx responses
+        hint = ("" if getattr(getattr(exc, "response", None), "status_code", None) != 409
+                else " (409: that --task-id is already in flight — pass a fresh one)")
         print(f"gsj-rollout: rollout server unreachable or errored at "
-              f"{cfg.polar.rollout.base_url}: {exc}", file=sys.stderr)
+              f"{cfg.polar.rollout.base_url}{hint}: {exc}", file=sys.stderr)
         return EXIT_UNREACHABLE
     except TimeoutError as exc:
         print(f"gsj-rollout: {exc}", file=sys.stderr)
