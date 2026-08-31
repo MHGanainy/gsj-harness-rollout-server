@@ -888,16 +888,23 @@ Two standing consequences:
 
 ## The pi 0.83.0 wire dialect (CP-06, measured)
 
-The facts the checks key on, captured live (`spike/captures/*.jsonl`,
-artifacts in `docs/polar/pi/`); every one was identical across the direct
-run and the through-Polar run:
+The facts the checks key on, captured live — the stub-side wire captures
+(`spike/captures/*.jsonl`), frozen at tag
+[`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike/captures)
+since CP-68 (commit `a769771`, tree `2082a24f`; raw form at
+`raw.githubusercontent.com/MHGanainy/gsj-harness-rollout-server/spike-cp06/spike/captures/pi_polar_stub.jsonl`);
+the companion Polar-side artifact bodies `docs/polar/pi/` are in the
+private record, untracked since CP-48. Every fact was identical across
+the direct run and the through-Polar run:
 
 - **`stream: true` on every request, always** — pi-ai's openai-completions
   client streams unconditionally, with `stream_options:
   {"include_usage": true}`. Consequences: (a) **P1 is inert against pi**
   (the `key in request` membership test at `record_filters.py:108` is
   defeated by every pi call, auxiliary or not — verified by executing the
-  filter against captured bodies, `spike/p1_verdict.py`); the
+  filter against captured bodies: `p1_verdict.py` at tag `spike-cp06`,
+  commit `a769771` —
+  https://github.com/MHGanainy/gsj-harness-rollout-server/blob/spike-cp06/spike/p1_verdict.py); the
   agent-shape defense moves to the builder subclass; (b) the gateway
   answers pi with its synthetic single-chunk SSE
   (`gateway/server.py:736,771-810`) while the engine-side wire is always

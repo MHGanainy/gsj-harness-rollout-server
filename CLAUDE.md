@@ -73,18 +73,19 @@ next: <advisory>
 ├── tests/                       # root suite: 169 tests across 9 modules (CI adds corpus 67 + mcp-service 107)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
-├── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
-│   ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
-│   ├── estate.sh                #   the thin front door: bringup | up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
-│   ├── bringup.py               #   corpus -> running estate in one command (CP-59; outside the size law; force-included into the wheel as gsj_rollout.bringup since CP-60)
-│   ├── runs/                    #   bringup.py per-run directories (.env, run.json, traces) — ignored
-│   ├── rollout.h200.yaml        #   the one YAML for the H200 estate
-│   ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
-│   ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
-│   ├── mcp-service/             #   the retrieval service — own suite (107), venv, Dockerfile, GHCR image
-│   └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (67) + staging/ (163 frozen fixture files)
-└── spike/                       # frozen CP-06 spike evidence
+└── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
+    ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
+    ├── estate.sh                #   the thin front door: bringup | up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
+    ├── bringup.py               #   corpus -> running estate in one command (CP-59; outside the size law; force-included into the wheel as gsj_rollout.bringup since CP-60)
+    ├── runs/                    #   bringup.py per-run directories (.env, run.json, traces) — ignored
+    ├── rollout.h200.yaml        #   the one YAML for the H200 estate
+    ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
+    ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
+    ├── mcp-service/             #   the retrieval service — own suite (107), venv, Dockerfile, GHCR image
+    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (67) + staging/ (163 frozen fixture files)
 ```
+
+`spike/` (the CP-06 evidence) is off the tree since CP-68 — frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) (commit `a769771`, tree `2082a24f`), ADR-0029; restore with `git checkout spike-cp06 -- spike`.
 
 Commands:
 

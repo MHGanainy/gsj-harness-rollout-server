@@ -93,7 +93,9 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 | `vendor/polar/` | Polar at the commit in `POLAR_SHA`, patched (`vendor/patches/` P1–P3, `vendor/apply_patches.sh --verify`, re-vendor recipe `vendor/REVENDOR.md`); ships in no artifact |
 | `estate/` | this repository's test estate: `estate.sh` front door, `corpus/`, `mcp-service/`, `forgejo/`, `serving/` — outside the line budget |
 | `docs/` · `pins/` | the guide, the four normative documents, and the seven Polar run bodies CI/tests/pins-walk read; the approved sets (reference + `thinking-on/`) with derive scripts — the single source for the wheel copies |
-| `tests/` · `spike/` | the root suite (169 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/`; frozen evidence from the first feasibility spike |
+| `tests/` | the root suite (169 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/` |
+
+The CP-06 feasibility spike (stub backend, spike harness, the stub-side wire captures, `p1_verdict.py`, `wire_diff.py`) left the tree at CP-68 and is frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) — commit `a769771`, tree `2082a24f`; restore with `git checkout spike-cp06 -- spike`.
 
 ## Where the record lives
 
