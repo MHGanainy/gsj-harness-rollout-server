@@ -1,7 +1,7 @@
 # gsj-harness-rollout-server — continuous integration (CP-18, M5a).
 #
 # WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
-#   * the root suite (164)                  — gsj_rollout/, fixtures, no estate
+#   * the root suite (169)                  — gsj_rollout/, fixtures, no estate
 #   * the corpus suite (67)                 — the pipeline over its file:// rail
 #   * the mcp-service suite (107)           — Chroma + the pinned MiniLM, localhost
 #   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
@@ -24,7 +24,7 @@
 # workstation venv is 3.13 — neither is exercised here.
 #
 # Size law (CHARTER §3): this file is CI configuration, not `gsj_rollout/`
-# code — outside the 2,000-line budget, on the same footing as tests and
+# code — outside the 2,016-line budget, on the same footing as tests and
 # vendored Polar. It adds nothing to the surface the budget governs.
 
 name: CI
@@ -37,7 +37,7 @@ on:
 
 jobs:
   root:
-    name: root suite (164)
+    name: root suite (169)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

@@ -6,7 +6,7 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 
 ## Install
 
-`pip install gsj-harness-rollout-server` — version **0.1.4**, Python **≥ 3.12**, wheel-only and `py3-none-any`. Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` needs a checkout.
+`pip install gsj-harness-rollout-server` — version **0.1.5**, Python **≥ 3.12**, wheel-only and `py3-none-any`. Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` needs a checkout.
 
 ![Six paths cross from the checkout into the wheel, rendered at 0.1.4 (18 entries) — the gsj_rollout package via hatch packages, then five force-includes: both pins files, the G2 capture, ingest_corpus.py, bringup.py — and a red never-ships row (vendor, the rest of estate, spike, tests, docs, .github) crosses nothing](img/wheel-contents.png)
 

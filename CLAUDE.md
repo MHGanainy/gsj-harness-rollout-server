@@ -2,7 +2,7 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.4** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `bringup.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78, next fresh id F-79). The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.5** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `bringup.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78, next fresh id F-79). The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
@@ -48,7 +48,7 @@ next: <advisory>
 ├── CLAUDE.md
 ├── README.md                    # the two-role split: server side needs an estate; trainer side is the pip library
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
-├── pyproject.toml               # 0.1.4; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + bringup.py
+├── pyproject.toml               # 0.1.5; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + bringup.py
 ├── docs/
 │   ├── guide/                   # the user documentation: plain Markdown pages + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
