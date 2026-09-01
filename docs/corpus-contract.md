@@ -519,7 +519,26 @@ embedder (`sentence-transformers/all-MiniLM-L6-v2`) and the chunk window
 reference pages; nothing re-derives them for your material. `up` takes
 `--embedding-model`/`--embedding-revision` (a non-default model is
 mounted from your HF cache) and `--chunk-max-tokens`/`--chunk-overlap`
-— re-embedding an existing store is an explicit `--rebuild`.
+— re-embedding an existing store is an explicit `--rebuild`. Since
+CP-73 the effective retrieval config is printed for review **before**
+your corpus is embedded under it, each setting priced by what a later
+change costs (the model: a refusal until `--rebuild`; the chunk window:
+a corpus-wide re-embed; the search defaults: a config edit), and
+`--mcp-config <yaml>` supplies the operator sections (`embedding`,
+`chunking`, `search`, `decisions`) from a file for scripted runs.
+
+**Editing a corpus that is already standing.** `estate.py update
+--name <run>` (CP-73) syncs edits: it diffs your tree against the run's
+lock, reports per case what moved — an edited page (edit it in *every*
+timestep that holds it, invariant 3), a new timestep, a new case, a
+prompt change — and what each costs downstream, then pushes only the
+changed repos, rebuilds the bank, triggers one if-stale reindex and
+re-verifies. An edited `AGENTS.md` or skill card is attributed against
+the live repo's bytes and the pins consequence said out loud: G1/G2
+move, episodes on the affected cards quarantine until the pins are
+re-derived. It refuses a changed `git:` identity (every SHA moves —
+that is a new corpus, stand it up as its own run) and never re-embeds
+by force.
 
 **What is proven, and what is not.** Proven (CP-71, a Mac estate): a
 scaffolded corpus validates unmodified, ingests, banks and verifies

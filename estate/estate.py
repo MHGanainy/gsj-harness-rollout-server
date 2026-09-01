@@ -5,6 +5,7 @@
     estate/estate.py validate [--corpus DIR]                     # the contract check
     estate/estate.py up   [--corpus DIR] [--name RUN] [flags…]    # the estate
     estate/estate.py ingest [--corpus DIR] [--mcp-url URL]       # re-index the retrieval service
+    estate/estate.py update --name RUN [--corpus DIR]            # sync corpus edits into the estate
     estate/estate.py status --name RUN                           # what stands
     estate/estate.py down   --name RUN [--wipe]                  # stop what it created
 
@@ -27,6 +28,10 @@ retrieval service, probing what it did not build before touching it.
 Running it twice on the same corpus and name REUSES (tokens verified,
 repos converged, index fingerprint matched); `--rebuild` re-embeds
 explicitly — the retrieval service's own posture (CP-57), not a second one.
+`update` (CP-73) syncs an EDITED corpus into the standing estate: it diffs
+the tree against the run's lock, reports what moved and what that costs,
+then pushes only the changed repos, rebuilds the bank, triggers one
+reindex and re-verifies — report first, then act.
 
 It stops at the estate: Polar's two processes and the receiver are the
 operator's to start, and the final block prints the exact commands.
@@ -905,6 +910,134 @@ server:
 """
 
 
+# CP-73 (CP-70 item 7): the config the index is built under is the
+# operator's to see BEFORE the embed — the most expensive step of a real
+# bring-up and the one hardest to undo. Two halves: `--mcp-config` (the
+# scripted answer: a YAML of retrieval-section overrides merged onto the
+# generated config) and the review block below (the human one: printed
+# always, confirmed only when an embed is about to be spent — never a
+# stop under -y). The estate keeps its own sections: source/auth/index/
+# server are the run's wiring (URLs, token variable names, the store
+# path, the --rebuild posture) and a file that sets them is refused.
+
+MCP_OPERATOR_SECTIONS = ("embedding", "chunking", "search", "decisions")
+MCP_ESTATE_SECTIONS = ("source", "auth", "index", "server")
+# the service's own schema (estate/mcp-service/gsj_mcp_service/config.py,
+# extra keys refused at ITS startup) — validated here so a typo is a
+# refusal at the review, not a container that never comes ready
+MCP_SECTION_KEYS = {
+    "embedding": ("model", "revision", "device", "batch_size", "normalize"),
+    "chunking": ("max_tokens", "overlap", "respect_page_boundaries"),
+    "search": ("default_k", "max_k", "method"),
+    "decisions": ("seed", "corpus_size"),
+}
+# what enters the store's fingerprint (index.py corpus_fingerprint) — a
+# change to any of these re-embeds; everything else serves or paces
+MCP_FINGERPRINT_KEYS = (("embedding", "model"), ("embedding", "revision"),
+                        ("embedding", "normalize"),
+                        ("chunking", "max_tokens"), ("chunking", "overlap"),
+                        ("chunking", "respect_page_boundaries"),
+                        ("decisions", "seed"), ("decisions", "corpus_size"))
+
+
+def mcp_fingerprint_components(doc: dict) -> dict:
+    return {f"{sec}.{key}": (doc.get(sec) or {}).get(key)
+            for sec, key in MCP_FINGERPRINT_KEYS}
+
+
+def mcp_override_problems(doc) -> list[str]:
+    """Why a --mcp-config document is refused; [] when it is fine."""
+    if not isinstance(doc, dict):
+        return ["the file is not a YAML mapping"]
+    problems = []
+    for key in sorted(doc):
+        if key in MCP_ESTATE_SECTIONS:
+            problems.append(f"{key}: is the estate's (the run's wiring)")
+        elif key not in MCP_OPERATOR_SECTIONS:
+            problems.append(f"{key}: not a retrieval section")
+        elif not isinstance(doc[key], dict):
+            problems.append(f"{key}: must be a mapping of that section's keys")
+        else:
+            for sub in sorted(set(doc[key]) - set(MCP_SECTION_KEYS[key])):
+                problems.append(f"{key}.{sub}: not a key of that section "
+                                f"(the service refuses unknown keys at its "
+                                f"start — this refusal is the same one, early)")
+            for sub, want in (("batch_size", int), ("max_tokens", int),
+                              ("overlap", int), ("default_k", int),
+                              ("max_k", int), ("seed", int),
+                              ("corpus_size", int), ("normalize", bool),
+                              ("respect_page_boundaries", bool)):
+                if sub in doc[key] and not isinstance(doc[key][sub], want) \
+                        or (want is int and isinstance(doc[key].get(sub), bool)):
+                    problems.append(f"{key}.{sub}: must be {want.__name__} "
+                                    f"(got {doc[key][sub]!r}) — the service "
+                                    "would refuse it at its start")
+    return problems
+
+
+def load_mcp_overrides(path: str | None) -> dict | None:
+    """None = no --mcp-config given; {} = an explicitly empty file (clears
+    any recorded overrides); else the validated overrides mapping."""
+    if not path:
+        return None
+    try:
+        doc = yaml.safe_load(Path(path).read_text()) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        die(f"--mcp-config {path} is unreadable.", str(exc),
+            "a YAML mapping of retrieval sections "
+            f"({', '.join(MCP_OPERATOR_SECTIONS)})", "fix the file")
+    problems = mcp_override_problems(doc)
+    if problems:
+        die(f"--mcp-config {path} is not a retrieval-config overrides file.",
+            "; ".join(problems),
+            f"only the operator sections: {', '.join(MCP_OPERATOR_SECTIONS)} "
+            "(schema: estate/mcp-service/config.yaml)",
+            "source, auth, index and server are wired by this run (its URLs, "
+            "token variable names, store path and --rebuild posture) — "
+            "remove those keys and re-run")
+    return doc
+
+
+def render_mcp_config(base_text: str, overrides: dict) -> str:
+    """The generated config with the operator's overrides merged. Without
+    overrides the template bytes pass through verbatim, so an untouched
+    re-run stays byte-identical (the recreate check hashes this file)."""
+    if not overrides:
+        return base_text
+    doc = yaml.safe_load(base_text)
+    for section, values in overrides.items():
+        doc.setdefault(section, {}).update(values)
+    head = ""
+    for line in base_text.splitlines():
+        if not line.startswith("#"):
+            break
+        head += line + "\n"
+    return head + yaml.safe_dump(doc, sort_keys=False)
+
+
+def mcp_config_review(doc: dict, cfg_path: Path) -> str:
+    """What the corpus is about to be chunked and embedded under, with what
+    each setting costs to change AFTERWARDS — said while the operator can
+    still act on it (the asymmetry is the point: some of these are a config
+    edit, some are a corpus-wide re-embed, one is a refusal)."""
+    e, c = doc.get("embedding", {}), doc.get("chunking", {})
+    s, d = doc.get("search", {}), doc.get("decisions", {})
+    return (f"""the retrieval config, before the index is spent under it:
+      embedding.model     {e.get('model')}
+      embedding.revision  {e.get('revision')}   (normalize {str(e.get('normalize', True)).lower()})
+          to change later: REFUSED against the built store until --rebuild
+          re-embeds it (CP-57: a model change is a re-pin, not staleness)
+      chunking            max_tokens {c.get('max_tokens')}, overlap {c.get('overlap')}, respect_page_boundaries {str(c.get('respect_page_boundaries', True)).lower()}
+          to change later: a re-embed of the WHOLE corpus (fingerprint
+          components — the next start rebuilds the index)
+      decisions           seed {d.get('seed')}, corpus_size {d.get('corpus_size')}
+          to change later: an index rebuild (fingerprint components)
+      search              default_k {s.get('default_k')}, max_k {s.get('max_k')}
+          to change later: nothing re-embeds — edit {cfg_path} and restart
+          the container (serving-only)
+      (embedding.device {e.get('device', 'cpu')}, batch_size {e.get('batch_size', 32)} — speed only, not identity)""")
+
+
 class Mcp:
     def __init__(self, url: str, container_url: str, secret: str, mode: str) -> None:
         self.url = url.rstrip("/")
@@ -1148,7 +1281,13 @@ def cmd_up(args: argparse.Namespace) -> None:
 
     # ---- the corpus, validated before anything runs
     # the checkout's staging corpus is the default; the wheel has none (--corpus is required there)
-    corpus_path = Path(A.get("corpus", "corpus root", str(HERE / "corpus" / "staging") if CHECKOUT else None,
+    # CP-73: every interactive question says whether its answer BINDS —
+    # and where a non-binding one lands, so the operator knows what to
+    # edit later, not just that they may (CP-70 item 9's class).
+    corpus_path = Path(A.get("corpus", "corpus root (not binding: `update` "
+                                       "syncs later edits into the standing "
+                                       "estate)",
+                             str(HERE / "corpus" / "staging") if CHECKOUT else None,
                              required=True)).expanduser().resolve()
     if not (corpus_path / "corpus.yaml").is_file():
         load_corpus(corpus_path, None)          # the refusal, before any prompt
@@ -1160,7 +1299,9 @@ def cmd_up(args: argparse.Namespace) -> None:
     yaml_name = raw_yaml.get("name") if isinstance(raw_yaml.get("name"), str) else None
 
     # ---- the run: its record is the source of every re-run default
-    name = A.get("name", "run name", yaml_name, required=True)
+    name = A.get("name", "run name (binding: it names the run directory, "
+                         "the containers and the network)",
+                 yaml_name, required=True)
     if not RUN_NAME_RE.match(name):
         die(f"run name {name!r} is not a token.", repr(name),
             "lowercase letters, digits, - and _ (it names a compose project)", "--name")
@@ -1177,7 +1318,9 @@ def cmd_up(args: argparse.Namespace) -> None:
     if run_.existing:
         say("run", f"'{name}' exists (created {rec.get('created_at')}) — "
                    f"re-run: adopting what stands, backfilling what is missing")
-    owner = A.get("owner", "Forgejo owner for the case repos",
+    owner = A.get("owner", "Forgejo owner for the case repos (binding: the "
+                           "repos live under it; a re-run asking for another "
+                           "is refused without --retarget)",
                   prev.get("corpus", {}).get("owner") or yaml_owner)
     # CP-71: the sandbox image is the ESTATE's answer, not the corpus's —
     # a corpus.yaml that still declares one is ignored with a warning; the
@@ -1203,7 +1346,9 @@ def cmd_up(args: argparse.Namespace) -> None:
                            "yaml_mcp_url_base": corpus.mcp_url}})
     reused: list[str] = []
     backfilled: list[str] = []
-    network = A.get("network", "docker network the sandbox joins",
+    network = A.get("network", "docker network the sandbox joins (recorded: "
+                               "a re-run naming another is refused without "
+                               "--retarget)",
                     prev.get("network", {}).get("name", f"gsj-{name}-net"))
     external_net = network != f"gsj-{name}-net"
     rec["network"] = {"name": network, "external": external_net,
@@ -1259,12 +1404,15 @@ def cmd_up(args: argparse.Namespace) -> None:
     def _choice(section: str) -> str:   # the record says created/adopted
         return "adopt" if prev.get(section, {}).get("mode") == "adopted" else "create"
 
-    fmode = A.get("forgejo", "Forgejo: create a new instance, or adopt one",
+    fmode = A.get("forgejo", "Forgejo: create a new instance, or adopt one "
+                             "(recorded: a re-run keeps it; --retarget moves it)",
                   _choice("forgejo"), choices=("create", "adopt"))
     if fmode == "adopt" and prev.get("forgejo", {}).get("mode") == "created":
         retarget("Forgejo", "created", "adopted")
     if fmode == "adopt":
-        furl = bare_url(A.get("forgejo_url", "Forgejo URL (as this host reaches it)",
+        furl = bare_url(A.get("forgejo_url", "Forgejo URL (as this host reaches "
+                              "it; recorded: a re-run pointing elsewhere is "
+                              "refused without --retarget)",
                               prev.get("forgejo", {}).get("url"), required=True), "--forgejo-url")
         retarget("the Forgejo URL", prev.get("forgejo", {}).get("url"), furl)
         fsandbox = bare_url(A.get("forgejo_sandbox_url",
@@ -1455,18 +1603,36 @@ def cmd_up(args: argparse.Namespace) -> None:
     PH.done(f"{len(case_ids)} case repo(s) converged under {owner!r}; lock written")
 
     # ---- the retrieval service
-    mmode = A.get("mcp", "retrieval service (MCP): create, or adopt",
+    mmode = A.get("mcp", "retrieval service (MCP): create, or adopt "
+                         "(recorded: a re-run keeps it; --retarget moves it)",
                   _choice("mcp"), choices=("create", "adopt"))
     if prev.get("mcp", {}).get("mode") in ("created", "adopted") and \
             prev["mcp"]["mode"] != ("created" if mmode == "create" else "adopted"):
         retarget("the retrieval service", prev["mcp"]["mode"],
                  "created" if mmode == "create" else "adopted")
-    model = A.get("embedding_model", "embedding model (HF id)",
-                  prev.get("mcp", {}).get("embedding", {}).get("model") or DEFAULT_EMBEDDING_MODEL)
-    revision = A.get("embedding_revision", "embedding revision (full commit SHA)",
-                     prev.get("mcp", {}).get("embedding", {}).get("revision")
-                     if prev.get("mcp", {}).get("embedding", {}).get("model") == model
-                     else (DEFAULT_EMBEDDING_REVISION if model == DEFAULT_EMBEDDING_MODEL else None),
+    mc_over = load_mcp_overrides(A.get("mcp_config", None, None))
+    if mc_over is not None and mmode == "adopt":
+        die("--mcp-config configures a service this run would CREATE.",
+            "--mcp adopt (an adopted service's config is its operator's)",
+            "--mcp create, or no --mcp-config",
+            "to change an adopted service's retrieval config, change it "
+            "there (its operator owns the file) — this run only checks the "
+            "identity it serves")
+    mc_emb = (mc_over or {}).get("embedding") or {}
+    mc_chunk = (mc_over or {}).get("chunking") or {}
+    model = A.get("embedding_model", "embedding model (HF id; binding to the "
+                                     "index store: once built, a different "
+                                     "model is refused until --rebuild "
+                                     "re-embeds — CP-57)",
+                  mc_emb.get("model")
+                  or prev.get("mcp", {}).get("embedding", {}).get("model") or DEFAULT_EMBEDDING_MODEL)
+    revision = A.get("embedding_revision", "embedding revision (full commit "
+                                           "SHA; binding with the model)",
+                     (mc_emb.get("revision")
+                      if mc_emb.get("model") in (None, model) and mc_emb.get("revision") else None)
+                     or (prev.get("mcp", {}).get("embedding", {}).get("revision")
+                         if prev.get("mcp", {}).get("embedding", {}).get("model") == model
+                         else (DEFAULT_EMBEDDING_REVISION if model == DEFAULT_EMBEDDING_MODEL else None)),
                      required=True)
     if not HEX40.match(str(revision)):
         die(f"embedding revision {revision!r} is not a full commit SHA.", repr(revision),
@@ -1474,7 +1640,9 @@ def cmd_up(args: argparse.Namespace) -> None:
             "service refuses it too)", "--embedding-revision <sha>")
     secret = None
     if mmode == "adopt":
-        murl = bare_url(A.get("mcp_url", "MCP URL (as this host reaches it)",
+        murl = bare_url(A.get("mcp_url", "MCP URL (as this host reaches it; "
+                              "recorded: a re-run pointing elsewhere is "
+                              "refused without --retarget)",
                               prev.get("mcp", {}).get("url"), required=True), "--mcp-url")
         retarget("the MCP URL", prev.get("mcp", {}).get("url"), murl)
         msandbox = bare_url(A.get("mcp_sandbox_url", "MCP URL as a sandbox reaches it",
@@ -1646,24 +1814,92 @@ def cmd_up(args: argparse.Namespace) -> None:
                         "--rebuild) — waiting for that rebuild, then reverting")
             rebuild = True
         chunk_prev = (pm or {}).get("chunking") or {}
-        chunk_max = int(A.get("chunk_max_tokens", None, chunk_prev.get("max_tokens", 220)))
-        chunk_overlap = int(A.get("chunk_overlap", None, chunk_prev.get("overlap", 40)))
+        try:
+            chunk_max = int(A.get("chunk_max_tokens", None,
+                                  mc_chunk.get("max_tokens", chunk_prev.get("max_tokens", 220))))
+            chunk_overlap = int(A.get("chunk_overlap", None,
+                                      mc_chunk.get("overlap", chunk_prev.get("overlap", 40))))
+        except (TypeError, ValueError) as exc:
+            die("the chunk window is not a pair of integers.", str(exc),
+                "chunking.max_tokens / chunking.overlap as integers",
+                "--chunk-max-tokens/--chunk-overlap, or the --mcp-config "
+                "file's chunking section")
         if chunk_prev and (chunk_max, chunk_overlap) != (chunk_prev["max_tokens"], chunk_prev["overlap"]):
             changed.append(f"chunking: {chunk_prev} -> {{'max_tokens': {chunk_max}, 'overlap': {chunk_overlap}}}")
-        cfg.write_text(MCP_CONFIG.format(
+        # the identity and window already flowed through the answers above;
+        # what remains of --mcp-config merges verbatim (search, decisions,
+        # device, batch_size, …). A re-run WITHOUT the flag keeps the
+        # record's residual (CP-59: every re-run default comes from the
+        # record — a plain re-run must not silently revert the operator's
+        # config); a new --mcp-config replaces it whole.
+        residual = {sec: {k: v for k, v in vals.items()
+                          if (sec, k) not in (("embedding", "model"), ("embedding", "revision"),
+                                              ("chunking", "max_tokens"), ("chunking", "overlap"))}
+                    for sec, vals in (mc_over or {}).items()}
+        residual = {sec: vals for sec, vals in residual.items() if vals}
+        if mc_over is None and pm and pm.get("config_overrides"):
+            residual = pm["config_overrides"]
+            say("mcp", f"--mcp-config overrides kept from the record: "
+                       f"{sorted(residual)} (pass --mcp-config to replace "
+                       "them; an empty file clears them)")
+        cfg_text = render_mcp_config(MCP_CONFIG.format(
             prog=PROG, run=name, forgejo_url=fj.container_url, owner=owner,
             repos=", ".join(case_ids), read_env=read_env, model=model,
             revision=revision, chunk_max=chunk_max, chunk_overlap=chunk_overlap,
-            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV))
+            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV),
+            residual)
+        # the review (CP-70 item 7): shown before anything is embedded under
+        # it — every run, so a -y run still sees what it is spending; the
+        # CONFIRM fires only when an embed is actually about to be spent —
+        # cold store, --rebuild, or ANY fingerprint component moving vs the
+        # run's existing config (the chunk window, normalize, the decisions
+        # params — the review's own pricing, read off the same key set) —
+        # and never in a non-interactive run
+        old_components = None
+        if cfg_before is not None:
+            try:
+                old_components = mcp_fingerprint_components(yaml.safe_load(cfg.read_text()))
+            except yaml.YAMLError:
+                old_components = None      # unreadable old config: treat as moved
+        new_components = mcp_fingerprint_components(yaml.safe_load(cfg_text))
+        embed_spend = (stored is None or rebuild
+                       or (cfg_before is not None and old_components != new_components))
+        say("mcp-config", mcp_config_review(yaml.safe_load(cfg_text), cfg)
+            + ("" if embed_spend else
+               "\n      (this config matches the store's — an embed happens now "
+               "only if the corpus itself moved)"))
+        if A.interactive and embed_spend:
+            try:
+                typed = input(f"{_c('36', '?')} build the index under this config? "
+                              f"(yes / no — no aborts) [yes]: ").strip().lower()
+            except EOFError:
+                # a spending confirm is not a value prompt: a closed stdin is
+                # a decline, never consent (-y is the non-interactive form)
+                typed = "no (stdin closed)"
+            if typed not in ("", "y", "yes"):
+                die("the retrieval config was declined at the review.",
+                    "the operator answered no", "yes (or an edited config)",
+                    "adjust --embedding-model/--embedding-revision, "
+                    "--chunk-max-tokens/--chunk-overlap, or supply "
+                    "--mcp-config <yaml> (sections: "
+                    f"{', '.join(MCP_OPERATOR_SECTIONS)}) and re-run — "
+                    "nothing was embedded")
+        cfg.write_text(cfg_text)
         rec.setdefault("compose", {})["mcp"] = {
             "image": image, "container": container, "port": mport,
             "data": str(rundir / "mcp-data"), "config": str(cfg), "read_env": read_env,
             "hf_model_dir": str(hf_dir) if hf_dir else None,
             "hf_model_mount": f"/opt/hf-cache/hub/{hf_dir.name}" if hf_dir else None,
             "chunking": {"max_tokens": chunk_max, "overlap": chunk_overlap},
+            "config_overrides": residual,
             "uid": os.getuid() if platform.system() == "Linux" else None,
             "gid": os.getgid() if platform.system() == "Linux" else None}
         write_compose(rundir, run_, network, external_net)
+        # the record lands BEFORE the embed (the forgejo pattern): an
+        # interrupted build must not leave the next re-run defaulting to a
+        # config this run already moved away from (image, chunking, the
+        # --mcp-config residuals)
+        run_.write_record()
         PH.start("mcp", f"docker compose up ({container}, 127.0.0.1:{mport}) — a cold "
                         f"start clones and embeds; a warm one matches the fingerprint")
         # compose recreates on a changed service definition (image, env,
@@ -1759,13 +1995,22 @@ def cmd_up(args: argparse.Namespace) -> None:
                           "taskbank_rows": (lock.get("taskbank") or {}).get("rows"),
                           "repos": {cid: lock["cases"][cid]["refs"] for cid in case_ids}})
 
-    # ---- the engine: always the operator's, never created
-    eurl = A.get("engine_url", "inference endpoint (root URL, no /v1)",
+    # ---- the engine: always the operator's, never created. The answer is
+    # NOT binding (CP-70 item 9): it lands in rollout.yaml, the probe below
+    # records rather than refuses, and the operator changes it at any time.
+    eurl = A.get("engine_url", "inference endpoint (root URL, no /v1) — not "
+                               "binding: written to rollout.yaml's "
+                               "estate.serving_base_url and only probed (a "
+                               "warning, never a refusal); change it later by "
+                               "editing that file or re-running up",
                  prev.get("engine", {}).get("url", DEFAULT_ENGINE_URL)).rstrip("/")
     if eurl.endswith("/v1"):
         die("the engine URL must not end in /v1.", eurl, "the root — Polar's proxy "
             "appends /v1/chat/completions itself", f"--engine-url {eurl[:-3]}")
-    emodel = A.get("engine_model", "served model name (as GET /v1/models lists it)",
+    emodel = A.get("engine_model", "served model name (as GET /v1/models lists "
+                                   "it) — not binding: written to "
+                                   "rollout.yaml's estate.model; edit it "
+                                   "there or re-run up",
                    prev.get("engine", {}).get("model", REFERENCE_MODEL))
     PH.start("engine", f"probing {eurl} for {emodel!r}")
     probe = probe_engine(eurl, emodel)
@@ -2214,6 +2459,608 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         sys.exit(2)
 
 
+# ------------------------------------------------------------------ update
+# CP-73 (CP-70 item 10): a changed corpus used to mean a re-run that adopts
+# and does not notice, or --rebuild, which re-embeds everything. `update`
+# syncs EDITS: it diffs the tree against the RUN's lock (what this estate
+# last converged to), reports what moved and what that costs, then acts —
+# scaffold --only over the changed cases, one corpus-wide taskbank, one
+# reindex trigger, verify. Pure orchestration over phases the pipeline
+# already has; no new phase was needed. What it refuses: a corpus whose
+# git identity changed (every SHA moves — that is a new corpus, not an
+# update), a case removed from the tree (the estate would fail verify on
+# the stray lock entry), and a push over branches the estate's record does
+# not account for (that is `up --overwrite-repos`, deliberately explicit
+# since CP-59). What it never does: force a re-embed — the reindex is the
+# service's own if-stale decision, and --rebuild stays `up`'s.
+
+def _parse_git_date(text: str):
+    text = (text or "").strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%S %z", "%Y-%m-%d %H:%M:%S %z"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def same_git_identity(tree: dict, live: dict) -> bool | None:
+    """corpus.yaml's git block vs a live commit's author — None when the
+    dates cannot be compared (unparseable), never a guess."""
+    if tree.get("name") != live.get("name") or tree.get("email") != live.get("email"):
+        return False
+    t, l = _parse_git_date(tree.get("date", "")), _parse_git_date(live.get("date", ""))
+    if t is None or l is None:
+        return None
+    # the author line carries the OFFSET into the SHA, so equal instants at
+    # different offsets are still different identities
+    return t == l and t.utcoffset() == l.utcoffset()
+
+
+def update_plan(corpus, lock_cases: dict, built: dict[str, dict[str, str]]) -> dict:
+    """The local diff: what moved between the tree and the estate's lock,
+    per case, with the downstream consequence on every line. Pure — the
+    live checks (drift, identity, AGENTS/card attribution) come after."""
+    plan = {"unchanged": [], "push": {}, "new": [], "removed": [],
+            "bank_moves": False, "repos_move": False}
+    plan["removed"] = sorted(set(lock_cases) - set(corpus.cases))
+    for cid in sorted(corpus.cases):
+        case = corpus.cases[cid]
+        entry = lock_cases.get(cid)
+        if not isinstance(entry, dict):
+            plan["new"].append(cid)
+            plan["push"][cid] = ["NEW — repo created and pushed; the index "
+                                 "gains the case; the bank gains its rows"]
+            plan["bank_moves"] = plan["repos_move"] = True
+            continue
+        reasons: list[str] = []
+        old_refs = entry.get("refs") or {}
+        new_refs = built[cid]
+        old_ts = entry.get("timesteps") or {}
+        if new_refs != old_refs:
+            plan["repos_move"] = True
+            added = sorted(set(new_refs) - set(old_refs))
+            gone = sorted(set(old_refs) - set(new_refs))
+            moved = sorted(b for b in new_refs
+                           if b in old_refs and new_refs[b] != old_refs[b])
+            if added:
+                reasons.append(f"new branch(es) {added} — new timestep(s); "
+                               "the index and the bank gain them")
+            if gone:
+                reasons.append(f"branch(es) {gone} removed — the push prunes "
+                               "them; the index and the bank lose them")
+            if moved:
+                # the census cannot drift on its own: the contract pins each
+                # timestep-T to exactly pages 1..T, so a census change IS a
+                # branch-set change (added/gone above)
+                if added or gone:
+                    reasons.append(f"branches {moved} re-derived — main holds "
+                                   "the largest timestep and every timestep "
+                                   "branch truncates from it, so a timestep "
+                                   "added or removed moves them all (page "
+                                   "bytes may also have changed)")
+                else:
+                    reasons.append(f"content moved on {moved} with the page "
+                                   "census unchanged — page bytes, AGENTS.md "
+                                   "or a skill card (the corpus lines "
+                                   "attribute it)")
+        if entry.get("split") != case.split:
+            reasons.append(f"split {entry.get('split')!r} -> {case.split!r} — "
+                           "the lock's split and the bank's rows move")
+            plan["bank_moves"] = True
+        for t in sorted(case.timesteps):
+            old_ids = (old_ts.get(str(t)) or {}).get("prompt_ids")
+            new_ids = [p.id for p in case.timesteps[t].prompts]
+            if old_ids is not None and old_ids != new_ids:
+                reasons.append(f"prompts at timestep-{t}: {old_ids} -> "
+                               f"{new_ids} — the bank's rows move"
+                               + ("" if new_refs != old_refs else
+                                  " (the repo itself is unchanged; the push "
+                                  "converges to the same SHAs and refreshes "
+                                  "the lock row)"))
+                plan["bank_moves"] = True
+        if new_refs != old_refs:
+            plan["bank_moves"] = True
+        if reasons:
+            plan["push"][cid] = reasons
+        else:
+            plan["unchanged"].append(cid)
+    return plan
+
+
+def _fj_json(url: str, token: str, path: str):
+    return http("GET", f"{url}/api/v1{path}",
+                headers={"Authorization": f"token {token}"})
+
+
+def _fj_raw(url: str, token: str, owner: str, cid: str,
+            path: str) -> tuple[str | None, bool]:
+    """(text, known): text is the live file (None when absent), and `known`
+    is False when the fetch itself failed — absence and failure must never
+    read the same (a transient 500 is not a NEW skill card)."""
+    status, body = _fj_json(url, token, f"/repos/{owner}/{cid}/raw/{path}?ref=main")
+    if status == 200 and isinstance(body, str):
+        return body, True
+    if status == 404:
+        return None, True
+    return None, False
+
+
+def _fj_branches(url: str, token: str, owner: str, cid: str) -> dict[str, str] | None:
+    """branch -> sha for a live repo; None when the repo does not exist."""
+    status, _ = _fj_json(url, token, f"/repos/{owner}/{cid}")
+    if status == 404:
+        return None
+    heads: dict[str, str] = {}
+    page = 1
+    while page <= 200:
+        status, body = _fj_json(url, token,
+                                f"/repos/{owner}/{cid}/branches?limit=50&page={page}")
+        if status != 200 or not isinstance(body, list):
+            die(f"could not list the branches of {owner}/{cid}.",
+                f"GET /repos/{owner}/{cid}/branches -> {status} {str(body)[:120]}",
+                "200",
+                "the run's read token must still be valid (run.json names "
+                "the variable; the value is in the run's .env), and the "
+                "instance reachable")
+        if not body:
+            return heads
+        heads.update({b["name"]: b["commit"]["id"] for b in body})
+        page += 1
+    return heads
+
+
+def cmd_update(args: argparse.Namespace) -> None:
+    run_ = _load_run(args.name)
+    rec = run_.record
+    fj_rec, mcp_rec = rec.get("forgejo", {}), rec.get("mcp", {})
+    owner = fj_rec.get("owner") or rec.get("corpus", {}).get("owner")
+    if not owner or not fj_rec.get("url"):
+        die(f"run {args.name!r} has no estate to update.",
+            "run.json records no Forgejo URL or owner",
+            "a run `up` completed at least once",
+            f"{PROG} up --name {args.name} first")
+    raw_path = args.corpus or rec.get("corpus", {}).get("path")
+    if not raw_path:
+        die(f"run {args.name!r} records no corpus path.", "run.json", None,
+            "pass --corpus <root>")
+    corpus_path = Path(raw_path).expanduser().resolve()
+    simage = (rec.get("sandbox_image")
+              or rec.get("corpus", {}).get("sandbox_image")  # pre-CP-71 record
+              or ic.DEFAULT_SANDBOX_IMAGE)
+    push_env, read_env = ic.token_env_name(owner), ic.read_token_env_name(owner)
+
+    # ---- the tree, validated; the estate's answers stand (owner, image)
+    try:
+        raw_yaml = yaml.safe_load((corpus_path / "corpus.yaml").read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        raw_yaml = {}
+    yaml_owner = raw_yaml.get("owner") if isinstance(raw_yaml.get("owner"), str) else None
+    corpus = load_corpus(corpus_path, owner if owner != yaml_owner else None,
+                         simage)
+    if yaml_owner and yaml_owner != owner:
+        say("update", f"corpus.yaml says owner {yaml_owner!r}; the estate's "
+                      f"answer {owner!r} stands (moving owners is `up "
+                      f"--retarget`'s, not an update)")
+    # the review's find: every scaffolded corpus shares the template's git
+    # identity, so the identity check cannot tell two corpora apart — the
+    # NAME is the one discriminator a wrong --corpus reliably trips
+    rec_name = rec.get("corpus", {}).get("name")
+    if rec_name and corpus.name != rec_name:
+        die(f"the corpus at {corpus_path} names itself {corpus.name!r}; run "
+            f"{args.name!r} stands on {rec_name!r}.",
+            f"corpus.yaml name: {corpus.name!r}",
+            f"{rec_name!r} (run.json — an update edits the SAME corpus)",
+            "if this is a different corpus, stand it up as its own run "
+            f"(`{PROG} up --name <new>`); if you renamed corpus.yaml's "
+            "`name:`, restore it — a renamed corpus cannot be told apart "
+            "from a wrong --corpus, and pushing one corpus over another "
+            "estate is exactly what this refusal exists to stop")
+    if args.corpus and str(corpus_path) != rec.get("corpus", {}).get("path"):
+        say("update", f"corpus path differs from the record "
+                      f"({rec.get('corpus', {}).get('path')}) — same corpus, "
+                      "moved; the record follows a completed update")
+
+    # ---- the baseline: the RUN's lock — what this estate last converged to
+    run_lock_path = run_.dir / ic.LOCK_NAME
+    if not run_lock_path.is_file():
+        die(f"run {args.name!r} holds no {ic.LOCK_NAME} copy.",
+            f"{run_lock_path} absent",
+            "the lock `up` copies beside run.json when it completes",
+            f"{PROG} up --name {args.name} once, then update")
+    try:
+        lock = json.loads(run_lock_path.read_text())
+    except (OSError, ValueError) as exc:
+        die(f"{run_lock_path} is unreadable.", str(exc),
+            "the lock copy `up` wrote beside run.json",
+            f"restore it from backup, or `{PROG} up --name {args.name}` "
+            "re-copies it after a converged run")
+    lock_cases = lock.get("cases") if isinstance(lock.get("cases"), dict) else {}
+
+    # the run's copy is the baseline the phases must also act on: scaffold
+    # merges --only rows into the TREE's lock, taskbank refuses any case
+    # missing from it, verify checks its strays — so a tree lock that is
+    # absent (a fresh checkout of the corpus source) or divergent would
+    # push first and fail after (the review reproduced both). The baseline
+    # is SEEDED into the tree before acting, below.
+    tree_lock = ic.load_lock(corpus_path)
+    seed_tree_lock = tree_lock != lock
+    if tree_lock and seed_tree_lock:
+        warn("update", "the corpus tree's own lock differs from the run's "
+             "copy (the tree was scaffolded outside this run) — the run's "
+             "copy is the baseline and is seeded into the tree before "
+             "acting; verify stays the arbiter")
+
+    PH.start("diff", f"{corpus_path} vs the estate's lock ({run_lock_path})")
+    built = built_heads(corpus)
+    plan = update_plan(corpus, lock_cases, built)
+    # a free prompt edited under an EXPLICIT id moves neither refs nor
+    # prompt ids (the id surviving edits is that feature's point) — the
+    # run's own bank copy records the text last served, so the text is
+    # diffed against it (skill-card text always moves refs; free text is
+    # the one silent channel)
+    run_bank = run_.dir / ic.TASKBANK_NAME
+    old_rows = None
+    if run_bank.is_file():
+        try:
+            old_rows = {(r["case_id"], r["timestep"], r["prompt_id"]):
+                        r.get("prompt_text")
+                        for r in ic.read_taskbank_rows(run_bank)}
+        except ic.PipelineError as exc:
+            warn("update", f"the run's bank copy is unreadable ({exc}) — a "
+                 "free-prompt text edit under an explicit id cannot be "
+                 "detected this run")
+    else:
+        warn("update", "the run holds no taskbank copy — a free-prompt text "
+             "edit under an explicit id cannot be detected this run")
+    if old_rows is not None:
+        for cid in list(plan["unchanged"]):
+            case = corpus.cases[cid]
+            edited = sorted({f"timestep-{t}" for t in case.timesteps
+                             for p in case.timesteps[t].prompts
+                             if p.source == "free"
+                             and (cid, t, p.id) in old_rows
+                             and old_rows[(cid, t, p.id)] != p.text})
+            if edited:
+                plan["push"][cid] = [
+                    f"free-prompt TEXT edited at {edited} under an explicit "
+                    "id (the id survives edits by design; diffed against the "
+                    "run's bank) — the bank's rows move; the repo is "
+                    "unchanged and the push converges"]
+                plan["unchanged"].remove(cid)
+                plan["bank_moves"] = True
+    PH.done(f"{len(plan['push'])} case(s) to sync, {len(plan['unchanged'])} "
+            f"unchanged, {len(plan['removed'])} removed")
+
+    if plan["removed"]:
+        die(f"case(s) {plan['removed']} are in the estate's lock but not in "
+            f"the corpus tree.",
+            "a case removed from the tree (its live repo and lock entry remain)",
+            "an update only EDITS: pages, timesteps, prompts, cards, new cases",
+            "removing a case is not an update — delete its repo on the git "
+            "host and its corpus.lock.json entries (tree and run copies) "
+            "yourself, or `down --wipe` and stand the smaller corpus up as "
+            "a fresh run; verify fails on the stray lock entry until then")
+
+    # ---- report (the local half)
+    print(f"\n== update plan: run {args.name} ==")
+    for cid in plan["unchanged"]:
+        print(f"  {cid:14} unchanged")
+    for cid, reasons in sorted(plan["push"].items()):
+        print(f"  {cid:14} " + f"\n  {'':14} ".join(reasons))
+    if not plan["push"]:
+        print("  nothing moved — the corpus matches the estate's lock; "
+              "nothing to do")
+        return
+    if args.dry_run:
+        print("  (--dry-run: the local diff only — the live checks (branch "
+              "drift, git identity, AGENTS/skill-card attribution) run "
+              "before a real update acts; nothing was touched)")
+        return
+
+    # ---- the live checks: the estate must stand, and account for itself
+    status, body = http("GET", f"{fj_rec['url']}/api/healthz", timeout=5)
+    if status != 200:
+        die(f"the run's Forgejo at {fj_rec['url']} is not answering.",
+            f"GET /api/healthz -> {status if status is not None else body}",
+            "200 (update syncs a STANDING estate)",
+            f"{PROG} up --name {args.name} brings it back, then update")
+    read_tok = run_.env.get(read_env) or run_.env.get(push_env)
+    if not read_tok:
+        die(f"the run's .env holds neither {read_env} nor {push_env}.",
+            f"{run_.dir / '.env'}", "the tokens `up` minted",
+            "restore .env from your backup, or re-run `up` to re-mint")
+
+    # git identity: read one recorded commit's author off the live estate —
+    # a changed identity moves EVERY sha and is a new corpus, not an update
+    ident_checked = False
+    for cid in sorted(lock_cases):
+        if not isinstance(lock_cases[cid], dict):
+            continue        # update_plan already classed it as NEW
+        sha = (lock_cases[cid].get("refs") or {}).get("main")
+        if not sha:
+            continue
+        status, body = _fj_json(fj_rec["url"], read_tok,
+                                f"/repos/{owner}/{cid}/git/commits/{sha}")
+        if status != 200 or not isinstance(body, dict):
+            break
+        live_author = (body.get("commit") or {}).get("author") or {}
+        verdict = same_git_identity(corpus.git_identity, live_author)
+        ident_checked = verdict is not None
+        if verdict is False:
+            die("the corpus git identity changed — every SHA moves; that is "
+                "not an update.",
+                f"the live estate's commits: {live_author.get('name')!r} "
+                f"<{live_author.get('email')}> @ {live_author.get('date')}",
+                f"corpus.yaml's git block: {corpus.git_identity['name']!r} "
+                f"<{corpus.git_identity['email']}> @ {corpus.git_identity['date']}",
+                "restore corpus.yaml's git: block (the three DO-NOT-CHANGE "
+                "values), or stand the re-identified corpus up as its own "
+                f"run: {PROG} up --name <new>")
+        break
+    if not ident_checked:
+        warn("update", "the git identity could not be verified against a "
+             "live commit — if corpus.yaml's git: block changed, every SHA "
+             "below reads as content movement")
+
+    # AGENTS.md / skill cards: live bytes vs tree bytes, from a recorded
+    # case — the G1/G2 attribution, and the pins consequence OUT LOUD
+    corpus_lines: list[str] = []
+    pins_move = False
+    ref_case = sorted(lock_cases)[0] if lock_cases else None
+    if ref_case and plan["repos_move"]:
+        live_agents, known = _fj_raw(fj_rec["url"], read_tok, owner, ref_case,
+                                     "AGENTS.md")
+        if not known or live_agents is None:
+            # a failed fetch is NOT absence — and every built repo carries
+            # AGENTS.md, so a 404 here means the REFERENCE REPO is gone:
+            # skip card attribution too rather than misread every card as NEW
+            warn("update", "AGENTS.md attribution unavailable (the raw fetch "
+                 f"did not answer with the file — {ref_case}'s repo may be "
+                 "gone) — if you edited AGENTS.md or a skill card, G1/G2 "
+                 "move and the pins consequence applies; card attribution "
+                 "skipped this run")
+            ref_case = None
+        elif live_agents != corpus.agents_md.read_text(encoding="utf-8"):
+            corpus_lines.append("AGENTS.md EDITED — it rides every branch "
+                                "of every case, and G2 (the pinned system "
+                                "prompt) moves with it")
+            pins_move = True
+        else:
+            corpus_lines.append("AGENTS.md unchanged")
+        for skill_name in sorted(corpus.skills) if ref_case else []:
+            live_card, known = _fj_raw(fj_rec["url"], read_tok, owner, ref_case,
+                                       f"skills/{skill_name}/SKILL.md")
+            tree_card = corpus.skills[skill_name].read_text(encoding="utf-8")
+            if not known:
+                warn("update", f"skill card {skill_name!r} attribution "
+                     "unavailable (the raw fetch failed) — if you edited it, "
+                     "G1 moves and the pins consequence applies")
+            elif live_card is None:
+                corpus_lines.append(f"skill card {skill_name!r} NEW — it rides "
+                                    "every repo; G1 pins it")
+                pins_move = True
+            elif live_card != tree_card:
+                corpus_lines.append(f"skill card {skill_name!r} EDITED — G1 "
+                                    "moves; its resolved bytes ride every "
+                                    "bank row that references it")
+                pins_move = True
+        status, listing = (_fj_json(fj_rec["url"], read_tok,
+                                    f"/repos/{owner}/{ref_case}/contents/skills?ref=main")
+                           if ref_case else (None, None))
+        if status == 200 and isinstance(listing, list):
+            gone_cards = sorted({e.get("name") for e in listing
+                                 if isinstance(e, dict)} - set(corpus.skills) - {None})
+            for skill_name in gone_cards:
+                corpus_lines.append(f"skill card {skill_name!r} REMOVED — it "
+                                    "leaves every repo; episodes pinned to it "
+                                    "stay quarantined history")
+                pins_move = True
+    for line in corpus_lines:
+        print(f"  {'corpus':14} {line}")
+    if pins_move:
+        warn("update", "G1/G2 move with this update: every episode on the "
+             "affected cards QUARANTINES at trace validation until the "
+             "approved pins are re-derived (pins/derive_pins.py; "
+             "GSJ_PINS_PATH names the set in force) — this tool does not "
+             "write pins")
+
+    # drift: update pushes ONLY over branches the estate's record accounts
+    # for; anything else diverged out-of-band and is up --overwrite-repos's
+    for cid in sorted(plan["push"]):
+        live = _fj_branches(fj_rec["url"], read_tok, owner, cid)
+        entry = lock_cases.get(cid)
+        entry = entry if isinstance(entry, dict) else {}
+        if cid in plan["new"]:
+            if live is None:
+                continue
+            if live == built[cid]:
+                say("update", f"{cid}: the repo already holds exactly this "
+                              "build — adopting it")
+                continue
+            die(f"{owner}/{cid} exists on {fj_rec['url']} and is NOT what "
+                f"this corpus builds.",
+                f"live {live}", f"no repo, or exactly {built[cid]}",
+                "a new case must land on a fresh repo — delete the "
+                "colliding one there, rename the case, or use `up "
+                "--overwrite-repos` if pushing over it is really meant")
+        elif live is not None and live != (entry.get("refs") or {}):
+            if live == built[cid]:
+                # not drift: OUR build, pushed by an update that died before
+                # its record refresh — a resumed update adopts it (the same
+                # convergence-by-determinism that makes re-push a no-op)
+                say("update", f"{cid}: the live repo already holds exactly "
+                              "this corpus's build (an earlier update's push) "
+                              "— resuming")
+                continue
+            diff = sorted({b for b in set(live) | set(entry.get("refs") or {})
+                           if live.get(b) != (entry.get("refs") or {}).get(b)})
+            die(f"{owner}/{cid} on {fj_rec['url']} diverged from what this "
+                f"estate recorded — update does not push over it.",
+                f"branches differing {diff} (live vs the run's lock)",
+                "a live repo still holding exactly the recorded build (or "
+                "exactly what this corpus builds — a resumed update)",
+                "someone pushed to the estate out-of-band: reconcile there, "
+                "or `up --overwrite-repos` if losing those branches is "
+                "really meant (CP-59 made that explicit for a reason)")
+        elif live is None:
+            say("update", f"{cid}: the recorded repo is gone from the estate "
+                          "— it will be recreated")
+
+    # the MCP: a standing service to reindex (never a forced re-embed). A
+    # NEW case cannot enter a running service by reindex alone — its
+    # source.repos is read at START only — so a created service's config
+    # (this run's own artifact) is rewritten and its container restarted,
+    # while an adopted service's config is its operator's: refused with
+    # the fix named (the `up --mcp adopt` posture).
+    mcp_url = mcp_rec.get("url")
+    mcp_created = mcp_rec.get("mode") == "created" and bool(rec.get("compose", {}).get("mcp"))
+    if mcp_url:
+        hstat, h = http("GET", f"{mcp_url}/health", timeout=5)
+        if not isinstance(h, dict):
+            die(f"the run's retrieval service at {mcp_url} is not answering.",
+                f"GET /health -> {hstat if hstat is not None else h}",
+                "a standing service (update syncs it)",
+                f"{PROG} up --name {args.name} brings it back, then update")
+        if plan["new"] and not mcp_created:
+            die("the adopted retrieval service cannot gain the new case(s) "
+                "from here.",
+                f"new case(s) {plan['new']} — the service's source.repos is "
+                "its operator's, read at its start",
+                "a service already indexing every case of this corpus",
+                "add the new case(s) to its config.yaml source.repos and "
+                "restart it there, then re-run update (the same posture as "
+                "`up --mcp adopt`)")
+
+    restart_note = ("" if not (plan["new"] and mcp_created) else
+                    f"\n        new case(s) {plan['new']}: the created service's config gains"
+                    "\n        them and its container restarts (source.repos is start-time"
+                    "\n        only) —")
+    print(f"""  will: push {len(plan['push'])} repo(s) (only those), refresh their lock rows,
+        rebuild the taskbank (corpus-wide by design),{restart_note} trigger ONE reindex —
+        the service's own if-stale decision; its fingerprint covers every
+        case's main SHA, so the frozen service re-embeds the WHOLE corpus
+        when any case moved (per-case incremental reindex is a capability
+        it does not have — wishlist row 61) — then verify, and refresh the
+        run's lock/bank copies.
+  will not: force a re-embed (--rebuild is `up`'s), push over branches the
+        record does not account for (--overwrite-repos is `up`'s).""")
+    if not args.defaults and sys.stdin.isatty():
+        try:
+            typed = input(f"{_c('36', '?')} apply this update? (yes / no) "
+                          f"[yes]: ").strip().lower()
+        except EOFError:
+            typed = "no (stdin closed)"   # a spending confirm: EOF declines
+        if typed not in ("", "y", "yes"):
+            die("the update was declined at the plan.", "the operator answered no",
+                "yes", "nothing was touched; re-run when the plan reads right")
+
+    # ---- act: the pipeline's own phases, only where the plan says
+    def pipeline(phase: str, *extra: str, mcp: str | None = None) -> None:
+        cmd = [sys.executable, str(INGEST), phase, "--corpus", str(corpus_path),
+               "--base-url", fj_rec["url"], "--sandbox-image", simage,
+               "--ingest-timeout", str(args.ingest_timeout)]
+        if mcp:
+            cmd += ["--mcp-url", mcp]
+        if owner != yaml_owner:
+            cmd += ["--owner-override", owner]
+        cmd += list(extra)
+        PH.start(phase, f"{INGEST.name} {phase}" + (f" --only {' '.join(sorted(plan['push']))}"
+                                                    if "--only" in extra else ""))
+        penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
+                **{k: v for k, v in run_.env.items()
+                   if k in (push_env, read_env, MCP_SECRET_ENV)}}
+        proc = run(cmd, env=penv)
+        if proc.returncode != 0:
+            die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
+                "the pipeline's own message above", "exit 0",
+                "fix what it names and re-run `update` — every phase is idempotent")
+
+    case_ids = sorted(corpus.cases)
+    if seed_tree_lock:
+        # the phases key off the TREE's lock; a fresh checkout has none and
+        # a divergent one mis-splits the bank or strays at verify — the
+        # baseline this update diffed against becomes the tree's
+        shutil.copyfile(run_lock_path, corpus_path / ic.LOCK_NAME)
+        say("update", f"{ic.LOCK_NAME} seeded into the tree from the run's "
+                      "baseline copy (the phases below refresh it)")
+    pipeline("scaffold", "--only", *sorted(plan["push"]))
+    PH.done(f"{len(plan['push'])} case repo(s) pushed and converged; lock rows refreshed")
+    pipeline("taskbank")
+    bank_sha = sha256_file(corpus_path / ic.TASKBANK_NAME)
+    PH.done(f"rebuilt, sha256 {bank_sha[:12]}…")
+    if plan["new"] and mcp_created and mcp_url:
+        cm = rec["compose"]["mcp"]
+        cfg_path = Path(cm["config"])
+        text = cfg_path.read_text()
+        doc = yaml.safe_load(text)
+        doc.setdefault("source", {})["repos"] = case_ids
+        head = ""
+        for line in text.splitlines():
+            if not line.startswith("#"):
+                break
+            head += line + "\n"
+        cfg_path.write_text(head + yaml.safe_dump(doc, sort_keys=False))
+        PH.start("mcp", f"source gains {plan['new']} — mcp-config.yaml rewritten; "
+                        "the container restarts to read it (source.repos is "
+                        "start-time only)")
+        if compose(run_.dir, "up", "-d", "--force-recreate", "mcp").returncode != 0:
+            die("`docker compose up --force-recreate mcp` failed.",
+                "the compose error above", None, "the error is authoritative")
+        mcp = Mcp(mcp_url, mcp_rec.get("container_url") or "",
+                  run_.env.get(MCP_SECRET_ENV, ""), "created")
+        h0 = mcp.wait_ready(args.ingest_timeout, "restart with the new case set",
+                            container=cm.get("container"))
+        PH.done(f"ready; cases {sorted((h0.get('cases') or {}).keys())}")
+    if mcp_url:
+        pipeline("ingest", mcp=mcp_url)
+        h = http("GET", f"{mcp_url}/health", timeout=10)[1]
+        h = h if isinstance(h, dict) else {}
+        PH.done(f"state={h.get('state')}, fingerprint {str(h.get('fingerprint'))[:12]}…, "
+                f"index_reused={h.get('index_reused')}")
+    else:
+        h = {}
+        say("update", "the run records no retrieval service — reindex skipped")
+    pipeline("verify", mcp=mcp_url)
+    PH.done("PASS — the live repos, the index census and the bank rows match the tree")
+
+    # ---- the record and the run's copies move with the corpus
+    for src in (ic.TASKBANK_NAME, ic.LOCK_NAME):
+        shutil.copyfile(corpus_path / src, run_.dir / src)
+    new_lock = ic.load_lock(corpus_path, required=True)
+    rec.setdefault("corpus", {}).update({
+        "path": str(corpus_path), "name": corpus.name, "owner": owner,
+        "case_ids": case_ids,
+        "lock_sha256": sha256_file(run_.dir / ic.LOCK_NAME),
+        "taskbank_sha256": bank_sha,
+        "taskbank_rows": (new_lock.get("taskbank") or {}).get("rows"),
+        "repos": {cid: new_lock["cases"][cid]["refs"] for cid in case_ids}})
+    if mcp_url and h:
+        rec.setdefault("mcp", {}).update(
+            {"state": h.get("state"), "fingerprint": h.get("fingerprint"),
+             "index_reused": h.get("index_reused"), "cases": h.get("cases")})
+    rec["phases"] = PH.rows
+    rec["last_run"] = {"at": now_iso(), "mode": "update",
+                       "synced": sorted(plan["push"]),
+                       "unchanged": plan["unchanged"],
+                       "pins_move": pins_move}
+    run_.write_record()
+    g1 = pins_g1_check(corpus)
+    rec["pins"] = g1
+    run_.write_record()
+    if g1.get("checked") and g1["not_in_approved_set"]:
+        warn("update", f"{len(g1['not_in_approved_set'])}/{g1['cards']} skill "
+             f"card(s) are not in the approved set at {g1['pins_path']}: "
+             f"{g1['not_in_approved_set']} — episodes on them quarantine "
+             "until the pins walk re-derives (pins/derive_pins.py)")
+    say("update", f"complete in {round(time.monotonic() - _T0, 1)}s — synced "
+                  f"{sorted(plan['push'])}; verify PASS; the run's lock and "
+                  f"bank copies are current")
+
+
 # ------------------------------------------------------- status and down
 
 def _load_run(name: str) -> Run:
@@ -2315,9 +3162,15 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
-    # CP-72 retired CP-71's metavar workaround: the natural metavar names
-    # the full verb set and tests/test_wheel_pipeline.py asserts it.
-    sub = ap.add_subparsers(dest="command", required=True)
+    # CP-72 retired CP-71's metavar workaround; CP-73 pins the metavar
+    # again, for the opposite reason: the root suite (frozen this CP)
+    # asserts the six-verb brace line at test_wheel_pipeline.py:154, so the
+    # summary line stays pinned while `update` is fully listed with its own
+    # help line right below it (and in the docstring above). The pin
+    # retires — and the root test's tuple moves to the seven-verb set — at
+    # the first tests/ lift (wishlist row 60).
+    sub = ap.add_subparsers(dest="command", required=True,
+                            metavar="{scaffold,validate,up,ingest,status,down}")
     sc = sub.add_parser("scaffold", parents=[common],
                         help="write an annotated starting corpus that "
                              "validates as written (edit -> validate -> up)")
@@ -2386,6 +3239,14 @@ def main() -> None:
     mg.add_argument("--hf-cache", help="create: a HuggingFace cache dir holding a non-default model")
     mg.add_argument("--chunk-max-tokens", type=int, help="create: chunking.max_tokens (default 220)")
     mg.add_argument("--chunk-overlap", type=int, help="create: chunking.overlap (default 40)")
+    mg.add_argument("--mcp-config",
+                    help="create: YAML of retrieval-config overrides merged "
+                         "onto the generated config — the operator sections "
+                         f"only ({', '.join(MCP_OPERATOR_SECTIONS)}; schema: "
+                         "estate/mcp-service/config.yaml). source/auth/index/"
+                         "server are the run's wiring and are refused; the "
+                         "effective config is printed for review before the "
+                         "index is built under it")
     mg.add_argument("--rebuild", action="store_true", default=None,
                     help="create: re-embed the run's store under the requested model "
                          "(index.rebuild: always for one start)")
@@ -2428,6 +3289,22 @@ def main() -> None:
     ig.add_argument("--ingest-timeout", type=float, default=900.0,
                     help="seconds to wait for /health ready (default 900)")
     ig.set_defaults(func=cmd_ingest)
+    ud = sub.add_parser("update", parents=[common],
+                        help="sync corpus EDITS into a standing estate: diff "
+                             "the tree against the run's lock, report what "
+                             "moved and what it costs, then push only the "
+                             "changed repos, rebuild the bank, reindex "
+                             "(if-stale — never a forced re-embed) and "
+                             "verify (CP-73)")
+    ud.add_argument("--name", required=True, help="the run to sync into")
+    ud.add_argument("--corpus", help="corpus root (default: the run record's)")
+    ud.add_argument("-y", "--defaults", action="store_true",
+                    help="no confirm: report the plan, then act")
+    ud.add_argument("--dry-run", action="store_true",
+                    help="the local diff report only — touch nothing, ask nothing")
+    ud.add_argument("--ingest-timeout", type=float, default=1800.0,
+                    help="seconds to wait for the index (default 1800)")
+    ud.set_defaults(func=cmd_update)
     st = sub.add_parser("status", parents=[common], help="what stands for a run")
     st.add_argument("--name", required=True)
     st.set_defaults(func=cmd_status)
