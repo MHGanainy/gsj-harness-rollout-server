@@ -1,7 +1,8 @@
-"""CP-71 (CP-70 item 12): `bringup.py scaffold` — the annotated starting
+"""CP-71 (CP-70 item 12): `estate.py scaffold` — the annotated starting
 tree. It must validate unmodified, ingest on the file:// rail, refuse a
-non-empty target, and be named by `up`'s not-a-corpus refusal. The tool is
-exercised as a consumer runs it (a subprocess), not imported."""
+non-empty target, and be named by `up`'s not-a-corpus refusal. CP-72 adds
+the folded pipeline verbs (`validate`, `ingest`). The tool is exercised as
+a consumer runs it (a subprocess), not imported."""
 
 from __future__ import annotations
 
@@ -11,17 +12,17 @@ from pathlib import Path
 
 import ingest_corpus as ic
 
-BRINGUP = Path(__file__).resolve().parents[2] / "bringup.py"
+ESTATE = Path(__file__).resolve().parents[2] / "estate.py"
 
 
-def run_bringup(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(BRINGUP), *args],
+def run_estate(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(ESTATE), *args],
                           capture_output=True, text=True)
 
 
 def test_scaffold_writes_a_tree_that_validates_unmodified(tmp_path, capsys):
     out = tmp_path / "my-corpus"
-    proc = run_bringup("scaffold", "--out", str(out))
+    proc = run_estate("scaffold", "--out", str(out))
     assert proc.returncode == 0, proc.stderr
     assert "validates as written" in proc.stdout
     assert "validate --corpus" in proc.stdout and "up --corpus" in proc.stdout
@@ -48,7 +49,7 @@ def test_scaffolded_corpus_ingests_on_the_file_rail(tmp_path):
     content hash of the example text)."""
     import hashlib
     out = tmp_path / "my-corpus"
-    assert run_bringup("scaffold", "--out", str(out)).returncode == 0
+    assert run_estate("scaffold", "--out", str(out)).returncode == 0
     estate = tmp_path / "estate"
     estate.mkdir()
     assert ic.main(["scaffold", "--corpus", str(out),
@@ -70,7 +71,7 @@ def test_scaffold_refuses_a_file_target_in_words(tmp_path):
     a raw NotADirectoryError instead of the CP-27 refusal shape."""
     target = tmp_path / "afile"
     target.write_text("mine", encoding="utf-8")
-    proc = run_bringup("scaffold", "--out", str(target))
+    proc = run_estate("scaffold", "--out", str(target))
     assert proc.returncode == 1
     assert "Traceback" not in proc.stderr
     assert "is not a directory" in proc.stderr
@@ -81,7 +82,7 @@ def test_scaffold_refuses_a_nonempty_target(tmp_path):
     out = tmp_path / "occupied"
     out.mkdir()
     (out / "keep.txt").write_text("mine", encoding="utf-8")
-    proc = run_bringup("scaffold", "--out", str(out))
+    proc = run_estate("scaffold", "--out", str(out))
     assert proc.returncode == 1
     assert "never" in proc.stderr and "overwrites" in proc.stderr
     assert (out / "keep.txt").read_text(encoding="utf-8") == "mine"
@@ -90,8 +91,40 @@ def test_scaffold_refuses_a_nonempty_target(tmp_path):
 def test_up_on_a_missing_corpus_names_scaffold(tmp_path):
     """CP-70 item 12's other half: 'not a corpus root' tells a starting
     reader nothing — the refusal hands them the verb that writes one."""
-    proc = run_bringup("up", "--corpus", str(tmp_path / "nothing-here"),
+    proc = run_estate("up", "--corpus", str(tmp_path / "nothing-here"),
                        "-y", "--runs-dir", str(tmp_path / "runs"))
     assert proc.returncode == 1
     assert "scaffold --out" in proc.stderr
     assert "annotated starting tree" in proc.stderr
+
+
+def test_validate_verb_prints_the_pass_table_with_the_pipelines_exit_codes(tmp_path):
+    """CP-72: the folded `validate` verb — the pipeline's phase in-process,
+    same table, same exit codes (0 pass / 1 contract fail / 2 usage)."""
+    out = tmp_path / "my-corpus"
+    assert run_estate("scaffold", "--out", str(out)).returncode == 0
+    proc = run_estate("validate", "--corpus", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert "== validate ==" in proc.stdout
+    assert "== validate: PASS" in proc.stdout
+    # break the contract; the verb answers 1 with the FAIL table
+    (out / "AGENTS.md").unlink()
+    proc = run_estate("validate", "--corpus", str(out))
+    assert proc.returncode == 1
+    assert "FAIL" in proc.stdout
+    # a bad path is a USAGE error — the pipeline's 2, never mistaken for a
+    # tree that fails the contract (the CP-72 review's find)
+    proc = run_estate("validate", "--corpus", str(tmp_path / "no-such-dir"))
+    assert proc.returncode == 2
+    assert "scaffold --out" in proc.stderr
+
+
+def test_ingest_verb_skips_loudly_with_no_retrieval_service(tmp_path):
+    """CP-72: the folded `ingest` verb — a corpus naming no mcp.url_base and
+    no --mcp-url skips the re-index loudly (the pipeline phase's own
+    posture), exit 0."""
+    out = tmp_path / "my-corpus"
+    assert run_estate("scaffold", "--out", str(out)).returncode == 0
+    proc = run_estate("ingest", "--corpus", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert "== ingest == SKIPPED" in proc.stdout

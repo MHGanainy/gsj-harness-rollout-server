@@ -13,8 +13,10 @@ rule. A tree that passes `validate` will scaffold, index, and verify
 without surprises.
 
 **You do not have to start from a blank directory.**
-`estate/bringup.py scaffold --out <dir>` (from an installed wheel:
-`python -m gsj_rollout.bringup scaffold --out <dir>`) writes an annotated
+`estate/estate.py scaffold --out <dir>` (from an installed wheel:
+`python -m gsj_rollout.estate scaffold --out <dir>`, wheels from 0.1.6 —
+published wheels ≤ 0.1.5 predate the `scaffold` verb, so there run it
+from a checkout) writes an annotated
 starting tree in exactly the shape below — one example case, one timestep,
 one page, both prompt forms — that passes `validate` unmodified; every
 file it writes says what it is and what to change. Edit, `validate`, `up`.
@@ -204,7 +206,7 @@ Three fields older corpora carry here are **deprecated** (warned, never a
 failure) — each was the estate's all along:
 
 - `forgejo.base_url` — the git host is where the corpus is *served*, not
-  what it *is*. `bringup.py up` answers it (and always overrode this
+  what it *is*. `estate.py up` answers it (and always overrode this
   field with a transport override anyway); the standalone pipeline takes
   `--base-url`. Still honored when present, as the canonical URL the lock
   records.
@@ -329,15 +331,20 @@ The pipeline also writes, into `<corpus-root>`:
 
 ## Running the pipeline
 
-The estate operator's one-command bring-up, `estate/bringup.py up`, runs
+The estate operator's one-command bring-up, `estate/estate.py up`, runs
 the five phases below for you against a git host and retrieval service it
 creates or adopts, and writes the rollout server's config beside the
 table — this section is the pipeline on its own.
 
 ```bash
-python estate/corpus/ingest_corpus.py validate --corpus <corpus-root>   # check the tree
+estate/estate.py validate --corpus <corpus-root>                        # check the tree
 python estate/corpus/ingest_corpus.py all      --corpus <corpus-root>   # the full run
 ```
+
+(`validate` and `ingest` are estate-tool verbs since CP-72 — from a wheel,
+`python -m gsj_rollout.estate validate|ingest`. The other phases keep the
+pipeline's own command line, which still works for every phase but prints
+a deprecation notice; removal comes no earlier than 0.1.7.)
 
 `all` runs the five phases in order and stops at the first failure:
 
@@ -364,7 +371,7 @@ that carries the key, a transport override — the lock keeps the
 canonical URL); `--mcp-url <url>` names the retrieval
 service; `--sandbox-image <ref>` stamps the task rows (default: the
 published harness image — pass the SAME value to `taskbank` and `verify`,
-which re-derives it). `bringup.py up` supplies all three for you.
+which re-derives it). `estate.py up` supplies all three for you.
 
 Useful flags: `--only <case_id> ...` (limit validate/scaffold/verify's
 repo work to some cases — the task table is corpus-wide, so the
@@ -474,8 +481,8 @@ Everything above holds for any corpus. What this section adds is what
 *changes* when the corpus is yours rather than the reference one — in
 one place, honestly (CP-70 item 4).
 
-**Start with `scaffold`** (`estate/bringup.py scaffold --out <dir>`;
-wheel: `python -m gsj_rollout.bringup scaffold`) rather than a blank
+**Start with `scaffold`** (`estate/estate.py scaffold --out <dir>`;
+wheel: `python -m gsj_rollout.estate scaffold`) rather than a blank
 directory — the tree it writes validates as written and each file says
 what to change.
 
@@ -486,7 +493,7 @@ prompt your `AGENTS.md` becomes. The shipped pins approve the REFERENCE
 corpus's values, so on your corpus **every episode will quarantine until
 the estate's pins are re-derived and named**:
 
-- `bringup.py up` already tells you: its pins phase warns with the exact
+- `estate.py up` already tells you: its pins phase warns with the exact
   cards the in-force approved set lacks. It deliberately does not write
   pins.
 - The library ships no one-command re-derivation for a foreign corpus

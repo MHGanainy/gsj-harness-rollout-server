@@ -1,4 +1,4 @@
 # estate/runs/<name>/ holds a run's secrets (.env), instance data and traces —
-# never tracked. The directory itself is (this file), so `bringup.py up` has a home.
+# never tracked. The directory itself is (this file), so `estate.py up` has a home.
 *
 !.gitignore

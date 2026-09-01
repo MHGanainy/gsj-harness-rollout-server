@@ -17,7 +17,7 @@
 # then `down`/`up`: Forgejo migrates its data directory forward at start and
 # refuses a downgrade, so the image must be present before the recreate. The
 # live instance runs 16.0.3 (amd64 id sha256:f02d6cf9…) on its migrated
-# forgejo-data; the admin token survived the migration. bringup.py pins the
+# forgejo-data; the admin token survived the migration. estate.py pins the
 # same tag (FORGEJO_IMAGE) and takes `--forgejo-image` to route around the
 # next registry event.
 #

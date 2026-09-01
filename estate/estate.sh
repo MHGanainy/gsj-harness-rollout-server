@@ -3,8 +3,9 @@
 #
 # THIN BY LAW: every verb execs an existing script or compose file in
 # place; nothing here reimplements a recipe. The recipes are this
-# directory's README.md; bring-up-from-nothing is `bringup` (bringup.py,
-# CP-59 — the production sibling of gsj-rollout-demo/bootstrap.py). Scripts keep their homes —
+# directory's README.md; bring-up-from-nothing is `bringup` (estate.py —
+# CP-59's bringup.py, renamed at CP-72; the production sibling of
+# gsj-rollout-demo/bootstrap.py). Scripts keep their homes —
 # serve.sh reads its sibling model-*.env files and ships its own jinja,
 # up.sh cd's to its compose — so this file only routes.
 set -euo pipefail
@@ -15,8 +16,9 @@ usage() {
 estate.sh — front door to the H200 estate scripts (see estate/README.md)
 
   bringup [args…]       corpus -> running estate + taskbank + rollout.yaml, in one
-                        command (bringup.py up; CP-59). Creates OR adopts Forgejo
-                        and the retrieval service; run directory estate/runs/<name>/.
+                        command (estate.py up; CP-59, renamed CP-72). Creates OR
+                        adopts Forgejo and the retrieval service; run directory
+                        estate/runs/<name>/.
                         Needs: the checkout's python (PyYAML, pyarrow, gsj_rollout)
                         — set PYTHON=<path> or run from an activated .venv.
   up                    start Forgejo (forgejo/up.sh: compose up, health
@@ -49,12 +51,12 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 not found — $2" 
 
 case "${1:---help}" in
   bringup)
-    shift; exec "${PYTHON:-python3}" bringup.py "$@" ;;
+    shift; exec "${PYTHON:-python3}" estate.py "$@" ;;
   up)
     need docker "install docker or run this on the estate host"
     exec forgejo/up.sh ;;
   owner)
-    [ $# -ge 2 ] || { echo "ERROR: owner needs a name — try: estate.sh owner gsj-staging" >&2; exit 1; }
+    [ $# -ge 2 ] || { echo "ERROR: owner needs a name (any usable Forgejo username) — e.g.: estate.sh owner gsj-staging" >&2; exit 1; }
     shift; exec forgejo/create_owner.sh "$@" ;;
   down)
     shift || true; exec forgejo/down.sh "$@" ;;

@@ -106,23 +106,23 @@ TASKBANK_NAME = "taskbank.parquet"
 # is not bound to a runtime. The rows take `--sandbox-image`, else this
 # default — the value gsj_rollout/config.py defaults `runtime.image` to,
 # so `submit --from-bank`'s row-vs-config guard (CP-24's self-describing
-# row) passes by construction; bringup.py answers the flag from its own
+# row) passes by construction; estate.py answers the flag from its own
 # config and writes the same value into rollout.yaml's runtime.image.
 DEFAULT_SANDBOX_IMAGE = "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
 
 CORPUS_YAML_KEYS = {"name", "owner", "forgejo", "mcp", "git", "sandbox_image"}
 DEPRECATED_KEY_NOTES = {  # CP-71 — never a failure; see each note's verdict
-    "forgejo": ("the git host is the estate's, not the corpus's: bringup.py "
+    "forgejo": ("the git host is the estate's, not the corpus's: estate.py "
                 "answers it; the standalone pipeline takes --base-url. Still "
                 "honored as the canonical URL the lock records"),
-    "mcp": ("the retrieval service is the estate's: bringup.py creates or "
+    "mcp": ("the retrieval service is the estate's: estate.py creates or "
             "adopts one; the standalone pipeline takes --mcp-url. Still "
             "honored; a corpus without it skips the ingest phase unless "
             "--mcp-url names one"),
     "sandbox_image": ("IGNORED — a corpus is not bound to a runtime. The "
                       "task rows take the estate's value: --sandbox-image "
                       "(default " + DEFAULT_SANDBOX_IMAGE + "), which "
-                      "bringup.py answers from its own config "
+                      "estate.py answers from its own config "
                       "(rollout.yaml's runtime.image). Delete the key"),
 }
 GIT_KEYS = {"name", "email", "date"}
@@ -1694,7 +1694,7 @@ def main(argv: list[str] | None = None) -> int:
                 "no git host to talk to: corpus.yaml names no "
                 "forgejo.base_url (deprecated — the host is the estate's) "
                 "and no --base-url was given. Pass --base-url <url>; "
-                "bringup.py up does this for you")
+                "estate.py up does this for you")
         if not corpus.base_url:
             # no canonical URL in the corpus: the lock records the one used
             corpus.base_url = base_url
@@ -1733,4 +1733,21 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # CP-72: the pipeline stays a MODULE; its command-line entry is a
+    # deprecated alias of the estate tool's folded verbs. The notice goes to
+    # stderr (rebuild scripts parse this stdout) and is suppressed when the
+    # estate tool itself is the caller (it sets GSJ_PIPELINE_DRIVER on its
+    # phase subprocesses — warning about the replacement would be noise).
+    if not os.environ.get("GSJ_PIPELINE_DRIVER"):
+        _estate = ("python -m gsj_rollout.estate"
+                   if (Path(__file__).resolve().parent / "checks.py").is_file()
+                   else "estate/estate.py")
+        print("NOTICE: this entry point is deprecated (CP-72) — the estate "
+              "tool carries the standalone verbs now:\n"
+              f"  {_estate} validate|ingest --corpus <root>\n"
+              "(scaffold, taskbank and verify run inside its `up`). This "
+              "form keeps working in the release that ships the estate tool "
+              "(0.1.6) and is removed no earlier than 0.1.7; the module "
+              "`gsj_rollout.ingest_corpus` stays importable.",
+              file=sys.stderr)
     raise SystemExit(main())

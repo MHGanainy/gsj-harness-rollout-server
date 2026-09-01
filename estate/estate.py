@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""estate/bringup.py — corpus to estate, in one command (CP-59).
+"""estate/estate.py — the estate's one tool (CP-59's bring-up, renamed CP-72).
 
-    estate/bringup.py scaffold --out DIR                         # a starting corpus
-    estate/bringup.py up   [--corpus DIR] [--name RUN] [flags…]   # the estate
-    estate/bringup.py status --name RUN                          # what stands
-    estate/bringup.py down   --name RUN [--wipe]                 # stop what it created
+    estate/estate.py scaffold --out DIR                          # a starting corpus
+    estate/estate.py validate [--corpus DIR]                     # the contract check
+    estate/estate.py up   [--corpus DIR] [--name RUN] [flags…]    # the estate
+    estate/estate.py ingest [--corpus DIR] [--mcp-url URL]       # re-index the retrieval service
+    estate/estate.py status --name RUN                           # what stands
+    estate/estate.py down   --name RUN [--wipe]                  # stop what it created
 
 Given a corpus in the contract's shape (docs/corpus-contract.md) this
 script leaves behind a running estate — a git host holding one repository
@@ -61,14 +63,15 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:
-    print("bringup: PyYAML is missing — it rides the library install:\n"
+    print("estate: PyYAML is missing — it rides the library install:\n"
           "  pip install -e '.[dev]'   (from the checkout root)", file=sys.stderr)
     sys.exit(2)
 
 HERE = Path(__file__).resolve().parent           # estate/ — or site-packages/gsj_rollout/
 REPO = HERE.parent
-# CP-60: this file also ships in the wheel as `gsj_rollout.bringup` (force-
-# included, one source). The pipeline is a sibling on both layouts — under
+# CP-60: this file also ships in the wheel (force-included, one source) —
+# as `gsj_rollout.estate` since the CP-72 rename (`gsj_rollout.bringup` on
+# wheels <= 0.1.5). The pipeline is a sibling on both layouts — under
 # estate/corpus/ in the checkout, force-included beside this file from the
 # wheel — and the runs directory must never land inside site-packages.
 CHECKOUT = (HERE / "corpus" / "ingest_corpus.py").is_file()
@@ -79,7 +82,7 @@ else:
     from gsj_rollout import ingest_corpus as ic  # noqa: E402  — the same file, from the wheel
 INGEST = Path(ic.__file__)
 RUNS = HERE / "runs" if CHECKOUT else Path.cwd() / "runs"   # --runs-dir overrides (CP-62)
-PROG = "estate/bringup.py" if CHECKOUT else "python -m gsj_rollout.bringup"
+PROG = "estate/estate.py" if CHECKOUT else "python -m gsj_rollout.estate"
 
 SCHEMA = 1
 # CP-62: the pin is a TAG on the canonical registry, with the index digest it
@@ -120,24 +123,27 @@ def _c(code: str, text: str) -> str:
 
 
 def say(phase: str, msg: str) -> None:
-    print(f"[bringup +{time.monotonic() - _T0:6.1f}s] {_c('1', phase)} — {msg}",
+    print(f"[estate +{time.monotonic() - _T0:6.1f}s] {_c('1', phase)} — {msg}",
           flush=True)
 
 
 def warn(phase: str, msg: str) -> None:
-    print(f"[bringup +{time.monotonic() - _T0:6.1f}s] {_c('33', phase)} — "
+    print(f"[estate +{time.monotonic() - _T0:6.1f}s] {_c('33', phase)} — "
           f"{_c('33', 'WARNING')}: {msg}", flush=True)
 
 
-def die(what: str, found: str | None, expected: str | None, fix: str) -> "None":
-    """Every refusal: what it found, what it expected, what to do (CP-27)."""
-    print(f"\nbringup: {_c('31', 'REFUSED')} — {what}", file=sys.stderr)
+def die(what: str, found: str | None, expected: str | None, fix: str,
+        code: int = 1) -> "None":
+    """Every refusal: what it found, what it expected, what to do (CP-27).
+    `code` is 1 except where a folded pipeline verb must keep the
+    pipeline's usage exit code (2) — CP-72's fold contract."""
+    print(f"\nestate: {_c('31', 'REFUSED')} — {what}", file=sys.stderr)
     if found is not None:
         print(f"  found:    {found}", file=sys.stderr)
     if expected is not None:
         print(f"  expected: {expected}", file=sys.stderr)
     print(f"  what to do: {fix}", file=sys.stderr, flush=True)
-    sys.exit(1)
+    sys.exit(code)
 
 
 class Phases:
@@ -262,13 +268,16 @@ def script_version() -> dict:
     head = run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
                capture_output=True) if CHECKOUT else None
     dirty = run(["git", "-C", str(REPO), "status", "--porcelain", "--",
-                 "estate/bringup.py"], capture_output=True) if CHECKOUT else None
+                 "estate/estate.py"], capture_output=True) if CHECKOUT else None
     try:
         import gsj_rollout
         lib = gsj_rollout.__version__
     except ImportError:
         lib = None
-    return {"script": "estate/bringup.py" if CHECKOUT else "gsj_rollout.bringup",
+    # old run records carry the pre-CP-72 script names ("estate/bringup.py" /
+    # "gsj_rollout.bringup"); the field is write-only — status/down never
+    # parse it back, so mixed-vintage runs stay readable.
+    return {"script": "estate/estate.py" if CHECKOUT else "gsj_rollout.estate",
             "commit": (head.stdout.strip() if head and head.returncode == 0 else None),
             "dirty": bool(dirty and dirty.stdout.strip()),
             "library": lib}
@@ -353,8 +362,10 @@ class Answers:
 # ------------------------------------------------------------- the corpus
 
 def load_corpus(path: Path, owner_override: str | None,
-                sandbox_image: str | None = None):
-    """validate — the contract, before anything runs; the Corpus object."""
+                sandbox_image: str | None = None, *, refusal_code: int = 1):
+    """validate — the contract, before anything runs; the Corpus object.
+    `refusal_code` reaches only the not-a-corpus-root refusal: the folded
+    pipeline verbs pass 2 (the pipeline's usage exit code), `up` keeps 1."""
     if not (path / "corpus.yaml").is_file():
         # CP-71: the empty-directory reader is starting, not failing —
         # the refusal hands them the verb that writes a corpus (the same
@@ -364,7 +375,8 @@ def load_corpus(path: Path, owner_override: str | None,
             f"there is no corpus there — `{PROG} scaffold --out {path}` "
             f"writes an annotated starting tree (edit it, `validate`, then "
             f"re-run `up`); or point --corpus at the directory holding "
-            f"corpus.yaml, AGENTS.md, skills/, train/ and/or eval/")
+            f"corpus.yaml, AGENTS.md, skills/, train/ and/or eval/",
+            code=refusal_code)
     try:
         corpus = ic.phase_validate(path, owner_override=owner_override,
                                    quiet=False,
@@ -383,7 +395,7 @@ def load_corpus(path: Path, owner_override: str | None,
 def built_heads(corpus) -> dict[str, dict[str, str]]:
     """What THIS corpus builds, per case — deterministic SHAs, no push."""
     env = ic.git_env(corpus.git_identity)
-    with tempfile.TemporaryDirectory(prefix="gsj-bringup-build-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="gsj-estate-build-") as tmp:
         return {case_id: ic.build_case_repo(corpus, case, Path(tmp), env)
                 for case_id, case in sorted(corpus.cases.items())}
 
@@ -717,7 +729,7 @@ class Forgejo:
         return status == 200 and isinstance(me, dict) and me.get("login") == owner
 
     def mint_token(self, owner: str, label: str, scopes: list[str]) -> str:
-        name = f"bringup-{label}-{int(time.time())}"
+        name = f"estate-{label}-{int(time.time())}"   # pre-CP-72 tokens are named bringup-*
         status, body = self.api("POST", f"/users/{owner}/tokens",
                                 {"name": name, "scopes": scopes}, auth=self.admin)
         if status not in (200, 201) or not isinstance(body, dict) or "sha1" not in body:
@@ -1425,8 +1437,11 @@ def cmd_up(args: argparse.Namespace) -> None:
             cmd += ["--owner-override", owner]
         cmd += list(extra)
         PH.start(phase, f"{INGEST.name} {phase}")
-        penv = {**os.environ, **{k: v for k, v in run_.env.items()
-                                 if k in (push_env, read_env, MCP_SECRET_ENV)}}
+        # the estate tool IS the new command (CP-72): the pipeline's own
+        # deprecated-entry notice must not fire on its driver's calls
+        penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
+                **{k: v for k, v in run_.env.items()
+                   if k in (push_env, read_env, MCP_SECRET_ENV)}}
         proc = run(cmd, env=penv)
         if proc.returncode != 0:
             die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
@@ -1888,7 +1903,7 @@ def cmd_up(args: argparse.Namespace) -> None:
                   "--render-only"], capture_output=True)
     if render.returncode != 0:
         die("the library rejected the generated rollout.yaml.", render.stderr.strip() or render.stdout,
-            "a config load_config accepts", "this is a bringup bug — report it with the output")
+            "a config load_config accepts", "this is an estate.py bug — report it with the output")
     PH.done(f"written and validated (topology.rendered.yaml beside it); gateway public "
             f"URL http://{ghost}:{gport} ({ghow})")
 
@@ -2130,8 +2145,6 @@ def cmd_scaffold(args: argparse.Namespace) -> None:
     if ic.phase_validate(out, quiet=True) is None:
         die("internal: the scaffolded tree does not pass validate.",
             None, "a tree that validates unmodified", "report this bug")
-    pipeline_prog = ("python estate/corpus/ingest_corpus.py" if CHECKOUT
-                     else "python -m gsj_rollout.ingest_corpus")
     rel = os.path.relpath(out, Path.cwd())
     if rel.startswith(".."):
         rel = str(out)          # far from here: the absolute path reads better
@@ -2143,10 +2156,62 @@ def cmd_scaffold(args: argparse.Namespace) -> None:
   eval/cases/                the held-out split (empty; move WHOLE cases here to hold them out)
 next — make it yours, prove it, stand it up:
   1. edit the files marked REPLACE / CHANGE THIS
-  2. {pipeline_prog} validate --corpus {rel}
+  2. {PROG} validate --corpus {rel}
   3. {PROG} up --corpus {rel}
 your AGENTS.md and skill cards change what the rollout side pins (G1/G2) —
 docs/corpus-contract.md, "Bringing your own corpus", carries the re-derivation.""")
+
+
+# ------------------------------------------- the folded pipeline verbs
+# CP-72: `validate` and `ingest` were the pipeline entry points consumers
+# ran standalone; they fold in here (in-process, the cmd_scaffold pattern)
+# with the pipeline's own exit codes (0 pass / 1 contract fail / 2 pipeline
+# error), and `python -m gsj_rollout.ingest_corpus` becomes a deprecated
+# alias that keeps working with a notice. The other phases (scaffold /
+# taskbank / verify) run inside `up` and keep their pipeline-only form.
+
+def _corpus_root(args: argparse.Namespace) -> Path:
+    # usage-class refusals exit 2 here — the pipeline's own code for a bad
+    # or missing corpus root, kept so a caller migrating off the deprecated
+    # entry reads rc 1 as "the tree fails the contract" and nothing else
+    raw = args.corpus or (str(HERE / "corpus" / "staging") if CHECKOUT else None)
+    if not raw:
+        die("no corpus named.",
+            "--corpus not given (a wheel install has no default corpus)",
+            "a corpus root in docs/corpus-contract.md's shape",
+            f"{PROG} {args.command} --corpus <root>", code=2)
+    root = Path(raw).expanduser().resolve()
+    if not (root / "corpus.yaml").is_file():
+        load_corpus(root, None, refusal_code=2)  # the refusal that names `scaffold`
+    return root
+
+
+def cmd_validate(args: argparse.Namespace) -> None:
+    root = _corpus_root(args)
+    try:
+        corpus = ic.phase_validate(root, only=args.only,
+                                   owner_override=args.owner_override,
+                                   sandbox_image_override=args.sandbox_image)
+    except ic.PipelineError as exc:
+        print(f"estate: {exc}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(0 if corpus is not None else 1)
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    root = _corpus_root(args)
+    try:
+        corpus = ic.phase_validate(root, quiet=True)
+        if corpus is None:
+            die("the corpus tree failed validation — nothing was ingested.",
+                "FAIL rows above (each names its file and rule)",
+                "zero FAIL rows", f"fix them and re-run; {PROG} validate "
+                f"--corpus {root} prints the full table")
+        mcp_url = (args.mcp_url.rstrip("/") if args.mcp_url else corpus.mcp_url)
+        ic.phase_ingest(corpus, mcp_url, timeout_s=args.ingest_timeout)
+    except ic.PipelineError as exc:
+        print(f"estate: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 # ------------------------------------------------------- status and down
@@ -2244,23 +2309,35 @@ def main() -> None:
     global RUNS
     # the docstring is the checkout's; from the wheel the same words name the
     # module and the cwd-relative runs directory (wishlist 51 (e))
-    doc = (__doc__ if CHECKOUT else __doc__.replace("estate/bringup.py", PROG)
+    doc = (__doc__ if CHECKOUT else __doc__.replace("estate/estate.py", PROG)
            .replace("`estate/runs/<name>/`", "`./runs/<name>/` (--runs-dir)"))
     ap = argparse.ArgumentParser(description=doc,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
-    # CP-71: the metavar keeps the root suite's frozen "{up,status,down}"
-    # assertion (tests/test_wheel_pipeline.py) literally true while the
-    # help documents the fourth verb; CP-72's rename may rewrite both.
-    sub = ap.add_subparsers(dest="command", required=True,
-                            metavar="scaffold | {up,status,down}")
+    # CP-72 retired CP-71's metavar workaround: the natural metavar names
+    # the full verb set and tests/test_wheel_pipeline.py asserts it.
+    sub = ap.add_subparsers(dest="command", required=True)
     sc = sub.add_parser("scaffold", parents=[common],
                         help="write an annotated starting corpus that "
                              "validates as written (edit -> validate -> up)")
     sc.add_argument("--out", required=True,
                     help="directory to create (must be new or empty)")
     sc.set_defaults(func=cmd_scaffold)
+    va = sub.add_parser("validate", parents=[common],
+                        help="the contract check, tree only — the pipeline's "
+                             "validate phase (CP-72: folded from "
+                             "`python -m gsj_rollout.ingest_corpus validate`)")
+    va.add_argument("--corpus", help="corpus root" + (" (default: estate/corpus/staging)"
+                                                      if CHECKOUT else " (no default)"))
+    va.add_argument("--only", nargs="+", metavar="CASE_ID",
+                    help="limit the check to these cases")
+    va.add_argument("--owner-override",
+                    help="validate under this Forgejo owner instead of corpus.yaml's")
+    va.add_argument("--sandbox-image",
+                    help="the estate's harness image (a corpus.yaml sandbox_image "
+                         "key is ignored since CP-71)")
+    va.set_defaults(func=cmd_validate)
     up = sub.add_parser("up", parents=[common],
                         help="corpus -> running estate + taskbank + rollout.yaml")
     up.add_argument("--corpus", help="corpus root" + (" (default: estate/corpus/staging)"
@@ -2338,6 +2415,19 @@ def main() -> None:
     eg.add_argument("--skip-sandbox-image", action="store_true", default=None,
                     help="do not refuse when the sandbox image is absent")
     up.set_defaults(func=cmd_up)
+    ig = sub.add_parser("ingest", parents=[common],
+                        help="re-index the corpus into a standing retrieval "
+                             "service — the pipeline's ingest phase (CP-72: "
+                             "folded from `python -m gsj_rollout.ingest_corpus "
+                             "ingest`)")
+    ig.add_argument("--corpus", help="corpus root" + (" (default: estate/corpus/staging)"
+                                                      if CHECKOUT else " (no default)"))
+    ig.add_argument("--mcp-url", help="the retrieval service, as this host reaches it "
+                                      "(default: corpus.yaml's deprecated mcp.url_base; "
+                                      "neither named skips the re-index, loudly)")
+    ig.add_argument("--ingest-timeout", type=float, default=900.0,
+                    help="seconds to wait for /health ready (default 900)")
+    ig.set_defaults(func=cmd_ingest)
     st = sub.add_parser("status", parents=[common], help="what stands for a run")
     st.add_argument("--name", required=True)
     st.set_defaults(func=cmd_status)
@@ -2352,7 +2442,7 @@ def main() -> None:
     try:
         args.func(args)
     except KeyboardInterrupt:
-        print("\nbringup: interrupted — re-run `up`; every phase is idempotent", file=sys.stderr)
+        print("\nestate: interrupted — re-run the verb; every phase is idempotent", file=sys.stderr)
         sys.exit(130)
 
 

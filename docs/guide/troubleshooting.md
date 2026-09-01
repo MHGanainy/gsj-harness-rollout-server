@@ -124,7 +124,7 @@ Quick reference — who dials what:
 | `polar.rollout.host/port/public_url` | the trainer, the gateway | exit 3 |
 | `receiver.host/port/public_url` | the rollout API (callback) | nothing lands on disk; `submit` still collects |
 
-## At `estate/bringup.py up` — REFUSED
+## At `estate/estate.py up` — REFUSED
 
 Every refusal prints `found:` / `expected:` / `what to do:`; the message is the fix. The shapes measured at CP-59:
 
@@ -139,7 +139,7 @@ Every refusal prints `found:` / `expected:` / `what to do:`; the message is the 
 | `no host address is dialable from a container on '…'` — `tried [...] — every one timed out from the container` | CP-03's one-URL rule has no answer on this host: on Docker Desktop add `127.0.0.1 host.docker.internal` to `/etc/hosts` and pass `--gateway-host host.docker.internal`; `--gateway-host <address>` writes one unprobed (the episode then fails `no completions` if a sandbox cannot dial it — the gateway log shows session polls and no `/v1/chat/completions`) |
 | `the gateway-host probe container could not run on network '…'` | the sandbox network does not exist — a created run makes its own, an adopted-only run creates or verifies it; `--network` must name an existing one |
 | `run '…' exists but its .env is missing` | restore it — a re-mint would invalidate the running service's secret and every token the record names; or `down --wipe` and start over |
-| the corpus pipeline's `scaffold` fails `post-push read-back … terminal prompts disabled (anonymous read — … needs GSJ_FORGEJO_READ_TOKEN_<OWNER> exported)` | an estate requiring sign-in and no read token in the environment (CP-59 — the push itself succeeded); `bringup.py` exports it from the run's `.env` |
+| the corpus pipeline's `scaffold` fails `post-push read-back … terminal prompts disabled (anonymous read — … needs GSJ_FORGEJO_READ_TOKEN_<OWNER> exported)` | an estate requiring sign-in and no read token in the environment (CP-59 — the push itself succeeded); `estate.py` exports it from the run's `.env` |
 | `the Forgejo image … could not be pulled` — `failed to copy: httpReadSeeker: failed open: content at …/manifests/sha256:… not found` | the tag's registry dropped a platform manifest its index still lists (codeberg did this to `16.0.2`, measured 2026-08-30 — wishlist 52); pass `--forgejo-image <ref>` naming a live one: another tag, the mirror `code.forgejo.org/forgejo/forgejo:<tag>` (the same digests), or `name@sha256:…`; on a host that cannot reach registries at all, `docker save \| docker load` the image and re-run (CP-62) |
 | `the retrieval service image … is not present on this daemon and could not be pulled` / `… (a local build tag — nothing to pull)` | a registry reference is pulled once when absent (CP-62); the published two-platform index is `ghcr.io/mhganainy/gsj-mcp-service:0.4.0` (`--mcp-image`); the checkout's default `gsj-mcp-service:0.4.0` is a local build — build it, or `docker load` the tarball |
 | `WARNING: … resolved to […], not the index this script measured` | the pinned tag was re-cut on its registry since it was measured: the run continues, but the admin-CLI/token/sign-in measurements were made on the recorded bytes — pin them with `--forgejo-image name@sha256:…` if the phases behave differently |

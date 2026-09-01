@@ -91,7 +91,10 @@ packages = ["gsj_rollout"]
 "pins/thinking-on/pins.gsj.json" = "gsj_rollout/pins/thinking-on/pins.gsj.json"
 # CP-34 (Step 3): the corpus pipeline rides the wheel, so a pip-install
 # consumer can validate a corpus tree with NO repo clone:
-#   python -m gsj_rollout.ingest_corpus validate --corpus <root>
+#   python -m gsj_rollout.estate validate --corpus <root>
+# (CP-72: the estate tool's folded verb; the pipeline's own entry,
+# `python -m gsj_rollout.ingest_corpus validate`, still works and prints a
+# deprecation notice — removal no earlier than 0.1.7.)
 # The file is a moved component (charter §3 excludes corpus/ from the size
 # law; estate/corpus/ since CP-50) and is fully standalone — stdlib + PyYAML unconditionally, pyarrow
 # lazily behind a named error (taskbank/verify only). Its home stays
@@ -105,16 +108,18 @@ packages = ["gsj_rollout"]
 # CP-34). Same subdirectory as in `pins/`:
 #   site-packages/gsj_rollout/pins/container/system_prompt.container.derived.txt
 "pins/container/system_prompt.container.derived.txt" = "gsj_rollout/pins/container/system_prompt.container.derived.txt"
-# CP-60 (wishlist 48): the estate bring-up rides the wheel the same way, so a
+# CP-60 (wishlist 48): the estate tool rides the wheel the same way, so a
 # consumer can stand an estate up from a corpus with NO repo clone:
-#   python -m gsj_rollout.bringup up --corpus <root> [--answers <yaml>]
-# Its home stays estate/ (outside the size law — CHARTER §3 counts
+#   python -m gsj_rollout.estate up --corpus <root> [--answers <yaml>]
+# (CP-72 renamed the tool: estate/bringup.py -> estate/estate.py, packaged
+# gsj_rollout.bringup -> gsj_rollout.estate; wheels <= 0.1.5 carry the old
+# name.) Its home stays estate/ (outside the size law — CHARTER §3 counts
 # `wc -l gsj_rollout/*.py`, and a build-time copy adds no line to it; the
 # same reading CP-34 gave ingest_corpus.py and ADR-0027 kept). Unlike the
 # pipeline it was NOT standalone by construction: it found the pipeline and
 # its runs directory relative to the checkout, so the file carries a two-way
 # shim (checkout layout, else the wheel's — CP-60, measured on the artifact).
-"estate/bringup.py" = "gsj_rollout/bringup.py"
+"estate/estate.py" = "gsj_rollout/estate.py"
 
 # CP-19: the sdist root set is stated EXPLICITLY because the backend's default is
 # "every tracked path", measured here at 4.6 MB / 835 files including
@@ -147,7 +152,7 @@ only-include = [
     "pins/thinking-on/pins.gsj.json",
     "estate/corpus/ingest_corpus.py",
     "pins/container/system_prompt.container.derived.txt",
-    "estate/bringup.py",
+    "estate/estate.py",
 ]
 
 # Bare `pytest` runs the repo's own suite only; the moved components' suites

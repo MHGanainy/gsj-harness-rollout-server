@@ -13,7 +13,7 @@ The server role needs a repository checkout (the PyPI wheel ships no `vendor/`) 
 | vLLM serving `estate.model` under that exact `--served-model-name` at `estate.serving_base_url` (engine root, **no `/v1`**) | `estate/estate.sh health` |
 | Forgejo with one repo per case, one `timestep-T` branch per timestep, reachable from **inside** episode containers | `curl -fsS http://172.28.9.10:3000/api/healthz` |
 | The retrieval service with `GSJ_MCP_TOKEN_SECRET` in its environment | `curl -s localhost:8790/health` until `"state": "ready"` |
-| The corpus ingested | `python3 estate/corpus/ingest_corpus.py validate --corpus estate/corpus/staging` |
+| The corpus ingested | `estate/estate.py validate --corpus estate/corpus/staging` |
 | Docker with the harness image | `docker image ls ghcr.io/mhganainy/gsj-pi-harness` |
 | Polar's venv, with `gsj_rollout` importable in it | `vendor/polar/.venv/bin/polar --help`; recipe in [vendor/REVENDOR.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/vendor/REVENDOR.md) — its `uv pip install -p .venv/bin/python -e ../..` step is not optional |
 
@@ -208,7 +208,7 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 
 | verb | runs |
 | --- | --- |
-| `bringup [args…]` | `bringup.py` — corpus → running estate + taskbank + `rollout.yaml`, creating or adopting Forgejo and the retrieval service (needs the checkout's python: `PYTHON=<abs path>` or an activated `.venv`) |
+| `bringup [args…]` | `estate.py` — corpus → running estate + taskbank + `rollout.yaml`, creating or adopting Forgejo and the retrieval service (needs the checkout's python: `PYTHON=<abs path>` or an activated `.venv`) |
 | `up` | Forgejo compose up, health wait (90 s), admin `gsj-admin`, API token → `forgejo/.token` |
 | `owner <name>` | pipeline owner + push token → `forgejo/.token-<name>` + read-scoped clone token → `forgejo/.token-<name>-read` (CP-56); prints both export lines |
 | `down [--wipe]` | compose down; `--wipe` also deletes `forgejo-data/` and `.token` |
@@ -218,7 +218,7 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 | `health` | `/health`, `/v1/models`, one full tool round trip |
 | `status` | compose ps × 2 + the engine probe |
 
-One command instead of the sequence below: `estate/bringup.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#bringuppy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. The verbs, by hand (steps 3 and 5 are the corpus pipeline, not verbs):
+One command instead of the sequence below: `estate/estate.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#estatepy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. The verbs, by hand (steps 3 and 5 are the corpus pipeline, not verbs):
 
 ```bash
 cd estate
@@ -230,7 +230,7 @@ export GSJ_MCP_TOKEN_SECRET='<the shared secret>'
 # read token too); the H200's four repos exist, so there this line converges and changes nothing
 python3 corpus/ingest_corpus.py scaffold --corpus corpus/staging
 ./estate.sh mcp-up
-python3 corpus/ingest_corpus.py ingest --corpus corpus/staging
+./estate.py ingest --corpus corpus/staging
 ./estate.sh serve 0.6b && ./estate.sh health
 ```
 
@@ -239,7 +239,7 @@ The three networking traps:
 
 **Closing anonymous read (CP-56; the reference estate ships closed since CP-58).** An estate serving anonymous git read lets a sandbox agent that guesses `…/gsj-staging/<case>.git` re-clone past its cutoff. The reference estate now requires sign-in for every read (`estate/forgejo/docker-compose.yml`'s `REQUIRE_SIGNIN_VIEW: "true"`) and every reader presents the one read-scoped token `estate.sh owner gsj-staging` mints (`GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING`): the sandbox clone via `rollout.h200.yaml`'s `clone_credential_env`, the MCP index build via `config.yaml`'s `source.auth_token_env`, and the pipeline's verify clone-back — so the bring-up is one shot, no anonymous-first phase. The two re-clone channels return 401 while the harness's own credentialed clone is unaffected; the token never reaches a trace (`_strip_credentials`). Not defended: the model endpoint and the retrieval service, which the agent must reach. Since CP-59 no reader is anonymous: the scaffold's post-push `ls-remote` convergence check presents the same read token (`resolve_read_auth`), and against a closed estate without it the pipeline fails with a `PipelineError` naming `GSJ_FORGEJO_READ_TOKEN_<OWNER>` (the push itself succeeded, the lock is not written) — a fresh or wiped estate scaffolds closed, one shot.
 - **`host.docker.internal` never resolves in an episode** — Polar's Docker runtime passes only `--network`, never `--add-host`. Address host-bound services by the compose network's gateway IP, `172.28.9.1` (not `172.17.0.1`).
-- **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`. `bringup.py` *measures* the host (a listener on the port, a container on the run's network dialing every host address) rather than deriving it: on a Docker Desktop Mac the LAN IP was host-only and `host.docker.internal` container-only (CP-59).
+- **One `public_url`, two dialers.** The rollout API dispatches to it from the host and pi dials it + `/v1` from the container — never `localhost`, and its port must equal `polar.gateway.port`. `estate.py` *measures* the host (a listener on the port, a container on the run's network dialing every host address) rather than deriving it: on a Docker Desktop Mac the LAN IP was host-only and `host.docker.internal` container-only (CP-59).
 
 Serving: `serve.sh` works over SSH (`GSJ_VLLM_SSH_HOST=h200-admin`) with a tunnel `127.0.0.1:8100 → 8000`; overrides `GSJ_VLLM_PORT=8000`, `GSJ_VLLM_LOCAL_PORT=8100`, `GSJ_VLLM_GPU=3`, `GSJ_VLLM_REMOTE_DIR=gsj-vllm`, `GSJ_VLLM_GPU_FRAC=0.30`, `GSJ_VLLM_MODEL_ENV=model-0.6b.env`. It byte-copies the snapshot's `generation_config.json` and passes `--generation-config` explicitly — the engine's defaults *are* the sampling policy. Qwen (`serve 0.6b`, `Qwen/Qwen3-0.6B` @ `c1899de2…`) serves TRL's symmetric `qwen3_training.jinja` (sha256 `1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9` — the pinned `chat_template_hash`; why symmetric: [how-it-works.md](how-it-works.md)) with `--tool-call-parser hermes`, `--reasoning-parser qwen3`, `enable_thinking: false`; Llama (`serve llama31`, `unsloth/Meta-Llama-3.1-8B-Instruct` @ `a2856192…`) uses its embedded template and `--tool-call-parser llama3_json`. `health` asserts the Qwen pin unless `GSJ_VLLM_MODEL_ENV=serving/model-llama31-8b.env`. Switching family is YAML only: `estate.model` byte-equal, `builder.end_of_turn_token_id` re-derived, pins re-derived. `serve-updated <dir>` serves a local HF export under `--served-model-name Qwen/Qwen3-0.6B` (wire identity constant), stopping the old engine first (SIGTERM, 60 s, then SIGKILL) — vLLM at this pin has no in-place weight swap.
 
@@ -255,7 +255,7 @@ One directory, one shape — the normative text is [docs/corpus-contract.md](htt
   corpus.lock.json  taskbank.parquet        # GENERATED — never write
 ```
 
-Five hard invariants the validator enforces: (1) `timestep-T/pages/` physically holds exactly pages `1..T`; (2) numbering is absolute and 4-digit (`^page_(\d{4})\.md$`); (3) pages shared between timesteps are byte-identical (sha256 — fix a typo in *every* timestep that holds the page); (4) `prompts.yaml` entries are `{source, name}` (`skill:<name>` resolving to a non-empty `skills/<name>/SKILL.md`) or `{source, text}` (free), each with an optional `id` (generated when absent — CP-71); (5) a case sits under `train/` or `eval/`, never both. `corpus.yaml` since CP-71 is three fields: `name`, `owner` (any usable Forgejo username — it selects the credential variable), fixed `git.name`/`email`/`date` for deterministic SHAs. The estate values ride flags instead: `--base-url` (with `file://<path>` first-class — no API, no token), `--mcp-url` (absent skips `ingest`), `--sandbox-image` riding every row; a corpus still carrying the deprecated `forgejo.base_url`/`mcp.url_base` keys is honored with a warning, a `sandbox_image` key is ignored. `bringup.py scaffold --out <dir>` writes an annotated starting tree.
+Five hard invariants the validator enforces: (1) `timestep-T/pages/` physically holds exactly pages `1..T`; (2) numbering is absolute and 4-digit (`^page_(\d{4})\.md$`); (3) pages shared between timesteps are byte-identical (sha256 — fix a typo in *every* timestep that holds the page); (4) `prompts.yaml` entries are `{source, name}` (`skill:<name>` resolving to a non-empty `skills/<name>/SKILL.md`) or `{source, text}` (free), each with an optional `id` (generated when absent — CP-71); (5) a case sits under `train/` or `eval/`, never both. `corpus.yaml` since CP-71 is three fields: `name`, `owner` (any usable Forgejo username — it selects the credential variable), fixed `git.name`/`email`/`date` for deterministic SHAs. The estate values ride flags instead: `--base-url` (with `file://<path>` first-class — no API, no token), `--mcp-url` (absent skips `ingest`), `--sandbox-image` riding every row; a corpus still carrying the deprecated `forgejo.base_url`/`mcp.url_base` keys is honored with a warning, a `sandbox_image` key is ignored. `estate.py scaffold --out <dir>` writes an annotated starting tree.
 
 ![The five phases: validate, scaffold, ingest, taskbank, verify](img/corpus-pipeline.png)
 
@@ -276,7 +276,7 @@ pip install gsj-harness-rollout-server
 python -m gsj_rollout.ingest_corpus validate --corpus /path/to/corpus
 ```
 
-(An editable install has no module copy — use the script path `estate/corpus/ingest_corpus.py`.) Taskbank columns, fixed schema, full type equality: `case_id` (string), `timestep` (int64), `prompt_id`, `split` (`train`/`eval`, case-level, a label not a wall — filter trainer-side), `prompt_source` (`free` or `skill:<name>`), `prompt_text` (null on skill rows), `skill_card_text` (the card's bytes; null on free rows), `sandbox_image`. Editing a skill card changes `skill_card_hash` — re-run `taskbank` and re-pin the approved set or gate G1 rejects every new episode.
+(That form works on every published wheel; from 0.1.6 — CP-72 — the command is `python -m gsj_rollout.estate validate`, and the form above keeps working with a deprecation notice, removed no earlier than 0.1.7. An editable install has no module copy — use `estate/estate.py validate`.) Taskbank columns, fixed schema, full type equality: `case_id` (string), `timestep` (int64), `prompt_id`, `split` (`train`/`eval`, case-level, a label not a wall — filter trainer-side), `prompt_source` (`free` or `skill:<name>`), `prompt_text` (null on skill rows), `skill_card_text` (the card's bytes; null on free rows), `sandbox_image`. Editing a skill card changes `skill_card_hash` — re-run `taskbank` and re-pin the approved set or gate G1 rejects every new episode.
 
 ## The retrieval service
 

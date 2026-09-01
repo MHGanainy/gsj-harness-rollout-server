@@ -16,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-OWNER="${1:?usage: create_owner.sh <owner> (gsj-staging | gsj-prod)}"
+OWNER="${1:?usage: create_owner.sh <owner> — e.g. gsj-staging (any usable Forgejo username; CP-71 retired the two-owner allowlist)}"
 HOST="http://172.28.9.10:3000"   # static container IP — no published ports
 TOKEN_FILE=".token-${OWNER}"
 READ_TOKEN_FILE=".token-${OWNER}-read"

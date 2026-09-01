@@ -10,16 +10,16 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 
 ![Six paths cross from the checkout into the wheel, rendered at 0.1.4 (18 entries) — the gsj_rollout package via hatch packages, then five force-includes: both pins files, the G2 capture, ingest_corpus.py, bringup.py — and a red never-ships row (vendor, the rest of estate, spike, tests, docs, .github) crosses nothing](img/wheel-contents.png)
 
-<sub>What `pip install` delivers: the package plus five force-included files — three data files (both pins sets and the G2 reference capture under `gsj_rollout/pins/`) and two modules (`gsj_rollout.ingest_corpus`, `gsj_rollout.bringup` — the corpus pipeline and the estate bring-up, whose homes stay `estate/`); nothing else in the checkout ever ships.</sub>
+<sub>What `pip install` delivers: the package plus five force-included files — three data files (both pins sets and the G2 reference capture under `gsj_rollout/pins/`) and two modules (`gsj_rollout.ingest_corpus`, `gsj_rollout.bringup` — the corpus pipeline and the estate tool, whose homes stay `estate/`); nothing else in the checkout ever ships. CP-72 renamed the estate tool — from 0.1.6 the wheel carries `gsj_rollout.estate` instead of `gsj_rollout.bringup`, with `validate` and `ingest` folded in as verbs, and `python -m gsj_rollout.ingest_corpus` deprecated (works, warns).</sub>
 
 | in the wheel | why |
 | --- | --- |
 | `gsj_rollout/` — 8 modules | the package; console script `gsj-rollout = gsj_rollout.cli:main` |
 | `gsj_rollout/pins/pins.gsj.json` | the reference (thinking-off) approved sets, so the trainer leg validates on install |
 | `gsj_rollout/pins/thinking-on/pins.gsj.json` | the thinking-on set, data only — a target for `GSJ_PINS_PATH` on a pip-only estate |
-| `gsj_rollout/ingest_corpus.py` | validate a corpus tree with no clone: `python -m gsj_rollout.ingest_corpus validate --corpus <root>` |
+| `gsj_rollout/ingest_corpus.py` | validate a corpus tree with no clone: `python -m gsj_rollout.ingest_corpus validate --corpus <root>` (from 0.1.6: `python -m gsj_rollout.estate validate` — the old entry still works with a deprecation notice) |
 | `gsj_rollout/pins/container/system_prompt.container.derived.txt` | the G2 reference capture (since 0.1.3) — the singleton whose sha256 IS `pins.system_prompt_hash`; derive your estate's G2 prompt from it instead of a copied file |
-| `gsj_rollout/bringup.py` | corpus → estate with no clone (since 0.1.3): `python -m gsj_rollout.bringup up --corpus <root>` — needs Docker and `pip install pyarrow`; runs land in `./runs/<name>/`. From 0.1.4 (CP-62): `--runs-dir` puts them elsewhere, and the Forgejo and retrieval-service images are pulled when absent (`--forgejo-image` / `--mcp-image` name others) — 0.1.3's bring-up pins a Forgejo tag codeberg no longer serves and never pulls the retrieval image (`--mcp-image` must name one that is present) |
+| `gsj_rollout/bringup.py` | corpus → estate with no clone (since 0.1.3): `python -m gsj_rollout.bringup up --corpus <root>` — needs Docker and `pip install pyarrow`; runs land in `./runs/<name>/`. From 0.1.4 (CP-62): `--runs-dir` puts them elsewhere, and the Forgejo and retrieval-service images are pulled when absent (`--forgejo-image` / `--mcp-image` name others) — 0.1.3's bring-up pins a Forgejo tag codeberg no longer serves and never pulls the retrieval image (`--mcp-image` must name one that is present). From 0.1.6 this file is `gsj_rollout/estate.py` (CP-72's rename): `python -m gsj_rollout.estate up`, plus the folded `validate` and `ingest` verbs |
 
 Never in the wheel: `vendor/`, `estate/` (except the two modules above, force-included under `gsj_rollout/`), `tests/`, `docs/`, `spike/`, `.github/`. Inspect one yourself: `pip download gsj-harness-rollout-server --no-deps && unzip -l gsj_harness_rollout_server-*.whl`.
 

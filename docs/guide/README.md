@@ -20,7 +20,7 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 
 <sub>Left, the server: an estate you operate, the two Polar processes, the receiver. Right, the trainer: the wheel, `RolloutClient`, and the same `checks.py` — because nothing upstream is trusted.</sub>
 
-**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.5) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2, the estate bring-up as `python -m gsj_rollout.bringup` since 0.1.3): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
+**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.5) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2, the estate tool as `python -m gsj_rollout.bringup` since 0.1.3 — renamed `gsj_rollout.estate` at CP-72, riding the next release): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
 pip install gsj-harness-rollout-server
@@ -49,7 +49,7 @@ pip install -e ".[dev]" && gsj-rollout serve --config <yaml>
 
 ## The record behind this
 
-The library is the product of an evaluation, not a greenfield build: could Polar own episode execution and capture, leaving only a thin shell? The verdict is **ADOPT** — provisional 2026-08-09, converted 2026-08-11 when the golden pair passed on the production H200 estate and a trainer took one real optimizer step on traces collected through this path. The predecessor, `gsj-envloader` at `v0.8.0`, is archived and read-only: it stays readable as the golden reference the fidelity claims are measured against (`loss_mask` exact at zero tolerance, `prompt_ids` byte-identical), and it is not a fallback. Our code is Apache-2.0; `vendor/polar/` carries NVIDIA's own Apache-2.0 licence and ships in no released artifact — publication is wheel-only (`gsj_rollout/`, both pins sets, `ingest_corpus.py`), and the release workflow fails any wheel containing a path under `vendor/`, `estate/`, `spike/`, `tests/`, `docs/`, or `.github/`.
+The library is the product of an evaluation, not a greenfield build: could Polar own episode execution and capture, leaving only a thin shell? The verdict is **ADOPT** — provisional 2026-08-09, converted 2026-08-11 when the golden pair passed on the production H200 estate and a trainer took one real optimizer step on traces collected through this path. The predecessor, `gsj-envloader` at `v0.8.0`, is archived and read-only: it stays readable as the golden reference the fidelity claims are measured against (`loss_mask` exact at zero tolerance, `prompt_ids` byte-identical), and it is not a fallback. Our code is Apache-2.0; `vendor/polar/` carries NVIDIA's own Apache-2.0 licence and ships in no released artifact — publication is wheel-only (`gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, the estate tool), and the release workflow fails any wheel containing a path under `vendor/`, `estate/`, `spike/`, `tests/`, `docs/`, or `.github/`.
 
 Four tracked documents are normative; this guide is the consumer view of them.
 
@@ -58,7 +58,7 @@ Four tracked documents are normative; this guide is the consumer view of them.
 | [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) | The adoption verdict: the evidence, the reversing conditions, the open wants. Standalone — the short path to a trust decision. |
 | [`docs/CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) | The scope laws, the assumption register (§4), the capability and gap register (§7), the standing rules (§8). |
 | [`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md) | Why each validator rule exists: the pins format, hashing, gates, admission, findings, the logprob discipline. |
-| [`docs/corpus-contract.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md) | The corpus source-tree contract that `ingest_corpus.py validate` enforces. |
+| [`docs/corpus-contract.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md) | The corpus source-tree contract that the estate tool's `validate` verb enforces (`estate.py validate`; formerly `ingest_corpus.py validate`). |
 
 > [!NOTE]
 > The per-checkpoint development record — prompts, reports, decision records, the audit, the raw run evidence — is maintained privately by the operator and is not in the repository. The tracked documents cite it (`docs/reports/CP-NN.md`, `ADR-NNNN`); from a clone those citations are footnotes you cannot follow — treat a claim resting only on one as asserted, not checkable. What stays checkable from a clone: `pytest -q`, `bash vendor/apply_patches.sh --verify`, `cat POLAR_SHA`, and the pins walk (`pins/derive_pins.py`) over the tracked evidence bodies.

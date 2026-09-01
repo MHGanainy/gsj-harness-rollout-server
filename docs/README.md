@@ -14,7 +14,7 @@
 1. [`VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) — the adoption verdict, its reversing conditions, the consolidated wishlist. Standalone: read it, then stop.
 2. [`CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) — normative: scope laws, the assumption register (§4), the gap register (§7), the standing rules (§8).
 3. [`checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md) — why each validator rule exists: the gates, admission, the logprob discipline.
-4. [`corpus-contract.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md) — the corpus tree contract behind `ingest_corpus.py validate`.
+4. [`corpus-contract.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md) — the corpus tree contract behind the estate tool's `validate` verb (`estate.py validate`; formerly `ingest_corpus.py validate`).
 5. `AUDIT-2026-08-24.md` — *private, operator's copy only*: the 24-agent adversarial audit of the whole record; zero of 91 findings refuted.
 
 ![The reading order as three numbered shelves: run it (the guide, the README, the two consumer repositories), trust it (the verdict, standalone), change it (the charter, the checks specification, the corpus contract)](guide/img/document-map.png)

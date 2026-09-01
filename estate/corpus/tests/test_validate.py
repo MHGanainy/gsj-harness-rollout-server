@@ -356,7 +356,7 @@ def test_deprecation_warnings_survive_quiet_phases(corpus_root, capsys):
 def test_estate_field_free_corpus_validates_without_warnings(tmp_path,
                                                              capsys):
     """The CP-71 shape — name, owner, git: and nothing else — is the
-    documented form (what `bringup.py scaffold` writes)."""
+    documented form (what `estate.py scaffold` writes)."""
     root = make_corpus(tmp_path / "corpus", estate_fields=False)
     rc, out = run_validate(root, capsys)
     assert rc == 0
@@ -371,7 +371,7 @@ def test_scaffold_without_any_base_url_is_a_usage_error(tmp_path, capsys):
     assert rc == 2
     err = capsys.readouterr().err
     assert "no git host to talk to" in err
-    assert "--base-url" in err and "bringup.py up" in err
+    assert "--base-url" in err and "estate.py up" in err
 
 
 # --- CP-71: prompt ids are optional, generated when absent ----------------
