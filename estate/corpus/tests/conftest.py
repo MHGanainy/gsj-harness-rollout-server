@@ -20,20 +20,23 @@ PROMPT_FREE = ('  - {id: "free:parties", source: free,\n'
                '     text: "Which parties are named so far? Cite pages."}\n')
 
 
-def corpus_yaml(*, owner: str = "gsj-staging",
-                mcp: str | None = None) -> str:
+def corpus_yaml(*, owner: str = "gsj-staging", mcp: str | None = None,
+                estate_fields: bool = True) -> str:
+    """estate_fields=False writes the CP-71 shape — name/owner/git only,
+    none of the three deprecated estate fields."""
     mcp_block = f"mcp:\n  url_base: {mcp}\n" if mcp else ""
     return (
         "name: test-corpus\n"
         f"owner: {owner}\n"
-        "forgejo:\n"
-        "  base_url: http://forgejo.invalid:3000\n"
-        f"{mcp_block}"
-        "git:\n"
-        "  name: gsj-fixtures\n"
-        "  email: fixtures@gsj.invalid\n"
-        '  date: "2026-01-01T00:00:00 +0000"\n'
-        "sandbox_image: example.invalid/harness:1\n")
+        + ("forgejo:\n"
+           "  base_url: http://forgejo.invalid:3000\n"
+           f"{mcp_block}" if estate_fields else "")
+        + "git:\n"
+          "  name: gsj-fixtures\n"
+          "  email: fixtures@gsj.invalid\n"
+          '  date: "2026-01-01T00:00:00 +0000"\n'
+        + ("sandbox_image: example.invalid/harness:1\n" if estate_fields
+           else ""))
 
 
 def page_text(case_id: str, page: int) -> str:

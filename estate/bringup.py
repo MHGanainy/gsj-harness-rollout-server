@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """estate/bringup.py — corpus to estate, in one command (CP-59).
 
+    estate/bringup.py scaffold --out DIR                         # a starting corpus
     estate/bringup.py up   [--corpus DIR] [--name RUN] [flags…]   # the estate
     estate/bringup.py status --name RUN                          # what stands
     estate/bringup.py down   --name RUN [--wipe]                 # stop what it created
@@ -351,15 +352,23 @@ class Answers:
 
 # ------------------------------------------------------------- the corpus
 
-def load_corpus(path: Path, owner_override: str | None):
+def load_corpus(path: Path, owner_override: str | None,
+                sandbox_image: str | None = None):
     """validate — the contract, before anything runs; the Corpus object."""
     if not (path / "corpus.yaml").is_file():
+        # CP-71: the empty-directory reader is starting, not failing —
+        # the refusal hands them the verb that writes a corpus (the same
+        # class as CP-59's refusals: what to do, not just what is wrong)
         die(f"{path} is not a corpus root.", "no corpus.yaml there",
             "a tree in docs/corpus-contract.md's shape",
-            "point --corpus at the corpus root (the directory holding "
-            "corpus.yaml, AGENTS.md, skills/, train/ and/or eval/)")
+            f"there is no corpus there — `{PROG} scaffold --out {path}` "
+            f"writes an annotated starting tree (edit it, `validate`, then "
+            f"re-run `up`); or point --corpus at the directory holding "
+            f"corpus.yaml, AGENTS.md, skills/, train/ and/or eval/")
     try:
-        corpus = ic.phase_validate(path, owner_override=owner_override, quiet=False)
+        corpus = ic.phase_validate(path, owner_override=owner_override,
+                                   quiet=False,
+                                   sandbox_image_override=sandbox_image)
     except ic.PipelineError as exc:
         die("the corpus failed validation.", str(exc), "a tree that passes "
             "the contract", "fix the rows marked FAIL above and re-run")
@@ -1158,16 +1167,26 @@ def cmd_up(args: argparse.Namespace) -> None:
                    f"re-run: adopting what stands, backfilling what is missing")
     owner = A.get("owner", "Forgejo owner for the case repos",
                   prev.get("corpus", {}).get("owner") or yaml_owner)
-    corpus = load_corpus(corpus_path, owner if owner != yaml_owner else None)
+    # CP-71: the sandbox image is the ESTATE's answer, not the corpus's —
+    # a corpus.yaml that still declares one is ignored with a warning; the
+    # same value rides every task row AND rollout.yaml's runtime.image, so
+    # submit's row-vs-config guard passes by construction.
+    simage = str(A.get("sandbox_image", "sandbox image (the harness every "
+                                        "episode runs in)",
+                       prev.get("sandbox_image")
+                       or prev.get("corpus", {}).get("sandbox_image")  # pre-CP-71 record
+                       or ic.DEFAULT_SANDBOX_IMAGE))
+    corpus = load_corpus(corpus_path, owner if owner != yaml_owner else None,
+                         simage)
     owner = corpus.owner
     case_ids = sorted(corpus.cases)
     push_env, read_env = ic.token_env_name(owner), ic.read_token_env_name(owner)
     say("corpus", f"{corpus.name}: {len(case_ids)} case(s) {case_ids}; owner {owner!r}; "
-                  f"sandbox image {corpus.sandbox_image}")
+                  f"sandbox image {corpus.sandbox_image} (the estate's answer)")
     rec.update({"run": name, "run_dir": str(rundir), "version": script_version(),
+                "sandbox_image": simage,
                 "corpus": {"path": str(corpus_path), "name": corpus.name,
                            "owner": owner, "case_ids": case_ids,
-                           "sandbox_image": corpus.sandbox_image,
                            "yaml_forgejo_base_url": corpus.base_url,
                            "yaml_mcp_url_base": corpus.mcp_url}})
     reused: list[str] = []
@@ -1178,6 +1197,10 @@ def cmd_up(args: argparse.Namespace) -> None:
     rec["network"] = {"name": network, "external": external_net,
                       "created_by_run": prev.get("network", {}).get("created_by_run", False)}
     changed: list[str] = []
+    prev_simage = prev.get("sandbox_image") or prev.get("corpus", {}).get("sandbox_image")
+    if prev_simage and prev_simage != simage:
+        changed.append(f"the sandbox image: {prev_simage!r} -> {simage!r} "
+                       "(the bank rows and runtime.image move with it)")
 
     def retarget(what: str, before, after) -> None:
         """A re-run that asks for a different estate identity is not a re-run:
@@ -1381,14 +1404,21 @@ def cmd_up(args: argparse.Namespace) -> None:
 
     # ---- the pipeline: its credentials ride the ENVIRONMENT of the child
     # process, taken from the run's .env at call time (never an argv)
-    if corpus.base_url != fj.container_url:
+    if not corpus.base_url:
+        say("corpus", f"corpus.yaml names no git host (the CP-71 shape) — the "
+                      f"pipeline runs against {fj.url} and the lock records "
+                      f"that URL as canonical")
+    elif corpus.base_url != fj.container_url:
         say("corpus", f"corpus.yaml names forgejo.base_url {corpus.base_url} — the lock "
                       f"keeps that canonical URL; this estate is reached at {fj.url} "
                       f"(transport override) and by sandboxes at {fj.container_url}")
 
     def pipeline(phase: str, *extra: str, mcp_url: str | None = None) -> None:
+        # --sandbox-image on every phase: the rows and verify's re-derived
+        # expectation must resolve the same estate value (CP-71)
         cmd = [sys.executable, str(INGEST), phase, "--corpus", str(corpus_path),
-               "--base-url", fj.url, "--ingest-timeout", str(args.ingest_timeout)]
+               "--base-url", fj.url, "--sandbox-image", simage,
+               "--ingest-timeout", str(args.ingest_timeout)]
         if mcp_url:
             cmd += ["--mcp-url", mcp_url]
         if owner != yaml_owner:
@@ -1750,18 +1780,19 @@ def cmd_up(args: argparse.Namespace) -> None:
     if not A.get("skip_sandbox_image", None, False):
         if shutil.which("docker") and image_present(corpus.sandbox_image):
             say("sandbox", f"{corpus.sandbox_image} present — episodes run in it")
-            rec["corpus"]["sandbox_image_present"] = True
+            rec["sandbox_image_present"] = True
         else:
             hint = (" --platform linux/amd64" if shutil.which("docker")
                     and daemon_arch() in ("arm64", "aarch64") else "")
             die(f"the sandbox image {corpus.sandbox_image} is not present on this daemon.",
                 "docker image inspect failed (or no docker here)",
-                "the image every task row names (corpus.yaml sandbox_image)",
+                "the image every task row names (the estate's --sandbox-image "
+                "answer; corpus.yaml's own key is ignored since CP-71)",
                 f"docker pull{hint} {corpus.sandbox_image}   — or load it out-of-band; "
                 "--skip-sandbox-image records the absence and continues")
     else:
-        rec["corpus"]["sandbox_image_present"] = (shutil.which("docker") is not None
-                                                  and image_present(corpus.sandbox_image))
+        rec["sandbox_image_present"] = (shutil.which("docker") is not None
+                                        and image_present(corpus.sandbox_image))
 
     # ---- pins: which skill cards the approved set in force already carries
     g1 = pins_g1_check(corpus)
@@ -1792,7 +1823,7 @@ def cmd_up(args: argparse.Namespace) -> None:
     gport = leg_port("gateway", 8200, "--gateway-port")
     xport = leg_port("receiver", 8300, "--receiver-port")
     bind = "0.0.0.0" if leg == "container" else "127.0.0.1"
-    probe_image = (corpus.sandbox_image if rec["corpus"].get("sandbox_image_present")
+    probe_image = (corpus.sandbox_image if rec.get("sandbox_image_present")
                    else None)
     if leg == "container":
         if eurl_is_loopback(eurl):
@@ -1940,6 +1971,184 @@ what stands / stop what this run created:
   {PROG} status --name {name}    |    {PROG} down --name {name} [--wipe]""")
 
 
+# -------------------------------------------------------------- scaffold
+# CP-71 (CP-70 item 12): there was no way to start a corpus except by
+# reading the contract and guessing. `scaffold` writes an annotated
+# starting tree that passes `validate` unmodified; every file says what it
+# is and what to change. It reads NOTHING from the installed library — no
+# packaged G2 capture, no pins (CP-70 item 3: the synthetic generator
+# refuses under an editable install because it hashes the packaged capture;
+# an author's AGENTS.md is theirs to write, so this tool has no such
+# dependency — the pins consequence is stated in the files instead).
+
+SCAFFOLD_CORPUS_YAML = """\
+# corpus.yaml — the corpus's own identity, and nothing else. The git host,
+# the retrieval service and the harness image belong to the ESTATE and are
+# answered at bring-up (`{prog} up`), not written here. The contract is
+# docs/corpus-contract.md (gsj-harness-rollout-server); `validate` checks
+# every rule and names the exact file and rule when it is unhappy.
+
+# CHANGE THIS — the corpus's name (letters, digits, . _ -). It becomes
+# the default run name when it fits one (a run name is lowercase letters,
+# digits, - and _; capitals or dots need --name at `up`), and the run
+# name prefixes everything the bring-up creates: the containers
+# gsj-<name>-forgejo / gsj-<name>-mcp, the docker network gsj-<name>-net,
+# and the run directory runs/<name>/.
+name: my-corpus
+
+# CHANGE THIS (or keep it — any usable Forgejo username works; the old
+# two-value allowlist is gone). The git-host account that owns one
+# repository per case. The credential environment variables are named
+# after it — GSJ_FORGEJO_TOKEN_<OWNER> and GSJ_FORGEJO_READ_TOKEN_<OWNER>,
+# the owner uppercased with '-' -> '_' (which is why '.' is not allowed
+# in it) — and it appears in the clone URL every episode's sandbox
+# receives: <base_url>/<owner>/<case_id>.git. `up` creates the account
+# and mints its tokens when they do not exist.
+owner: my-owner
+
+# DO NOT CHANGE these three. A commit SHA is a function of content plus
+# author plus date, so fixing the identity and the date makes the case
+# repos byte-reproducible: re-running the pipeline on an unchanged tree
+# converges to identical commit SHAs — which is what makes the lock's
+# recorded SHAs mean anything. The date records nothing; do not update it
+# when you edit the corpus.
+git:
+  name: gsj-fixtures
+  email: fixtures@gsj.invalid
+  date: "2026-01-01T00:00:00 +0000"
+
+# Three fields older corpora carried here are DEPRECATED — they are the
+# estate's, not the corpus's, and this scaffold does not write them:
+#   forgejo.base_url   -> answered by `up` (standalone pipeline: --base-url)
+#   mcp.url_base       -> answered by `up` (standalone pipeline: --mcp-url)
+#   sandbox_image      -> IGNORED if present: a corpus is not bound to a
+#                         runtime; the task rows take the estate's value
+#                         (`up`'s --sandbox-image answer / rollout.yaml's
+#                         runtime.image)
+"""
+
+SCAFFOLD_AGENTS_MD = """\
+# AGENTS.md — the agent's standing instructions (REPLACE THIS)
+
+This file is copied verbatim into every case repository, on every branch,
+and the harness serves it to the agent as its project instructions. It is
+yours to write — two things are load-bearing:
+
+- Cite pages as `page:N` (the file `md/page_NNNN.md` in the checkout).
+  Retrieval and grading downstream rely on that convention.
+- The rollout side pins the system prompt these instructions become (G2)
+  and each skill card (G1). This example text is NOT the pinned reference
+  text, so episodes on this corpus will quarantine at trace validation
+  until the estate's pins are re-derived from YOUR AGENTS.md and cards —
+  docs/corpus-contract.md, "Bringing your own corpus", has the steps.
+
+Replace everything below with your own instructions.
+
+- Work only from the case file in this checkout (`md/`) and the retrieval
+  tools. Cite a page for every fact, as `page:N`.
+- Write your deliverable into the `out/` directory.
+"""
+
+SCAFFOLD_SKILL_MD = """\
+# Skill: example (REPLACE THIS)
+
+A skill card is a reusable prompt. A timestep's `prompts.yaml` references
+it by name (`source: skill, name: example`) instead of repeating text, and
+the pipeline resolves the card's bytes into every task row that references
+it, at build time. The card's sha256 is what the rollout side verifies
+episodes against (G1): edit a card and the estate's pins must be
+re-derived before episodes on it pass validation.
+
+Replace this file with a real task. The shape that works:
+
+1. Say what to produce, concretely.
+2. Say what to base it on — only the case file in this checkout and the
+   retrieval tools.
+3. Require citations: every fact cited as (page:N).
+4. Name the deliverable file under `out/`.
+"""
+
+SCAFFOLD_PAGE = """\
+# Page 1 (REPLACE THIS)
+
+A page is the corpus's unit: one Markdown file, ABSOLUTELY numbered —
+`page_0001.md` is page 1 of the case in every timestep that contains it
+(4-digit, never renumbered per directory). A `timestep-<T>/pages/`
+directory holds the complete case as it stands at that cutoff, exactly
+pages 1..T, and a page present in two timesteps must be byte-identical in
+both. Downstream, retrieval filters on `page <= T` and citations say
+`page:N` — absolute numbering is what makes the cutoff real.
+"""
+
+SCAFFOLD_PROMPTS_YAML = """\
+# prompts.yaml — what gets asked at THIS timestep. One file per timestep;
+# empty or absent is legal (the timestep then contributes no task rows).
+# Each entry becomes one row of the task table. Two forms:
+prompts:
+  # a skill reference — resolves skills/<name>/SKILL.md at build time
+  - {source: skill, name: example}
+  # a free prompt — the text is the user message, verbatim
+  - {source: free,
+     text: "Which parties are named so far? Cite pages as (page:N)."}
+  # ids are optional and generated (skill:<name>; free:<12 hex of the
+  # text's sha256>). Add id: "free:<your-slug>" only if you want an id
+  # that survives edits to the text.
+"""
+
+
+def cmd_scaffold(args: argparse.Namespace) -> None:
+    out = Path(args.out).expanduser().resolve()
+    if out.exists() and not out.is_dir():
+        die(f"{out} exists and is not a directory.",
+            "a file where the corpus root would go",
+            "a new or empty directory for the starting tree",
+            "pick another --out")
+    if out.is_dir() and any(out.iterdir()):
+        die(f"{out} already exists and is not empty.",
+            "an existing directory with entries",
+            "a new or empty directory for the starting tree",
+            "pick another --out, or clear it yourself — scaffold never "
+            "overwrites")
+    case_dir = out / "train" / "cases" / "case_example" / "timestep-1"
+    try:
+        (case_dir / "pages").mkdir(parents=True, exist_ok=True)
+        (out / "eval" / "cases").mkdir(parents=True)
+        (out / "skills" / "example").mkdir(parents=True)
+        (out / "corpus.yaml").write_text(
+            SCAFFOLD_CORPUS_YAML.format(prog=PROG), encoding="utf-8")
+        (out / "AGENTS.md").write_text(SCAFFOLD_AGENTS_MD, encoding="utf-8")
+        (out / "skills" / "example" / "SKILL.md").write_text(
+            SCAFFOLD_SKILL_MD, encoding="utf-8")
+        (case_dir / "pages" / "page_0001.md").write_text(
+            SCAFFOLD_PAGE, encoding="utf-8")
+        (case_dir / "prompts.yaml").write_text(
+            SCAFFOLD_PROMPTS_YAML, encoding="utf-8")
+    except OSError as exc:
+        die(f"could not write the starting tree under {out}.", str(exc),
+            "a writable location for the new directory", "pick another --out")
+    # the promise, kept by construction: the tree it writes validates
+    if ic.phase_validate(out, quiet=True) is None:
+        die("internal: the scaffolded tree does not pass validate.",
+            None, "a tree that validates unmodified", "report this bug")
+    pipeline_prog = ("python estate/corpus/ingest_corpus.py" if CHECKOUT
+                     else "python -m gsj_rollout.ingest_corpus")
+    rel = os.path.relpath(out, Path.cwd())
+    if rel.startswith(".."):
+        rel = str(out)          # far from here: the absolute path reads better
+    print(f"""== scaffolded {rel}/ == (validates as written; every file says what to change)
+  corpus.yaml                the corpus's identity — name and owner are yours to set
+  AGENTS.md                  the agent's standing instructions — REPLACE
+  skills/example/SKILL.md    one example skill card — REPLACE (it explains what a card is)
+  train/cases/case_example/  one case, one timestep, one page, both prompt forms
+  eval/cases/                the held-out split (empty; move WHOLE cases here to hold them out)
+next — make it yours, prove it, stand it up:
+  1. edit the files marked REPLACE / CHANGE THIS
+  2. {pipeline_prog} validate --corpus {rel}
+  3. {PROG} up --corpus {rel}
+your AGENTS.md and skill cards change what the rollout side pins (G1/G2) —
+docs/corpus-contract.md, "Bringing your own corpus", carries the re-derivation.""")
+
+
 # ------------------------------------------------------- status and down
 
 def _load_run(name: str) -> Run:
@@ -2041,7 +2250,17 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
-    sub = ap.add_subparsers(dest="command", required=True)
+    # CP-71: the metavar keeps the root suite's frozen "{up,status,down}"
+    # assertion (tests/test_wheel_pipeline.py) literally true while the
+    # help documents the fourth verb; CP-72's rename may rewrite both.
+    sub = ap.add_subparsers(dest="command", required=True,
+                            metavar="scaffold | {up,status,down}")
+    sc = sub.add_parser("scaffold", parents=[common],
+                        help="write an annotated starting corpus that "
+                             "validates as written (edit -> validate -> up)")
+    sc.add_argument("--out", required=True,
+                    help="directory to create (must be new or empty)")
+    sc.set_defaults(func=cmd_scaffold)
     up = sub.add_parser("up", parents=[common],
                         help="corpus -> running estate + taskbank + rollout.yaml")
     up.add_argument("--corpus", help="corpus root" + (" (default: estate/corpus/staging)"
@@ -2050,7 +2269,8 @@ def main() -> None:
     up.add_argument("--answers", help="YAML of answers, keyed by flag name (skips every prompt)")
     up.add_argument("-y", "--defaults", action="store_true",
                     help="no prompts: every unset value takes its default")
-    up.add_argument("--owner", help="Forgejo owner (default: corpus.yaml's; gsj-staging|gsj-prod)")
+    up.add_argument("--owner", help="Forgejo owner (default: corpus.yaml's; "
+                                    "any usable Forgejo username)")
     up.add_argument("--owner-mode", choices=("auto", "create", "existing"))
     up.add_argument("--overwrite-repos", action="store_true", default=None,
                     help="push over an existing owner's colliding repos (never the default)")
@@ -2110,6 +2330,11 @@ def main() -> None:
     eg.add_argument("--rollout-port", help="default auto: 8080 upward (container leg: 8080)")
     eg.add_argument("--gateway-port", help="default auto: 8200 upward (container leg: 8200)")
     eg.add_argument("--receiver-port", help="default auto: 8300 upward (container leg: 8300)")
+    eg.add_argument("--sandbox-image",
+                    help="the harness image every episode runs in — rides "
+                         "every task row and rollout.yaml's runtime.image "
+                         f"(default: the run's record, else {ic.DEFAULT_SANDBOX_IMAGE}; "
+                         "a corpus.yaml sandbox_image key is ignored since CP-71)")
     eg.add_argument("--skip-sandbox-image", action="store_true", default=None,
                     help="do not refuse when the sandbox image is absent")
     up.set_defaults(func=cmd_up)

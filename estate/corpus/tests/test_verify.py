@@ -253,7 +253,8 @@ def test_all_without_mcp_url_skips_ingest_not_errors(corpus_root, estate,
     out = capsys.readouterr().out
     assert "== ingest == SKIPPED (no mcp.url_base configured" in out
     assert "== verify: PASS" in out
-    assert "SKIPPED (no mcp.url_base configured)" in out  # verify's census row
+    # verify's census row (CP-71: the note names the flag, not just the key)
+    assert "SKIPPED (no retrieval service named — pass --mcp-url" in out
 
 
 def test_all_with_only_completes_and_leaves_the_bank_alone(corpus_root,

@@ -1,4 +1,4 @@
-# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; v1: the predecessor's CP-33 / ADR-0046)
+# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; manifest slimmed + `scaffold`: CP-71; v1: the predecessor's CP-33 / ADR-0046)
 
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one
@@ -11,6 +11,13 @@ The pipeline is strict on purpose: **everything it can check, it checks
 before anything is uploaded**, and every failure names the exact file and
 rule. A tree that passes `validate` will scaffold, index, and verify
 without surprises.
+
+**You do not have to start from a blank directory.**
+`estate/bringup.py scaffold --out <dir>` (from an installed wheel:
+`python -m gsj_rollout.bringup scaffold --out <dir>`) writes an annotated
+starting tree in exactly the shape below — one example case, one timestep,
+one page, both prompt forms — that passes `validate` unmodified; every
+file it writes says what it is and what to change. Edit, `validate`, `up`.
 
 ```
 <corpus-root>/
@@ -97,14 +104,13 @@ Each timestep directory carries its own `prompts.yaml`:
 
 ```yaml
 prompts:
-  - {id: "skill:tatbestand", source: skill, name: tatbestand}
-  - {id: "free:entity-question", source: free,
+  - {source: skill, name: tatbestand}
+  - {source: free,
      text: "Which parties are named so far? Cite pages."}
 ```
 
 - `source: skill` — a reference to a skill card. `name` must resolve to
-  `<corpus-root>/skills/<name>/SKILL.md`, and `id` must be exactly
-  `skill:<name>`. The card's *text* is resolved into the generated task
+  `<corpus-root>/skills/<name>/SKILL.md`. The card's *text* is resolved into the generated task
   table at build time (the `taskbank` phase copies the corpus-level
   card's bytes into every row that references it — ADR-0022; v1 deferred
   this resolution to episode runtime). Practical consequences for you:
@@ -116,11 +122,21 @@ prompts:
   trace validation. The pipeline cannot do that step for you; it is
   deliberately unaware of the rollout side's pins.
 - `source: free` — a verbatim prompt. `text` is the exact user message
-  (stored byte-for-byte); `id` must be `free:<slug>` with a slug of your
-  choosing (letters, digits, `._-`).
-- Duplicate `id`s **within one timestep** = error. The same `id` at
-  different timesteps is normal (the same question asked as the case
-  grows).
+  (stored byte-for-byte).
+- **`id` is optional bookkeeping** (since CP-71 — the pipeline generates
+  what it can generate). Absent, a skill entry's id is `skill:<name>` and
+  a free entry's is `free:<first 12 hex of the text's sha256>` — stable
+  under reordering and insertion, moved only by an edit to the text
+  itself. The id is the third element of the task table's row key and its
+  sort key, so an id-less free row *moves* when its text is edited;
+  supply `id: "free:<slug>"` (slug: letters, digits, `._-`) when you want
+  an id that survives text edits. A skill entry's explicit id must be
+  exactly `skill:<name>` (anything else is an error, not an alias).
+- Duplicate ids **within one timestep** = error — and two id-less entries
+  with identical content collide at the generated id (the failure says
+  the id was generated, so you are not hunting for an `id:` key the file
+  does not contain). The same id at different timesteps is normal (the
+  same question asked as the case grows).
 - An empty or absent `prompts.yaml` is **legal**: that timestep produces
   no task rows. The case branch is still built and indexed — it just
   isn't asked anything (yet).
@@ -145,34 +161,75 @@ tree whose splits disagree with the lock.
 
 ## `corpus.yaml` reference
 
+Three fields. The file describes the CORPUS — its name, who owns its
+repos, and the commit identity that makes it reproducible. Everything
+about where it runs (the git host, the retrieval service, the harness
+image) is the **estate's**, answered at bring-up, and does not belong
+here — this file was shaped by a project that only ever had one corpus,
+and CP-71 unpicked that.
+
 ```yaml
-name: my-corpus                  # corpus name (letters, digits, ._-)
-owner: gsj-staging               # gsj-staging | gsj-prod — THE environment switch
-forgejo:
-  base_url: http://172.28.9.10:3000    # the git host serving this corpus
-mcp:
-  url_base: http://127.0.0.1:8790      # OPTIONAL: the retrieval service to
-                                       #   (re)index after upload; omit to skip
-git:                             # fixed commit identity => deterministic SHAs
-  name: gsj-fixtures             #   (re-running the pipeline on an unchanged
-  email: fixtures@gsj.invalid    #   tree reproduces identical commits)
+# The corpus's name (letters, digits, . _ -). It becomes the DEFAULT RUN
+# NAME when it fits one (a run name is lowercase letters, digits, - and
+# _; a name with capitals or dots needs --name at `up`), and the run
+# name prefixes everything the bring-up creates: the containers
+# gsj-<name>-forgejo / gsj-<name>-mcp, the docker network gsj-<name>-net,
+# and the run directory runs/<name>/ — name: my-corpus yields a container
+# called gsj-my-corpus-forgejo. Yours to choose; you will read it in
+# `docker ps` for as long as the estate stands.
+name: my-corpus
+
+# The git-host account that owns one repository per case — any USABLE
+# Forgejo username (the rule is below; the old gsj-staging|gsj-prod
+# allowlist is gone since CP-71). The credential environment variables
+# are NAMED after it (GSJ_FORGEJO_TOKEN_<OWNER>, uppercased, '-' -> '_'),
+# and it appears in the clone URL every episode's sandbox receives:
+# <base_url>/<owner>/<case_id>.git. Change it and the variables change
+# with it.
+owner: my-owner
+
+# DO NOT CHANGE these three, and do not update the date when you edit the
+# corpus. A commit SHA is a function of content plus author plus date, so
+# pinning all three makes the case repos byte-reproducible: re-running
+# the pipeline on an unchanged tree converges to identical commit SHAs on
+# every branch — which is what makes the lock's sixteen recorded SHAs
+# mean anything (any SHA change is a real content change, never noise).
+git:
+  name: gsj-fixtures
+  email: fixtures@gsj.invalid
   date: "2026-01-01T00:00:00 +0000"
-sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3   # rides every task row
 ```
 
-- `owner` selects the Forgejo account the repos live under; clone URLs
-  become `<base_url>/<owner>/<case_id>.git`.
-- `git.date` is any fixed git-parseable date with offset. Do not update it
-  when you edit the corpus — it exists so that identical trees produce
-  identical commits, not to record wall-clock time.
-- **There is no split key.** v1's `eval_case_ids` is retired and the
-  validator *rejects* a manifest that still carries it (migration note
-  below) — the split lives in the tree, nowhere else.
+Three fields older corpora carry here are **deprecated** (warned, never a
+failure) — each was the estate's all along:
 
-## The owner switch — staging vs prod
+- `forgejo.base_url` — the git host is where the corpus is *served*, not
+  what it *is*. `bringup.py up` answers it (and always overrode this
+  field with a transport override anyway); the standalone pipeline takes
+  `--base-url`. Still honored when present, as the canonical URL the lock
+  records.
+- `mcp.url_base` — the retrieval service, likewise: `up` creates or
+  adopts one; the standalone pipeline takes `--mcp-url`. Still honored;
+  a corpus naming neither simply skips the `ingest` phase.
+- `sandbox_image` — **ignored** when present: a corpus is not bound to a
+  runtime. The task rows take the estate's value — `up`'s
+  `--sandbox-image` answer, which is also what it writes into
+  `rollout.yaml`'s `runtime.image` (standalone: the pipeline's
+  `--sandbox-image`, default the published harness image) — so
+  `submit --from-bank`'s row-vs-config guard keeps meaning what it meant:
+  the image the bank was *built for*.
 
-**Staging and prod differ by exactly one value in this file plus one
-credential in the environment. That is the whole point of the switch.**
+**There is no split key.** v1's `eval_case_ids` is retired and the
+validator *rejects* a manifest that still carries it (migration note
+below) — the split lives in the tree, nowhere else.
+
+## The owner — what it is, and what a valid one looks like
+
+The owner is the git-host account under which one repository per case
+lives; two estates differ by exactly this value plus one credential in
+the environment. Until CP-71 the validator allowlisted two names —
+`gsj-staging` and `gsj-prod`, the reference estates' pair, still the
+values our own estates use:
 
 | | staging | prod |
 |---|---|---|
@@ -180,8 +237,26 @@ credential in the environment. That is the whole point of the switch.**
 | push credential (env var) | `GSJ_FORGEJO_TOKEN_GSJ_STAGING` | `GSJ_FORGEJO_TOKEN_GSJ_PROD` |
 | read credential (env var, optional — verify's clone-back) | `GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING` | `GSJ_FORGEJO_READ_TOKEN_GSJ_PROD` |
 
+**Any usable Forgejo username is now a valid owner.** The check is
+Forgejo v16's own rule (`modules/validation/helpers.go`,
+`models/user/user.go`), restricted to dot-free names because of the
+derivation below — a refusal names the exact clause broken:
+
+- starts with a letter or digit; then only letters, digits, `-`, `_`
+  (Forgejo would also accept `.`, but see the derivation);
+- no consecutive and no trailing `-`/`_`;
+- at most 40 characters;
+- not a name Forgejo reserves for its own routes (`admin`, `api`,
+  `user`, `org`, `repo`, `ghost`, … — case-insensitively).
+
+Forgejo's API answers HTTP 422 for the same values (`invalid username`,
+`name is reserved [name: …]`); the validator refuses them at `validate`,
+before anything is pushed.
+
 The env var names are derived from the owner: `GSJ_FORGEJO_TOKEN_` /
-`GSJ_FORGEJO_READ_TOKEN_` + the owner uppercased with `-` → `_`.
+`GSJ_FORGEJO_READ_TOKEN_` + the owner uppercased with `-` → `_` — which
+is why the owner may not contain `.`: only `-` is mapped, and a dotted
+owner would name an invalid environment variable.
 Credentials are **never** written into `corpus.yaml` or any other file —
 the pipeline reads the named environment variables and refuses to run
 scaffold without the push one. The push token authorizes *pushes*.
@@ -244,7 +319,10 @@ The pipeline also writes, into `<corpus-root>`:
   (`free` | `skill:<name>`), `prompt_text` (free rows: your verbatim
   text; null on skill rows), `skill_card_text` (skill rows: the resolved
   `skills/<name>/SKILL.md` bytes; null on free rows), and
-  `sandbox_image`. Rows are sorted by `(case_id, timestep, prompt_id)`
+  `sandbox_image` — the harness image of the estate that built the bank
+  (the `--sandbox-image` value, not the corpus's; `submit --from-bank`
+  compares it against the running config's `runtime.image` and refuses a
+  mismatch). Rows are sorted by `(case_id, timestep, prompt_id)`
   and the file rebuilds byte-identically from an unchanged tree. A
   consumer submits a row as-is — every column is either the triple or a
   submit-path argument.
@@ -278,6 +356,16 @@ Both print a findings table with one line per case and timestep — `case`,
 named. The exit code is non-zero if anything failed, and no later phase
 runs.
 
+The estate's three values ride flags, not the manifest (CP-71):
+`--base-url <url>` names the git host — required for
+`scaffold`/`verify`/`all` on a corpus without the deprecated
+`forgejo.base_url` (`--dry-run` excepted: it pushes nothing; on a corpus
+that carries the key, a transport override — the lock keeps the
+canonical URL); `--mcp-url <url>` names the retrieval
+service; `--sandbox-image <ref>` stamps the task rows (default: the
+published harness image — pass the SAME value to `taskbank` and `verify`,
+which re-derives it). `bringup.py up` supplies all three for you.
+
 Useful flags: `--only <case_id> ...` (limit validate/scaffold/verify's
 repo work to some cases — the task table is corpus-wide, so the
 `taskbank` phase is skipped and your committed table is left alone;
@@ -287,10 +375,11 @@ refresh it afterwards with a plain `taskbank` run), `--dry-run` (validate
 tree under a different account — e.g. a rehearsal under `gsj-staging` of a
 tree whose `corpus.yaml` says `gsj-prod`).
 
-Omitting `mcp.url_base` from `corpus.yaml` skips the `ingest` phase (and
-`verify`'s search-service check) with a printed note — that is the
-supported "no retrieval service" configuration; `--skip-ingest` is the
-same skip on a corpus that *does* name one.
+A corpus that names no retrieval service (no `--mcp-url`, no deprecated
+`mcp.url_base`) skips the `ingest` phase (and `verify`'s search-service
+check) with a printed note — that is the supported "no retrieval
+service" configuration; `--skip-ingest` is the same skip when one *is*
+named.
 
 ## What the split means downstream (and what it does not)
 
@@ -343,27 +432,26 @@ minimal-corpus/
 ```yaml
 name: minimal-corpus
 owner: gsj-staging
-forgejo:
-  base_url: http://172.28.9.10:3000
 git:
   name: gsj-fixtures
   email: fixtures@gsj.invalid
   date: "2026-01-01T00:00:00 +0000"
-sandbox_image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
 ```
 
 `train/cases/case_demo/timestep-1/prompts.yaml`:
 
 ```yaml
 prompts:
-  - {id: "skill:summarize", source: skill, name: summarize}
+  - {source: skill, name: summarize}
 ```
 
-`train/cases/case_demo/timestep-2/prompts.yaml`:
+`train/cases/case_demo/timestep-2/prompts.yaml` (the free prompt keeps an
+explicit id here so its row key survives edits to the text — id-less
+would work too, as `free:<text-hash>`):
 
 ```yaml
 prompts:
-  - {id: "skill:summarize", source: skill, name: summarize}
+  - {source: skill, name: summarize}
   - {id: "free:parties", source: free,
      text: "Which parties are named so far? Cite pages."}
 ```
@@ -372,7 +460,7 @@ prompts:
 
 ```yaml
 prompts:
-  - {id: "skill:summarize", source: skill, name: summarize}
+  - {source: skill, name: summarize}
 ```
 
 This produces two repos and a four-row task table:
@@ -380,11 +468,65 @@ This produces two repos and a four-row task table:
 `(case_demo, 2, free:parties)` — all `train` — and
 `(case_holdout, 2, skill:summarize)` — `eval`.
 
+## Bringing your own corpus
+
+Everything above holds for any corpus. What this section adds is what
+*changes* when the corpus is yours rather than the reference one — in
+one place, honestly (CP-70 item 4).
+
+**Start with `scaffold`** (`estate/bringup.py scaffold --out <dir>`;
+wheel: `python -m gsj_rollout.bringup scaffold`) rather than a blank
+directory — the tree it writes validates as written and each file says
+what to change.
+
+**Your `AGENTS.md` and skill cards change what the rollout side pins.**
+The trace validators verify every episode against an approved set: G1 is
+the sha256 of the resolved skill-card bytes, G2 the sha256 of the system
+prompt your `AGENTS.md` becomes. The shipped pins approve the REFERENCE
+corpus's values, so on your corpus **every episode will quarantine until
+the estate's pins are re-derived and named**:
+
+- `bringup.py up` already tells you: its pins phase warns with the exact
+  cards the in-force approved set lacks. It deliberately does not write
+  pins.
+- The library ships no one-command re-derivation for a foreign corpus
+  (stated, not hidden). The worked example is the demo repo's
+  `bootstrap.py` (`derive_pins`): G1 = sha256 of each of your
+  `skills/<name>/SKILL.md` files; G2 = your `AGENTS.md` bytes substituted
+  between pi's `<project_instructions>` markers in the wheel's packaged
+  capture, hashed; both written into a copy of the packaged
+  `pins.gsj.json`, and `GSJ_PINS_PATH` pointed at it for the receiver and
+  the trainer both (law 6: same document, both legs). The reference
+  walk for our own estate is `pins/derive_pins.py` in the checkout.
+
+**Your timesteps must correspond to something real.** A timestep is a
+cutoff of one growing document — the contract checks the *shape* of that
+claim (prefix consistency, absolute numbering) but cannot check that
+page 7 truly precedes page 8 in the world. Constructing honest cutoffs
+from your source material is upstream of this system, and it is where
+the value of the corpus is decided.
+
+**The retrieval defaults were sized for the synthetic corpus.** The
+embedder (`sentence-transformers/all-MiniLM-L6-v2`) and the chunk window
+(220 tokens, overlap 40) are `up`'s defaults because they fit the
+reference pages; nothing re-derives them for your material. `up` takes
+`--embedding-model`/`--embedding-revision` (a non-default model is
+mounted from your HF cache) and `--chunk-max-tokens`/`--chunk-overlap`
+— re-embedding an existing store is an explicit `--rebuild`.
+
+**What is proven, and what is not.** Proven (CP-71, a Mac estate): a
+scaffolded corpus validates unmodified, ingests, banks and verifies
+end-to-end through `up`. NOT proven: the full bring-your-own path — a
+foreign corpus's pins re-derived, episodes collected on it, a training
+run consuming them. Nobody has walked it yet; expect to be the first,
+and expect the pins step to be where it catches.
+
 ## Naming rules (reference)
 
 | thing | rule |
 |---|---|
 | split directory | exactly `train` or `eval`, at the corpus root; no third |
+| `owner` | a usable Forgejo username, dot-free (the rule, with reasons: "The owner" above) |
 | `<case_id>` | `^[a-z0-9][a-z0-9_-]*$` (it becomes a repo name) |
 | timestep directory | `timestep-<T>`, T a positive integer, no leading zeros |
 | page file | `page_<NNNN>.md`, 4-digit zero-padded, `.md` |
@@ -454,4 +596,7 @@ moved.
       `skills/` (rule 4).
 - [ ] No `eval_case_ids` key in `corpus.yaml` (retired — the validator
       rejects it).
+- [ ] No estate values in `corpus.yaml` — `forgejo:`, `mcp:` and
+      `sandbox_image:` are the estate's (deprecated; a corpus still
+      carrying them warns, and `sandbox_image` is ignored outright).
 - [ ] No credentials anywhere in the tree.

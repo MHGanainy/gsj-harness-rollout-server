@@ -257,11 +257,151 @@ def test_leading_zero_timestep_dir(corpus_root, capsys):
     assert "timestep-02" in out
 
 
-def test_bad_owner(tmp_path, capsys):
+# --- CP-71: the owner allowlist became a shape check ----------------------
+
+
+def test_owner_is_a_shape_not_a_membership(tmp_path, capsys):
+    """'gsj-elsewhere' — the very name the old two-value allowlist
+    refused — is a usable Forgejo username and now validates."""
     root = make_corpus(tmp_path / "corpus", owner="gsj-elsewhere")
+    rc, _ = run_validate(root, capsys)
+    assert rc == 0
+
+
+def test_bad_owner_refusal_names_the_rule(tmp_path, capsys):
+    """Each refusal states the clause of Forgejo's own username rule the
+    value breaks (v16: modules/validation/helpers.go + the reserved list),
+    not just the fact of failure."""
+    cases = [
+        ("-leading", "start with a letter or digit"),
+        ("dotted.owner", "mapping only '-' to '_'"),   # the env-var reason
+        ("double--dash", "consecutive or trailing"),
+        ("trailing-", "consecutive or trailing"),
+        ("admin", "reserves 'admin'"),
+        ("Ghost", "reserves 'ghost'"),                 # case-insensitive
+        ("x" * 41, "caps usernames at 40"),
+    ]
+    for i, (owner, clause) in enumerate(cases):
+        root = make_corpus(tmp_path / f"corpus-{i}", owner=owner)
+        rc, out = run_validate(root, capsys)
+        assert rc == 1, owner
+        assert f"owner {owner!r} is not a usable Forgejo username" in out
+        assert clause in out, (owner, out)
+
+
+def test_owner_with_trailing_newline_is_refused(tmp_path, capsys):
+    """The CP-71 review's find: a YAML block scalar (`owner: |` + name)
+    yields 'my-owner\\n', which a '$'-anchored regex accepts — and which
+    would mint an unexportable env-var name and a Forgejo 422. \\Z holds
+    the line."""
+    root = make_corpus(tmp_path / "corpus")
+    text = (root / "corpus.yaml").read_text(encoding="utf-8")
+    (root / "corpus.yaml").write_text(
+        text.replace("owner: gsj-staging", "owner: |\n  my-owner"),
+        encoding="utf-8")
     rc, out = run_validate(root, capsys)
     assert rc == 1
-    assert "owner 'gsj-elsewhere'" in out
+    assert "is not a usable Forgejo username" in out
+
+
+def test_explicit_skill_id_mismatch_still_refused(corpus_root, capsys):
+    """An explicit id on a skill entry must be exactly skill:<name> —
+    optional never became alias-able."""
+    (corpus_root / "train/cases/case_a/timestep-1/prompts.yaml").write_text(
+        'prompts:\n  - {id: "skill:wrong", source: skill, name: summarize}\n',
+        encoding="utf-8")
+    rc, out = run_validate(corpus_root, capsys)
+    assert rc == 1
+    assert "id must be 'skill:summarize', got 'skill:wrong'" in out
+
+
+def test_owner_override_is_shape_checked_too(corpus_root, capsys):
+    """--owner-override used to bypass the allowlist entirely; the shape
+    check covers it, so a malformed owner fails at validate instead of as
+    a Forgejo 422 mid-scaffold."""
+    rc = ic.main(["validate", "--corpus", str(corpus_root),
+                  "--owner-override", "bad-"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "owner 'bad-' is not a usable Forgejo username" in out
+
+
+# --- CP-71: the three estate fields are deprecated, honored, warned -------
+
+
+def test_deprecated_estate_fields_warn_and_pass(tmp_path, capsys):
+    root = make_corpus(tmp_path / "corpus", mcp="http://mcp.invalid:8790")
+    rc, out = run_validate(root, capsys)
+    assert rc == 0
+    assert "WARNING: corpus.yaml: DEPRECATED 'forgejo.base_url'" in out
+    assert "WARNING: corpus.yaml: DEPRECATED 'mcp.url_base'" in out
+    # the URL fields are honored; the image is IGNORED (a corpus is not
+    # bound to a runtime) — each warning says which and names the source
+    assert "Still honored as the canonical URL" in out
+    assert "DEPRECATED 'sandbox_image' — IGNORED" in out
+    assert "the estate's" in out
+
+
+def test_deprecation_warnings_survive_quiet_phases(corpus_root, capsys):
+    """The CP-71 review's find: the quiet re-validations are exactly the
+    invocations that change data — a standalone `taskbank` on a corpus
+    still pinning sandbox_image must not silently write default-image
+    rows. The warnings print on EVERY phase."""
+    rc = ic.main(["taskbank", "--corpus", str(corpus_root), "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "DEPRECATED 'sandbox_image' — IGNORED" in out
+
+
+def test_estate_field_free_corpus_validates_without_warnings(tmp_path,
+                                                             capsys):
+    """The CP-71 shape — name, owner, git: and nothing else — is the
+    documented form (what `bringup.py scaffold` writes)."""
+    root = make_corpus(tmp_path / "corpus", estate_fields=False)
+    rc, out = run_validate(root, capsys)
+    assert rc == 0
+    assert "DEPRECATED" not in out
+
+
+def test_scaffold_without_any_base_url_is_a_usage_error(tmp_path, capsys):
+    """No forgejo.base_url and no --base-url: the refusal names the flag
+    (and the tool that answers it), before anything runs."""
+    root = make_corpus(tmp_path / "corpus", estate_fields=False)
+    rc = ic.main(["scaffold", "--corpus", str(root)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "no git host to talk to" in err
+    assert "--base-url" in err and "bringup.py up" in err
+
+
+# --- CP-71: prompt ids are optional, generated when absent ----------------
+
+
+def test_idless_prompts_are_legal(corpus_root, capsys):
+    (corpus_root / "train/cases/case_a/timestep-1/prompts.yaml").write_text(
+        "prompts:\n"
+        "  - {source: skill, name: summarize}\n"
+        '  - {source: free, text: "Who signed the deed? Cite pages."}\n',
+        encoding="utf-8")
+    rc, out = run_validate(corpus_root, capsys)
+    assert rc == 0
+    assert "1 pages, 2 prompts" in out
+
+
+def test_duplicate_generated_ids_say_they_were_generated(corpus_root,
+                                                         capsys):
+    """Two id-less entries with the same content collide at the generated
+    id — the message says where the id came from, or the reader hunts for
+    an `id:` key that is not in the file."""
+    (corpus_root / "train/cases/case_a/timestep-1/prompts.yaml").write_text(
+        "prompts:\n"
+        "  - {source: skill, name: summarize}\n"
+        "  - {source: skill, name: summarize}\n",
+        encoding="utf-8")
+    rc, out = run_validate(corpus_root, capsys)
+    assert rc == 1
+    assert "duplicate prompt id 'skill:summarize'" in out
+    assert "the id was generated from the entry" in out
 
 
 def test_free_prompt_id_slug_mismatch(corpus_root, capsys):

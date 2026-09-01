@@ -68,7 +68,29 @@ import yaml
 # --------------------------------------------------------------------------
 # Contract constants (docs/corpus-contract.md; the predecessor's ADR-0046)
 
-OWNERS = ("gsj-staging", "gsj-prod")
+# CP-71: the owner is any USABLE Forgejo username, not a member of a list.
+# The rule is Forgejo v16's own (modules/validation/helpers.go:96-126 —
+# start alphanumeric, then [-.\w]*, no consecutive or trailing specials;
+# models/user/user.go:639-695 — the reserved names; MaxSize(40) at the
+# binding layer) RESTRICTED to dot-free names, because the credential
+# variables derive from the owner by mapping only '-' -> '_'
+# (token_env_name below) — a dotted owner would mint an invalid
+# environment-variable name. Forgejo's API answers 422 for what these
+# refuse ("invalid username" / "name is reserved [name: …]").
+OWNER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*\Z")  # \Z, not $: a YAML
+OWNER_BAD_RUN_RE = re.compile(r"[-_]{2,}|[-_]\Z")       # block scalar's
+# trailing newline must not slip past the anchor (the CP-71 review's find)
+OWNER_MAX_LEN = 40
+OWNER_RESERVED = frozenset({  # models/user/user.go:639-680, v16.0/forgejo,
+    # verbatim (the dotted entries are unreachable under the dot-free
+    # shape above; kept so the list stays checkable against the source)
+    ".", "..", "-", ".well-known", "api", "metrics", "v2", "assets",
+    "attachments", "avatar", "avatars", "repo-avatars", "captcha", "login",
+    "org", "repo", "user", "admin", "explore", "issues", "pulls",
+    "milestones", "notifications", "report_abuse", "favicon.ico",
+    "manifest.json", "robots.txt", "sitemap.xml", "ssh_info",
+    "swagger.v1.json", "ghost", "gitea-actions", "forgejo-actions"})
+
 CASE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 TIMESTEP_DIR_RE = re.compile(r"^timestep-([1-9][0-9]*)$")
 PAGE_FILE_RE = re.compile(r"^page_(\d{4})\.md$")
@@ -80,7 +102,29 @@ CASE_GITIGNORE = ".pi/\nout/*\n!out/.gitkeep\n"
 LOCK_NAME = "corpus.lock.json"
 TASKBANK_NAME = "taskbank.parquet"
 
+# CP-71: the harness image is the RUNTIME's, not the corpus's — a corpus
+# is not bound to a runtime. The rows take `--sandbox-image`, else this
+# default — the value gsj_rollout/config.py defaults `runtime.image` to,
+# so `submit --from-bank`'s row-vs-config guard (CP-24's self-describing
+# row) passes by construction; bringup.py answers the flag from its own
+# config and writes the same value into rollout.yaml's runtime.image.
+DEFAULT_SANDBOX_IMAGE = "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
+
 CORPUS_YAML_KEYS = {"name", "owner", "forgejo", "mcp", "git", "sandbox_image"}
+DEPRECATED_KEY_NOTES = {  # CP-71 — never a failure; see each note's verdict
+    "forgejo": ("the git host is the estate's, not the corpus's: bringup.py "
+                "answers it; the standalone pipeline takes --base-url. Still "
+                "honored as the canonical URL the lock records"),
+    "mcp": ("the retrieval service is the estate's: bringup.py creates or "
+            "adopts one; the standalone pipeline takes --mcp-url. Still "
+            "honored; a corpus without it skips the ingest phase unless "
+            "--mcp-url names one"),
+    "sandbox_image": ("IGNORED — a corpus is not bound to a runtime. The "
+                      "task rows take the estate's value: --sandbox-image "
+                      "(default " + DEFAULT_SANDBOX_IMAGE + "), which "
+                      "bringup.py answers from its own config "
+                      "(rollout.yaml's runtime.image). Delete the key"),
+}
 GIT_KEYS = {"name", "email", "date"}
 
 # ADR-0015: exactly these two splits; a third needs its own ADR.
@@ -103,6 +147,29 @@ def read_token_env_name(owner: str) -> str:
     create_owner.sh prints beside the push one and rollout.h200.yaml's
     clone_credential_env names — one token, every read consumer."""
     return "GSJ_FORGEJO_READ_TOKEN_" + owner.upper().replace("-", "_")
+
+
+def owner_rule_violation(owner: str) -> str | None:
+    """Why *owner* is not a usable Forgejo username (None when it is) —
+    the specific clause broken, so the refusal states the rule rather than
+    the fact of failure (CP-71). The rule and its source: OWNER_RE above."""
+    if len(owner) > OWNER_MAX_LEN:
+        return (f"it is {len(owner)} characters; Forgejo caps usernames at "
+                f"{OWNER_MAX_LEN}")
+    if not OWNER_RE.fullmatch(owner):
+        return ("it must start with a letter or digit and contain only "
+                "letters, digits, '-' and '_' (Forgejo would also accept "
+                "'.', but the credential variables "
+                "GSJ_FORGEJO_TOKEN_<OWNER> / GSJ_FORGEJO_READ_TOKEN_<OWNER> "
+                "derive from the owner by mapping only '-' to '_', so a "
+                "dotted owner would name an invalid variable)")
+    if OWNER_BAD_RUN_RE.search(owner):
+        return ("Forgejo refuses consecutive or trailing '-'/'_' "
+                "characters in a username")
+    if owner.lower() in OWNER_RESERVED:
+        return (f"Forgejo reserves {owner.lower()!r} for its own routes "
+                f"(the check is case-insensitive)")
+    return None
 
 
 class PipelineError(Exception):
@@ -179,11 +246,20 @@ def _sha256_file(path: Path) -> str:
 # Phase: validate
 
 def load_corpus(root: Path, findings: list[Finding],
-                owner_override: str | None = None) -> Corpus | None:
+                owner_override: str | None = None,
+                sandbox_image_override: str | None = None,
+                deprecations: list[str] | None = None) -> Corpus | None:
     """Parse + validate corpus.yaml and the corpus-level files. Returns None
-    (with findings) when the corpus level is too broken to continue."""
+    (with findings) when the corpus level is too broken to continue.
+    Deprecated-but-honored keys (CP-71) append to *deprecations*; the
+    caller decides whether and where to print them."""
     def fail(where: str, detail: str) -> None:
         findings.append(Finding("(corpus)", where, False, detail))
+
+    def deprecate(key: str) -> None:
+        if deprecations is not None:
+            deprecations.append(f"corpus.yaml: DEPRECATED {key!r} — "
+                                + DEPRECATED_KEY_NOTES[key.split(".")[0]])
 
     yaml_path = root / "corpus.yaml"
     if not yaml_path.is_file():
@@ -210,7 +286,7 @@ def load_corpus(root: Path, findings: list[Finding],
     if unknown:
         fail("corpus.yaml", f"unknown keys {unknown}")
         ok = False
-    for key in ("name", "owner", "sandbox_image"):
+    for key in ("name", "owner"):
         if not isinstance(raw.get(key), str) or not raw.get(key):
             fail("corpus.yaml", f"{key!r} must be a non-empty string")
             ok = False
@@ -218,28 +294,48 @@ def load_corpus(root: Path, findings: list[Finding],
     if isinstance(name, str) and name and not TOKEN_RE.match(name):
         fail("corpus.yaml", f"name {name!r} not a token (letters, digits, ._-)")
         ok = False
+    # CP-71: a shape check where an allowlist stood — the rule, not a list.
+    # The override is checked too (it used to bypass the list entirely).
     owner = raw.get("owner", "")
-    if isinstance(owner, str) and owner and owner not in OWNERS:
-        fail("corpus.yaml",
-             f"owner {owner!r} must be one of {list(OWNERS)}")
-        ok = False
-    forgejo = raw.get("forgejo")
+    for where, value in (("corpus.yaml", owner),
+                         ("--owner-override", owner_override or "")):
+        if isinstance(value, str) and value:
+            why = owner_rule_violation(value)
+            if why:
+                fail(where, f"owner {value!r} is not a usable Forgejo "
+                            f"username: {why}")
+                ok = False
+    # CP-71: forgejo/mcp/sandbox_image are the estate's — deprecated here,
+    # honored when present, replaced by --base-url/--mcp-url/--sandbox-image.
     base_url = ""
-    if not isinstance(forgejo, dict) or set(forgejo) != {"base_url"} \
-            or not isinstance(forgejo.get("base_url"), str) or not forgejo["base_url"]:
-        fail("corpus.yaml", "forgejo must be a mapping with exactly 'base_url'")
-        ok = False
-    else:
-        base_url = forgejo["base_url"].rstrip("/")
+    if "forgejo" in raw:
+        forgejo = raw["forgejo"]
+        if not isinstance(forgejo, dict) or set(forgejo) != {"base_url"} \
+                or not isinstance(forgejo.get("base_url"), str) or not forgejo["base_url"]:
+            fail("corpus.yaml", "forgejo, when present, must be a mapping "
+                                "with exactly 'base_url' (deprecated — "
+                                "prefer --base-url)")
+            ok = False
+        else:
+            base_url = forgejo["base_url"].rstrip("/")
+            deprecate("forgejo.base_url")
     mcp_url: str | None = None
     if "mcp" in raw:
         mcp = raw["mcp"]
         if not isinstance(mcp, dict) or set(mcp) != {"url_base"} \
                 or not isinstance(mcp.get("url_base"), str) or not mcp["url_base"]:
-            fail("corpus.yaml", "mcp must be a mapping with exactly 'url_base'")
+            fail("corpus.yaml", "mcp, when present, must be a mapping with "
+                                "exactly 'url_base' (deprecated — prefer "
+                                "--mcp-url)")
             ok = False
         else:
             mcp_url = mcp["url_base"].rstrip("/")
+            deprecate("mcp.url_base")
+    # sandbox_image: IGNORED when present (a corpus is not bound to a
+    # runtime) — the rows take the flag/default, never the manifest.
+    sandbox_image = sandbox_image_override or DEFAULT_SANDBOX_IMAGE
+    if "sandbox_image" in raw:
+        deprecate("sandbox_image")
     git_identity = raw.get("git")
     if not isinstance(git_identity, dict) or set(git_identity) != GIT_KEYS \
             or not all(isinstance(git_identity.get(k), str) and git_identity[k]
@@ -288,7 +384,7 @@ def load_corpus(root: Path, findings: list[Finding],
     return Corpus(root=root, name=name,
                   owner=owner_override or owner, base_url=base_url,
                   mcp_url=mcp_url, git_identity=dict(git_identity),
-                  sandbox_image=raw["sandbox_image"], agents_md=agents_md,
+                  sandbox_image=sandbox_image, agents_md=agents_md,
                   skills=skills)
 
 
@@ -326,22 +422,29 @@ def _validate_prompts_yaml(path: Path, skills: dict[str, Path],
         if source not in ("skill", "free"):
             fail(f"{label}: source must be 'skill' or 'free', got {source!r}")
             continue
-        expected_keys = {"id", "source", "name"} if source == "skill" \
-            else {"id", "source", "text"}
-        if set(item) != expected_keys:
-            fail(f"{label}: keys must be exactly {sorted(expected_keys)} "
-                 f"for source={source!r}, got {sorted(item)}")
+        # CP-71: the id is bookkeeping — optional, generated when absent
+        # (skill: forced to 'skill:<name>' as ever; free: a content hash,
+        # stable under reordering, moved only by a text edit). An explicit
+        # id stays legal, for ids that must survive text edits.
+        required = {"source", "name"} if source == "skill" \
+            else {"source", "text"}
+        if not (required <= set(item) <= required | {"id"}):
+            fail(f"{label}: keys must be {sorted(required)} (plus an "
+                 f"optional 'id') for source={source!r}, got {sorted(item)}")
             continue
         pid = item.get("id")
-        if not isinstance(pid, str) or not pid:
-            fail(f"{label}: id must be a non-empty string")
+        if pid is not None and (not isinstance(pid, str) or not pid):
+            fail(f"{label}: id, when given, must be a non-empty string")
             continue
+        generated = pid is None
         if source == "skill":
             skill_name = item.get("name")
             if not isinstance(skill_name, str) or not TOKEN_RE.match(skill_name):
                 fail(f"{label}: name {skill_name!r} not a token")
                 continue
-            if pid != f"skill:{skill_name}":
+            if pid is None:
+                pid = f"skill:{skill_name}"
+            elif pid != f"skill:{skill_name}":
                 fail(f"{label}: id must be 'skill:{skill_name}', got {pid!r}")
                 continue
             if skill_name not in skills:
@@ -354,6 +457,9 @@ def _validate_prompts_yaml(path: Path, skills: dict[str, Path],
             if not isinstance(free_text, str) or not free_text:
                 fail(f"{label}: text must be a non-empty string")
                 continue
+            if pid is None:
+                pid = "free:" + hashlib.sha256(
+                    free_text.encode("utf-8")).hexdigest()[:12]
             slug = pid.removeprefix("free:")
             if slug == pid or not TOKEN_RE.match(slug):
                 fail(f"{label}: id must be 'free:<slug>' with a token slug, "
@@ -362,7 +468,10 @@ def _validate_prompts_yaml(path: Path, skills: dict[str, Path],
             entry = PromptEntry(pid, "free", slug, free_text)
         if entry.id in seen_ids:
             fail(f"{label}: duplicate prompt id {entry.id!r} within this "
-                 f"timestep")
+                 f"timestep"
+                 + (" (the id was generated from the entry — two identical "
+                    "free prompts, or the same skill twice, at one "
+                    "timestep)" if generated else ""))
             continue
         seen_ids.add(entry.id)
         entries.append(entry)
@@ -491,11 +600,22 @@ def validate_case(case_dir: Path, split: str, skills: dict[str, Path],
 
 def phase_validate(root: Path, only: list[str] | None = None,
                    owner_override: str | None = None,
-                   quiet: bool = False) -> Corpus | None:
+                   quiet: bool = False,
+                   sandbox_image_override: str | None = None) -> Corpus | None:
     """The full contract. Prints the findings table; returns the parsed
-    corpus when everything passed, else None."""
+    corpus when everything passed, else None. Deprecated corpus.yaml keys
+    (CP-71) print as WARNINGs above the table — on every phase, never as
+    FAIL rows."""
     findings: list[Finding] = []
-    corpus = load_corpus(root, findings, owner_override)
+    deprecations: list[str] = []
+    corpus = load_corpus(root, findings, owner_override,
+                         sandbox_image_override, deprecations)
+    # loud on EVERY phase, quiet or not (the CP-71 review's find): the
+    # quiet re-validations are exactly the invocations that change data —
+    # a standalone `taskbank` on a corpus still pinning sandbox_image must
+    # not silently write default-image rows
+    for line in deprecations:
+        print(f"WARNING: {line}")
 
     # The corpus root is strict for visible entries (ADR-0015): a
     # `test/cases/` tree must fail loudly, never silently vanish.
@@ -1377,6 +1497,20 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                  skip_mcp: bool = False, only: list[str] | None = None) -> int:
     lock = load_lock(corpus.root, required=True)
     findings: list[Finding] = []
+    # CP-71 (the review's find): scaffold records the resolved sandbox
+    # image in the lock's corpus block; a taskbank/verify run under a
+    # DIFFERENT --sandbox-image would otherwise pass clean while the
+    # freeze record misstates what every row names.
+    lock_corpus = lock.get("corpus")
+    if isinstance(lock_corpus, dict) and "sandbox_image" in lock_corpus \
+            and lock_corpus.get("sandbox_image") != corpus.sandbox_image:
+        findings.append(Finding(
+            "(corpus)", "sandbox_image", False,
+            f"the lock records sandbox_image "
+            f"{lock_corpus.get('sandbox_image')!r} (what scaffold ran "
+            f"with) but this invocation resolves "
+            f"{corpus.sandbox_image!r} — pass the SAME --sandbox-image "
+            f"to scaffold, taskbank and verify, or re-run scaffold"))
     token = resolve_read_auth(corpus, base_url)
     if not _is_file_url(base_url):
         print(f"== verify: cloning back "
@@ -1411,7 +1545,8 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                                 "SKIPPED (--skip-ingest)"))
     elif mcp_url is None:
         findings.append(Finding("(corpus)", "mcp", True,
-                                "SKIPPED (no mcp.url_base configured)"))
+                                "SKIPPED (no retrieval service named — "
+                                "pass --mcp-url to check one)"))
     else:
         health = get_health(mcp_url)
         if health is None or health.get("state") != "ready":
@@ -1510,11 +1645,25 @@ def main(argv: list[str] | None = None) -> int:
                              "(the bank is corpus-wide — refresh it with a "
                              "plain `taskbank` run)")
     parser.add_argument("--base-url",
-                        help="transport override for the Forgejo base URL "
-                             "(e.g. a workstation tunnel); the lock keeps "
-                             "corpus.yaml's canonical URL")
+                        help="the Forgejo base URL — REQUIRED for "
+                             "scaffold/verify/all on a corpus whose "
+                             "corpus.yaml omits the deprecated "
+                             "forgejo.base_url; on one that carries it, a "
+                             "transport override (the lock keeps the "
+                             "canonical URL)")
     parser.add_argument("--mcp-url",
-                        help="transport override for the MCP service URL")
+                        help="the MCP service URL (corpus.yaml's "
+                             "mcp.url_base is deprecated; without either, "
+                             "the ingest phase is skipped)")
+    parser.add_argument("--sandbox-image",
+                        help="the harness image every task row names — the "
+                             "estate's value, what rollout.yaml runtime."
+                             f"image serves (default {DEFAULT_SANDBOX_IMAGE}"
+                             "; a corpus.yaml sandbox_image key is IGNORED "
+                             "with a warning). Pass the SAME value to "
+                             "scaffold, taskbank and verify — scaffold "
+                             "records it in the lock, and verify fails a "
+                             "lock or rows built under another")
     parser.add_argument("--ingest-timeout", type=float, default=900.0,
                         help="seconds to wait for /health ready (default 900)")
     args = parser.parse_args(argv)
@@ -1530,7 +1679,8 @@ def main(argv: list[str] | None = None) -> int:
         # that fails the contract.
         corpus = phase_validate(root, only=args.only,
                                 owner_override=args.owner_override,
-                                quiet=args.phase not in ("validate", "all"))
+                                quiet=args.phase not in ("validate", "all"),
+                                sandbox_image_override=args.sandbox_image)
         if corpus is None:
             return 1
         if args.phase == "validate":
@@ -1538,6 +1688,16 @@ def main(argv: list[str] | None = None) -> int:
 
         base_url = (args.base_url.rstrip("/") if args.base_url
                     else corpus.base_url)
+        if not base_url and args.phase in ("scaffold", "verify", "all") \
+                and not args.dry_run:
+            raise PipelineError(
+                "no git host to talk to: corpus.yaml names no "
+                "forgejo.base_url (deprecated — the host is the estate's) "
+                "and no --base-url was given. Pass --base-url <url>; "
+                "bringup.py up does this for you")
+        if not corpus.base_url:
+            # no canonical URL in the corpus: the lock records the one used
+            corpus.base_url = base_url
         mcp_url = (args.mcp_url.rstrip("/") if args.mcp_url
                    else corpus.mcp_url)
 

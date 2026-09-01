@@ -73,7 +73,10 @@ def test_rows_split_and_uniqueness(corpus_root, estate):
     for row in rows:
         assert row["split"] == ("eval" if row["case_id"] == "case_b"
                                 else "train")
-        assert row["sandbox_image"] == "example.invalid/harness:1"
+        # CP-71: the fixture corpus still DECLARES example.invalid/harness:1
+        # and it is ignored — the rows carry the estate's value (here the
+        # pipeline default; a corpus is not bound to a runtime)
+        assert row["sandbox_image"] == ic.DEFAULT_SANDBOX_IMAGE
     lock = json.loads((corpus_root / "corpus.lock.json").read_text())
     # exactly the frozen key set (ADR-0022 §4: no new lock keys)
     assert set(lock["taskbank"]) == {"path", "rows", "train", "eval",
@@ -129,6 +132,93 @@ def test_promptless_timestep_produces_no_rows(corpus_root, estate):
     triples = {(r["case_id"], r["timestep"]) for r in read_rows(corpus_root)}
     assert ("case_b", 2) not in triples
     assert ("case_b", 3) in triples
+
+
+def test_generated_free_id_is_the_text_hash(tmp_path, estate):
+    """CP-71: an id-less free prompt gets `free:<sha256(text)[:12]>` —
+    stable under reordering and insertion, moved only by a text edit; an
+    id-less skill prompt gets the id the contract always forced."""
+    import hashlib as _h
+    from conftest import make_corpus
+    root = make_corpus(tmp_path / "idless")
+    text = "Who signed the deed? Cite pages."
+    (root / "train/cases/case_a/timestep-1/prompts.yaml").write_text(
+        "prompts:\n"
+        "  - {source: skill, name: summarize}\n"
+        f'  - {{source: free, text: "{text}"}}\n', encoding="utf-8")
+    build(root, estate)
+    triples = [(r["case_id"], r["timestep"], r["prompt_id"])
+               for r in read_rows(root)]
+    want_free = "free:" + _h.sha256(text.encode()).hexdigest()[:12]
+    assert ("case_a", 1, want_free) in triples
+    assert ("case_a", 1, "skill:summarize") in triples
+
+
+def test_estate_field_free_corpus_rows_carry_the_default_image(tmp_path,
+                                                               estate):
+    """CP-71: a corpus without the deprecated sandbox_image key builds a
+    bank whose rows carry the pipeline default — the same value the
+    library defaults runtime.image to, so submit's row-vs-config guard
+    (CP-24) passes by construction."""
+    from conftest import make_corpus
+    root = make_corpus(tmp_path / "nofields", estate_fields=False)
+    build(root, estate)
+    for row in read_rows(root):
+        assert row["sandbox_image"] == ic.DEFAULT_SANDBOX_IMAGE
+
+
+def test_sandbox_image_flag_sets_the_rows(tmp_path, estate):
+    from conftest import make_corpus
+    root = make_corpus(tmp_path / "flagged", estate_fields=False)
+    assert ic.main(["scaffold", "--corpus", str(root),
+                    "--base-url", estate]) == 0
+    assert ic.main(["taskbank", "--corpus", str(root),
+                    "--sandbox-image", "example.invalid/own:2"]) == 0
+    for row in read_rows(root):
+        assert row["sandbox_image"] == "example.invalid/own:2"
+
+
+def test_declared_sandbox_image_never_wins(corpus_root, estate, capsys):
+    """CP-71: a corpus is not bound to a runtime — the manifest's
+    sandbox_image is IGNORED (warned), and the rows carry the flag's value
+    when given, the pipeline default when not."""
+    assert ic.main(["scaffold", "--corpus", str(corpus_root),
+                    "--base-url", estate]) == 0
+    assert ic.main(["taskbank", "--corpus", str(corpus_root),
+                    "--sandbox-image", "example.invalid/own:2"]) == 0
+    for row in read_rows(corpus_root):
+        assert row["sandbox_image"] == "example.invalid/own:2"
+    rc = ic.main(["validate", "--corpus", str(corpus_root)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "DEPRECATED 'sandbox_image' — IGNORED" in out
+    assert "runtime.image" in out
+
+
+def test_default_sandbox_image_is_the_library_runtime_default():
+    """The CP-71 review's find: the prose asserts the equality in three
+    places; this is the machine check — the guard passes by construction
+    only while the two literals agree."""
+    from gsj_rollout.config import RunConfig
+    cfg = RunConfig.model_validate({**MINIMAL_CFG, "runtime": {}})
+    assert cfg.runtime.image == ic.DEFAULT_SANDBOX_IMAGE
+
+
+def test_verify_fails_a_lock_scaffolded_under_another_image(corpus_root,
+                                                            estate, capsys):
+    """The CP-71 review's find: scaffold records the resolved image in the
+    lock; a verify resolving a different one must FAIL naming both — the
+    freeze record may not silently misstate what the rows name."""
+    build(corpus_root, estate)
+    rc = ic.main(["verify", "--corpus", str(corpus_root),
+                  "--base-url", estate, "--skip-ingest",
+                  "--sandbox-image", "example.invalid/other:9"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "the lock records sandbox_image" in out
+    assert ic.DEFAULT_SANDBOX_IMAGE in out
+    assert "example.invalid/other:9" in out
+    assert "pass the SAME --sandbox-image" in out
 
 
 def test_a_crlf_card_rides_byte_faithful(tmp_path, estate):
