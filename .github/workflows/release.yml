@@ -94,13 +94,15 @@ jobs:
           # tuple sat two short after 0.1.1's thinking-on pins and 0.1.2's
           # ingest_corpus.py, noted one short at CP-33; seven since CP-60's
           # G2 capture and bringup.py — extended in the SAME commit that
-          # added the force-includes, the lesson of CP-39).
+          # added the force-includes, the lesson of CP-39; the estate tool's
+          # entry renamed bringup.py -> estate.py at CP-72 with .github/
+          # frozen, so this row moved at CP-74, the release — wishlist 57).
           for required in ("gsj_rollout/checks.py", "gsj_rollout/client.py",
                            "gsj_rollout/pins/pins.gsj.json",
                            "gsj_rollout/pins/thinking-on/pins.gsj.json",
                            "gsj_rollout/pins/container/system_prompt.container.derived.txt",
                            "gsj_rollout/ingest_corpus.py",
-                           "gsj_rollout/bringup.py"):
+                           "gsj_rollout/estate.py"):
               assert required in names, f"{required} missing from the wheel"
           print("\n".join(sorted(names)))
           PY

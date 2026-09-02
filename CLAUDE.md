@@ -2,12 +2,12 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.5** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `bringup.py`). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78, next fresh id F-79). The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.6** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `estate.py` — `bringup.py` on wheels 0.1.3–0.1.5). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53, plus F-79 minted there at CP-69) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78) — one F-series across both, next fresh id F-80. The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
-2. **Size budget**: our own code stays within its 2,016-line budget (raised from 1,500 at CP-12, ADR-0012; re-set to the landed size exactly at CP-65, ADR-0028); the census is `wc -l gsj_rollout/*.py` — everything else (vendored Polar, tests, all of `estate/` incl. `bringup.py` — one roof since CP-50) sits outside it. Standing at CP-65: **2,016/2,016, headroom 0 by design**, machine-checked as a suite equality (`test_size_law_census_is_machine_checked`) — a checkpoint that adds any net line must stop and justify AND move the equality test with its ADR, and a new `checks.py` line additionally needs an ADR-0021 allowance.
+2. **Size budget**: our own code stays within its 2,016-line budget (raised from 1,500 at CP-12, ADR-0012; re-set to the landed size exactly at CP-65, ADR-0028); the census is `wc -l gsj_rollout/*.py` — everything else (vendored Polar, tests, all of `estate/` incl. `estate.py` — one roof since CP-50) sits outside it. Standing at CP-65: **2,016/2,016, headroom 0 by design**, machine-checked as a suite equality (`test_size_law_census_is_machine_checked`) — a checkpoint that adds any net line must stop and justify AND move the equality test with its ADR, and a new `checks.py` line additionally needs an ADR-0021 allowance.
 3. **The predecessor is frozen — historical since CP-45.** No checkpoint CP-00–CP-44 modified `gsj-envloader`, and it reached the archive byte-untouched; CP-45 made the single permitted write (the README archive header, one commit past v0.8.0, ADR-0026) and set the GitHub repo to archived, so the freeze is platform-enforced from here. Read it and compare against it freely — it must stay readable as the goldens' collecting stack.
 4. **Vendor, don't depend.** Polar has no releases. Pin a SHA, record it, document the re-vendor recipe (`vendor/REVENDOR.md`), expect to carry patches.
 5. **Nothing in `gsj_rollout/` assumes Docker semantics.** The runtime is a config value; Polar's interface is start/stop/exec/upload/download. This keeps Apptainer free when we want it (A-11).
@@ -48,7 +48,7 @@ next: <advisory>
 ├── CLAUDE.md
 ├── README.md                    # the two-role split: server side needs an estate; trainer side is the pip library
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
-├── pyproject.toml               # 0.1.5; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + bringup.py
+├── pyproject.toml               # 0.1.6; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + estate.py
 ├── docs/
 │   ├── guide/                   # the user documentation: plain Markdown pages + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
@@ -56,7 +56,7 @@ next: <advisory>
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
 │   ├── corpus-contract.md       # the corpus tree contract
 │   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — UNTRACKED since CP-48
-│   ├── decisions/               # ADRs (0001–0027), one file per decision, append-only — UNTRACKED since CP-48
+│   ├── decisions/               # ADRs (0001–0032), one file per decision, append-only — UNTRACKED since CP-48
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — fully UNTRACKED since CP-49a (CP-48.md came out too)
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
 │   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
@@ -70,19 +70,19 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 169 tests across 9 modules (CI adds corpus 67 + mcp-service 107)
+├── tests/                       # root suite: 169 tests across 9 modules (CI adds corpus 109 + mcp-service 107)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 └── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
     ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
     ├── estate.sh                #   the thin front door: bringup | up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
-    ├── bringup.py               #   corpus -> running estate in one command (CP-59; outside the size law; force-included into the wheel as gsj_rollout.bringup since CP-60)
-    ├── runs/                    #   bringup.py per-run directories (.env, run.json, traces) — ignored
+    ├── estate.py                #   the estate's one tool: scaffold | validate | up | ingest | update | status | down (CP-59's bring-up, renamed CP-72, update CP-73; outside the size law; force-included into the wheel as gsj_rollout.estate from 0.1.6 — gsj_rollout.bringup on wheels 0.1.3–0.1.5)
+    ├── runs/                    #   estate.py per-run directories (.env, run.json, traces) — ignored
     ├── rollout.h200.yaml        #   the one YAML for the H200 estate
     ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
     ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
     ├── mcp-service/             #   the retrieval service — own suite (107), venv, Dockerfile, GHCR image
-    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel) + its suite (67) + staging/ (163 frozen fixture files)
+    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (109) + staging/ (163 frozen fixture files)
 ```
 
 `spike/` (the CP-06 evidence) is off the tree since CP-68 — frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) (commit `a769771`, tree `2082a24f`), ADR-0029; restore with `git checkout spike-cp06 -- spike`.

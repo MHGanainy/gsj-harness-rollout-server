@@ -169,7 +169,7 @@ Collect-N semantics (`submit --help` epilog, `config.COLLECT_SEMANTICS`):
 - A rejected trace is a consumed attempt, quarantined with its findings, never auto-retried.
 - Exit 1 says `collected < attempted`; the loop that wants more submits again.
 
-`--from-bank` reads all seven taskbank columns (refusing the file otherwise): the triple from `case_id`/`timestep`, instruction = `prompt_text` else `skill_card_text`, `prompt_source` and `split` into metadata (skill rows also get `skill_card_hash`), and `sandbox_image` **checked against `runtime.image`** — a mismatch is exit 2, never a run on the wrong image. Progress goes to stdout: `task <id>: k/N sessions terminal` (on change), `rejected <session_id>: [findings]`, `collected a/N episodes -> <out>`, and an unconditional `length-terminated: k/a accepted episodes ended finish_reason=length — …` (length-stops are accepted by design; training on them is the trainer's call). Errors go to stderr prefixed `gsj-rollout: `; under a pipe use `PYTHONUNBUFFERED=1`. From Python, `cli.main(argv)` returns the exit code — or skip the CLI for the pieces it wraps ([trainer-guide.md](trainer-guide.md)).
+`--from-bank` requires seven of the taskbank's eight columns (refusing the file otherwise; the eighth, `prompt_id`, rides along unread — `--row` selects the row): the triple from `case_id`/`timestep`, instruction = `prompt_text` else `skill_card_text`, `prompt_source` and `split` into metadata (skill rows also get `skill_card_hash`), and `sandbox_image` **checked against `runtime.image`** — a mismatch is exit 2, never a run on the wrong image. Progress goes to stdout: `task <id>: k/N sessions terminal` (on change), `rejected <session_id>: [findings]`, `collected a/N episodes -> <out>`, and an unconditional `length-terminated: k/a accepted episodes ended finish_reason=length — …` (length-stops are accepted by design; training on them is the trainer's call). Errors go to stderr prefixed `gsj-rollout: `; under a pipe use `PYTHONUNBUFFERED=1`. From Python, `cli.main(argv)` returns the exit code — or skip the CLI for the pieces it wraps ([trainer-guide.md](trainer-guide.md)).
 
 ## The receiver
 
@@ -273,10 +273,10 @@ Five hard invariants the validator enforces: (1) `timestep-T/pages/` physically 
 
 ```bash
 pip install gsj-harness-rollout-server
-python -m gsj_rollout.ingest_corpus validate --corpus /path/to/corpus
+python -m gsj_rollout.estate validate --corpus /path/to/corpus
 ```
 
-(That form works on every published wheel; from 0.1.6 — CP-72 — the command is `python -m gsj_rollout.estate validate`, and the form above keeps working with a deprecation notice, removed no earlier than 0.1.7. An editable install has no module copy — use `estate/estate.py validate`.) Taskbank columns, fixed schema, full type equality: `case_id` (string), `timestep` (int64), `prompt_id`, `split` (`train`/`eval`, case-level, a label not a wall — filter trainer-side), `prompt_source` (`free` or `skill:<name>`), `prompt_text` (null on skill rows), `skill_card_text` (the card's bytes; null on free rows), `sandbox_image`. Editing a skill card changes `skill_card_hash` — on a standing estate `estate.py update` is the one command for that (it pushes the changed repos, rebuilds the bank, reindexes and verifies, and says the pins consequence out loud); re-pin the approved set or gate G1 rejects every new episode.
+(Since 0.1.6 — CP-72's fold. Wheels 0.1.2–0.1.5 carry only the pipeline's own entry, `python -m gsj_rollout.ingest_corpus validate --corpus <root>`, which keeps working on 0.1.6 with a deprecation notice on stderr and is removed no earlier than 0.1.7. An editable install has no module copy — use `estate/estate.py validate`.) Taskbank columns, fixed schema, full type equality: `case_id` (string), `timestep` (int64), `prompt_id`, `split` (`train`/`eval`, case-level, a label not a wall — filter trainer-side), `prompt_source` (`free` or `skill:<name>`), `prompt_text` (null on skill rows), `skill_card_text` (the card's bytes; null on free rows), `sandbox_image`. Editing a skill card changes `skill_card_hash` — on a standing estate `estate.py update` is the one command for that (it pushes the changed repos, rebuilds the bank, reindexes and verifies, and says the pins consequence out loud); re-pin the approved set or gate G1 rejects every new episode.
 
 ## The retrieval service
 
