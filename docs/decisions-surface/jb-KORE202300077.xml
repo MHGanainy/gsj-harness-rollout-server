@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dokument
+  SYSTEM "https://www.rechtsprechung-im-internet.de/dtd/v1/rii-dok.dtd">
+<dokument>
+   <doknr>KORE202300077</doknr>
+   <ecli>ECLI:DE:BGH:2023:091123BIZB62.23.0</ecli>
+   <gertyp>BGH</gertyp>
+   <gerort/>
+   <spruchkoerper>1. Zivilsenat</spruchkoerper>
+   <entsch-datum>20231109</entsch-datum>
+   <aktenzeichen>I ZB 62/23</aktenzeichen>
+   <doktyp>Beschluss</doktyp>
+   <norm/>
+   <vorinstanz>vorgehend LG Görlitz, 14. August 2023, Az: 2a T 74/23<br/>vorgehend AG Görlitz, 14. Juni 2023, Az: 4 M 170/23<br/>
+   </vorinstanz>
+   <region>
+      <abk>DEU</abk>
+      <long>Bundesrepublik Deutschland</long>
+   </region>
+   <mitwirkung/>
+   <titelzeile/>
+   <leitsatz/>
+   <sonstosatz/>
+   <tenor>
+      <div>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p style="text-align: justify">
+                        <span style="color: rgb(0, 0, 0)">Die Beschwerde gegen die Nichtzulassung der Rechtsbeschwerde in dem Beschluss der 2. Zivilkammer des Landgerichts Görlitz vom 14. August 2023 und die dagegen gerichtete Gegenvorstellung werden auf Kosten der Schuldnerin als unzulässig verworfen.</span>
+                    </p>
+            </dd>
+         </dl>
+      </div>
+   </tenor>
+   <tatbestand/>
+   <entscheidungsgruende/>
+   <gruende>
+      <div>
+         <dl class="RspDL">
+            <dt>
+               <a name="rd_1">1</a>
+            </dt>
+            <dd>
+               <p>
+                  <span style="color: rgb(0, 0, 0)">Die von der Schuldnerin eingelegte Nichtzulassungsbeschwerde ist unzulässig. Das Beschwerdegericht hat die Rechtsbeschwerde in dem Beschluss vom 14. August 2023 nicht gemäß § 574 Abs. 1 Satz 1 Nr. 2 ZPO zugelassen. Diese Entscheidung ist nicht anfechtbar. Der Gesetzgeber hat bewusst von der Möglichkeit einer Beschwerde gegen die Nichtzulassung der Rechtsbeschwerde abgesehen. Ein Rechtsmittel gegen die Nichtzulassung der Rechtsbeschwerde ist auch nicht von Verfassungs wegen geboten (vgl. BGH, Beschluss vom 3. November 2016 - I ZB 86/16, juris Rn. 1 mwN).</span>
+               </p>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p/>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt>
+               <a name="rd_2">2</a>
+            </dt>
+            <dd>
+               <p>
+                  <span style="color: rgb(0, 0, 0)">Die Gegenvorstellung der Schuldnerin ist ebenfalls unzulässig. Die Gegenvorstellung kann nicht an das nächsthöhere Gericht adressiert werden. Die Gegenvorstellung dient allein der Überprüfung ergangener Entscheidungen durch dieselbe Instanz und denselben Spruchkörper (BGH, Beschluss vom 25. Januar 2023 - I ZB 119/22, juris Rn. 4 mwN).</span>
+               </p>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p/>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt>
+               <a name="rd_3">3</a>
+            </dt>
+            <dd>
+               <p>
+                  <span style="color: rgb(0, 0, 0)">Die Kostenentscheidung beruht auf § 97 Abs. 1 ZPO.</span>
+               </p>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p/>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p>
+                  <span style="color: rgb(0, 0, 0)">Koch                    Löffler                    Schwonke</span>
+               </p>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p>           <span style="color: rgb(0, 0, 0)">Odörfer                    Wille</span>
+               </p>
+            </dd>
+         </dl>
+      </div>
+   </gruende>
+   <abwmeinung/>
+   <sonstlt/>
+   <identifier>http://www.rechtsprechung-im-internet.de/jportal/?quelle=jlink&amp;docid=jb-KORE202300077&amp;psml=bsjrsprod.psml&amp;max=true</identifier>
+   <coverage>Deutschland</coverage>
+   <language>deutsch</language>
+   <publisher>BMJV</publisher>
+   <accessRights>public</accessRights>
+</dokument>

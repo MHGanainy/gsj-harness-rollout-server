@@ -15,7 +15,8 @@
 2. [`CHARTER.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) — normative: scope laws, the assumption register (§4), the gap register (§7), the standing rules (§8).
 3. [`checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md) — why each validator rule exists: the gates, admission, the logprob discipline.
 4. [`corpus-contract.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md) — the corpus tree contract behind the estate tool's `validate` verb (`estate.py validate`; formerly `ingest_corpus.py validate`).
-5. `AUDIT-2026-08-24.md` — *private, operator's copy only*: the 24-agent adversarial audit of the whole record; zero of 91 findings refuted.
+5. [`decisions-surface.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/decisions-surface.md) — the decisions tool's surface, specified (v1, CP-78): source format, the Randnummer unit, the wire shape adopted from `gsj-next`, the `dec:` citation grammar and its degradation rule; its conformance fixture (three published BGH decisions + expected output) is [`decisions-surface/`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/main/docs/decisions-surface) — not to be confused with `decisions/`, the private ADR shelf.
+6. `AUDIT-2026-08-24.md` — *private, operator's copy only*: the 24-agent adversarial audit of the whole record; zero of 91 findings refuted.
 
 ![The reading order as three numbered shelves: run it (the guide, the README, the two consumer repositories), trust it (the verdict, standalone), change it (the charter, the checks specification, the corpus contract)](guide/img/document-map.png)
 
@@ -27,6 +28,7 @@
 | --- | --- | --- | --- |
 | [`guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md) | **The user documentation** — six pages, `guide/README.md` the index, diagrams as PNGs under `guide/img/` (sources: PowerPoint decks outside the repo); not part of the record | anyone adopting the library | tracked |
 | `VERDICT.md`, `CHARTER.md`, `checks-spec.md`, `corpus-contract.md` | The four normative documents, described above | see above | tracked |
+| `decisions-surface.md`, `decisions-surface/` | The decisions surface specification (v1, CP-78) and its conformance fixture — the one document written for a reader outside this repository (`gsj-next`, by permalink) | both implementers of `search_decisions`, and whoever grades a `dec:` citation | tracked |
 | `polar/` | Real Polar run artifacts — fidelity, the training loops, thinking, the adversarial probe | anyone re-verifying an episode claim | seven bodies tracked, rest private |
 | CP-06 spike (off the tree) | The feasibility spike — stub backend, spike harness, the only observation of pi 0.83.0's true request body, the P1/G3 proofs | anyone re-verifying a wire-dialect fact in `checks-spec.md` or charter A-2/A-12/A-15, rows 11/31 | frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) since CP-68 (commit `a769771`, tree `2082a24f`); `git checkout spike-cp06 -- spike` |
 | `golden/` | The golden-pair evidence (`mac/`, `h200/`, `COMPARISON.md`) — the A-1 fidelity proof against the archived predecessor | anyone re-verifying the `loss_mask`/`prompt_ids` claims | private; Mac fixtures tracked at `../tests/fixtures/golden-mac/` |

@@ -1,0 +1,391 @@
+{
+ "surface_version": 1,
+ "generated_by": "reference_extractor.py (CP-78)",
+ "documents": [
+  {
+   "file": "jb-KORE303672022.xml",
+   "metadata": {
+    "decision_id": "KORE303672022",
+    "aktenzeichen": "VI ZR 543/20",
+    "court": "BGH",
+    "date": "2022-02-08",
+    "doktyp": "Urteil",
+    "ecli": "ECLI:DE:BGH:2022:080222UVIZR543.20.0"
+   },
+   "units": [
+    {
+     "section": "titelzeile",
+     "rn": null,
+     "text": "Haftung des Automobilherstellers in einem sog. Dieselfall: Bewertung eines schädigenden Verhaltens als sittenwidrig"
+    },
+    {
+     "section": "leitsatz",
+     "rn": null,
+     "text": "Für die Bewertung eines schädigenden Verhaltens als sittenwidrig im Sinne von § 826 BGB ist in einer Gesamtschau dessen Gesamtcharakter zu ermitteln und das gesamte Verhalten des Schädigers bis zum Eintritt des Schadens beim konkreten Geschädigten zugrunde zu legen."
+    },
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Auf die Revision der Beklagten wird das Urteil des 9. Zivilsenats des Oberlandesgerichts Köln vom 17. März 2020 im Kostenpunkt und insoweit aufgehoben, als zum Nachteil der Beklagten entschieden worden ist. Auf die Berufung der Beklagten wird das Urteil der 12. Zivilkammer des Landgerichts Aachen vom 11. Juni 2019 dahingehend abgeändert, dass die Klage insgesamt abgewiesen wird. Der Kläger trägt die Kosten des Rechtsstreits.\nVon Rechts wegen"
+    },
+    {
+     "section": "tatbestand",
+     "rn": 1,
+     "text": "Der Kläger nimmt die Beklagte wegen Verwendung einer unzulässigen Abschalteinrichtung für die Abgasreinigung eines Kraftfahrzeugs auf Schadensersatz in Anspruch."
+    },
+    {
+     "section": "tatbestand",
+     "rn": 2,
+     "text": "Der Kläger erwarb am 26. August 2016 von privat einen gebrauchten VW EOS mit einem Dieselmotor der Baureihe EA189. Dieser Motor war mit einer Motorsteuerungssoftware ausgestattet, die zwei Betriebsmodi hatte. Der NOx-optimierte Modus 1 war ausschließlich auf dem Prüfstand aktiv und es kam zu einer höheren Abgasrückführungsrate. Im normalen Fahrbetrieb war der Modus 0 aktiv. Im Herbst 2015 beanstandete das Kraftfahrtbundesamt diese Motorsteuerungssoftware als unzulässige Abschalteinrichtung und forderte die Beklagte zu deren Entfernung auf."
+    },
+    {
+     "section": "tatbestand",
+     "rn": 3,
+     "text": "Das Landgericht hat die Beklagte teilweise verurteilt und die Klage im Übrigen abgewiesen. Das Oberlandesgericht hat die Berufung des Klägers zurückgewiesen, auf die Berufung der Beklagten das Urteil des Landgerichts teilweise abgeändert und deren weitergehende Berufung zurückgewiesen. Mit der vom Berufungsgericht zugelassenen Revision verfolgt die Beklagte ihren Antrag auf Abweisung der Klage weiter. Der Kläger hat seine Revision zurückgenommen."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 4,
+     "text": "Die zulässige Revision der Beklagten ist begründet und führt zur Abweisung der Klage.\nI."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 5,
+     "text": "Das Berufungsgericht (OLG Köln, Urteil vom 17. März 2020 - I-9 U 95/19, juris) hat - soweit im vorliegenden Zusammenhang relevant - ausgeführt, dass der Kläger von der Beklagten Schadensersatz gemäß §§ 826, 31 BGB verlangen könne. Die Beklagte habe den Kläger durch das Inverkehrbringen des erworbenen Fahrzeugs mit der manipulierten Motorsteuerungssoftware konkludent getäuscht. Der Schaden des Klägers entfalle nicht dadurch, dass er bei seinem Fahrzeug das von der Beklagten entwickelte Software-Update nach Abschluss des Kaufvertrags habe aufspielen lassen. Ein Schadensersatzanspruch des Klägers entfalle auch nicht deshalb, weil er nach dem Vortrag der Beklagten aufgrund der im September 2015 veröffentlichten Ad-hoc-Mitteilung der Beklagten sowie der anschließenden öffentlichen Berichterstattung im Zeitpunkt des Kaufvertragsabschlusses davon Kenntnis gehabt haben solle, dass das Fahrzeug über eine unzulässige Abschalteinrichtung verfügt habe. Die darlegungsbelastete Beklagte habe nicht hinreichend dargetan, dass sie alles Erforderliche zur Information der Käufer getan habe. Dies ergebe sich weder aufgrund der Mitteilung des Vorstandsvorsitzenden der Beklagten auf einer Pressekonferenz am 22. September 2015, dass es bei den in ihren Fahrzeugen verbauten Dieselmotoren des Typs EA189 zu Unregelmäßigkeiten gekommen sei, noch aufgrund der von der Beklagten ebenfalls am 22. September 2015 herausgegebenen Ad-hoc-Mitteilung, mit der sie die Öffentlichkeit darüber informiert habe, dass sie die \"Aufklärung von Unregelmäßigkeiten einer verwendeten Software bei Diesel-Motoren mit Hochdruck\" vorantreibe. Die Ad-hoc-Mitteilung enthalte lediglich die Information, dass Fahrzeuge mit Motor vom Typ EA189 mit einem Gesamtvolumen von weltweit 11 Millionen Fahrzeugen \"auffällig\" seien. Die Beklagte habe sich pauschal darauf beschränkt, unter Bezugnahme auf eine interne, innerhalb ihres Konzerns verwendete Motorenbezeichnung zu offenbaren, dass bei diesem Motortyp eine \"auffällige Abweichung zwischen Prüfstandswerten und realem Fahrbetrieb\" festgestellt worden sei. Dass die Beklagte - nach ihrem insoweit bestrittenen Vortrag - im Zusammenhang mit der Veröffentlichung ihrer Ad-hoc-Mitteilung vom 22. September 2015 ihre Vertragshändler und Servicepartner sowie die anderen Konzernhersteller über das Vorhandensein der Umschaltlogik in den Fahrzeugen mit dem Motortyp EA189 informiert haben wolle, lasse weder eine vorsätzliche, sittenwidrige Schädigung des Klägers entfallen, noch lasse sie den Rückschluss auf eine Kenntnis des Klägers vom Einbau der Software bei Abschluss des Kaufvertrags im August 2016 zu. Entsprechendes gelte für die - unstreitige - Freischaltung einer Website durch die Beklagte auf ihrer Internetpräsenz Anfang Oktober 2015, auf der jedermann durch Eingabe einer Fahrzeugidentifikationsnummer (FIN) habe überprüfen können, ob ein konkretes Fahrzeug mit der Umschaltlogik ausgestattet sei, worüber sie am 2. Oktober 2015 mit einer Pressemitteilung informiert habe und auch öffentlich in zahlreichen Medien berichtet worden sei. Auch durch diese Maßnahme in Verbindung mit der inhaltlich unzureichenden Ad-hoc-Mitteilung der Beklagten vom 22. September 2015 seien potentielle Kunden von betroffenen Dieselfahrzeugen nicht vollumfänglich über die aus dem Einbau der Software resultierenden Folgen für diese Fahrzeuge informiert gewesen.\nII."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 6,
+     "text": "Diese Beurteilung hält revisionsrechtlicher Prüfung nicht stand. Die Revision wendet sich mit Erfolg gegen die Beurteilung des Berufungsgerichts, die Beklagte habe dem Kläger durch das Inverkehrbringen des mit der unzulässigen Prüfstandserkennungssoftware ausgestatteten Motors in einer gegen die guten Sitten verstoßenden Weise Schaden zugefügt. Auf Grundlage der getroffenen Feststellungen besteht kein Schadensersatzanspruch des Klägers aus §§ 826, 31 BGB."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 7,
+     "text": "1. Die Beklagte hat die Verwendung der unzulässigen Software bereits vor Abschluss des Kaufvertrages öffentlich gemacht, insbesondere eine Pressemitteilung vom 2. Oktober 2015 herausgegeben, in der sie auf \"Unregelmäßigkeiten der verwendeten Software\" sowie auf die Möglichkeit, sich über die Betroffenheit eines Fahrzeugs auf einer Webseite zu informieren, hingewiesen hatte. Danach scheitert ein Anspruch des Klägers aus § 826 BGB daran, dass nach diesen Informationsmaßnahmen der Beklagten ab Oktober 2015 das Verhalten der Beklagten dem Kläger gegenüber nicht als objektiv sittenwidrig im Sinne des § 826 BGB anzusehen ist (vgl. zuletzt BGH, Urteil vom 23. November 2021 - VI ZR 818/20, juris Rn. 7 f. mwN)."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 8,
+     "text": "2. Der Vortrag der Revisionserwiderung:\n\"Denn unstreitig wurde das streitgegenständliche Fahrzeugmodell im September 2016 erneut zurückgerufen, weil das Software-Update wiederum mit einer unzulässigen, nicht mit dem KBA abgestimmten Abschalteinrichtung behaftet war (SS des Klägers vom 26.02.2020, S. 5 f. mit Anlagen BE 2, BE 3).\"\nlässt sich weder anhand des Akteninhalts noch anhand des Berufungsurteils nachvollziehen.\nIII."
+    },
+    {
+     "section": "entscheidungsgruende",
+     "rn": 9,
+     "text": "Die angegriffene Entscheidung ist aufzuheben, soweit das Berufungsgericht zum Nachteil der Beklagten entschieden hat (§ 562 Abs. 1 ZPO). Der Senat entscheidet in der Sache selbst, da sie zur Endentscheidung reif ist (§ 563 Abs. 3 ZPO)."
+    }
+   ]
+  },
+  {
+   "file": "jb-KORE613012010.xml",
+   "metadata": {
+    "decision_id": "KORE613012010",
+    "aktenzeichen": "XI ZR 63/10",
+    "court": "BGH",
+    "date": "2010-06-01",
+    "doktyp": "Beschluss"
+   },
+   "units": [
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Die Urteile der Zivilkammer 3 des Landgerichts Stendal vom 8. September 2009 und des 6. Zivilsenats des Oberlandesgerichts Naumburg vom 9. Februar 2010 sind wirkungslos, nachdem der Kläger seine Klage mit Zustimmung der Beklagten zurückgenommen hat (§ 269 Abs. 3 Satz 1, Abs. 4 ZPO).\nDer Streitwert für das Verfahren der Nichtzulassungsbeschwerde wird auf bis zu 65.000 € festgesetzt."
+    }
+   ]
+  },
+  {
+   "file": "jb-KORE202300077.xml",
+   "metadata": {
+    "decision_id": "KORE202300077",
+    "aktenzeichen": "I ZB 62/23",
+    "court": "BGH",
+    "date": "2023-11-09",
+    "doktyp": "Beschluss",
+    "ecli": "ECLI:DE:BGH:2023:091123BIZB62.23.0"
+   },
+   "units": [
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Die Beschwerde gegen die Nichtzulassung der Rechtsbeschwerde in dem Beschluss der 2. Zivilkammer des Landgerichts Görlitz vom 14. August 2023 und die dagegen gerichtete Gegenvorstellung werden auf Kosten der Schuldnerin als unzulässig verworfen."
+    },
+    {
+     "section": "gruende",
+     "rn": 1,
+     "text": "Die von der Schuldnerin eingelegte Nichtzulassungsbeschwerde ist unzulässig. Das Beschwerdegericht hat die Rechtsbeschwerde in dem Beschluss vom 14. August 2023 nicht gemäß § 574 Abs. 1 Satz 1 Nr. 2 ZPO zugelassen. Diese Entscheidung ist nicht anfechtbar. Der Gesetzgeber hat bewusst von der Möglichkeit einer Beschwerde gegen die Nichtzulassung der Rechtsbeschwerde abgesehen. Ein Rechtsmittel gegen die Nichtzulassung der Rechtsbeschwerde ist auch nicht von Verfassungs wegen geboten (vgl. BGH, Beschluss vom 3. November 2016 - I ZB 86/16, juris Rn. 1 mwN)."
+    },
+    {
+     "section": "gruende",
+     "rn": 2,
+     "text": "Die Gegenvorstellung der Schuldnerin ist ebenfalls unzulässig. Die Gegenvorstellung kann nicht an das nächsthöhere Gericht adressiert werden. Die Gegenvorstellung dient allein der Überprüfung ergangener Entscheidungen durch dieselbe Instanz und denselben Spruchkörper (BGH, Beschluss vom 25. Januar 2023 - I ZB 119/22, juris Rn. 4 mwN)."
+    },
+    {
+     "section": "gruende",
+     "rn": 3,
+     "text": "Die Kostenentscheidung beruht auf § 97 Abs. 1 ZPO."
+    }
+   ]
+  },
+  {
+   "file": "jb-KORE308052015.xml",
+   "metadata": {
+    "decision_id": "KORE308052015",
+    "aktenzeichen": "XII ZB 608/13",
+    "court": "BGH",
+    "date": "2015-02-25",
+    "doktyp": "Beschluss"
+   },
+   "units": [
+    {
+     "section": "titelzeile",
+     "rn": null,
+     "text": "Vergütung des anwaltlichen Verfahrenspflegers in Betreuungssachen: Abrechnung anwaltsspezifischer Tätigkeiten nach anwaltlichem Gebührenrecht; Geschäftswert für die Gebührenberechnung bei Prüfung eines zur betreuungsgerichtlichen Genehmigung vorgelegten Mietvertrages"
+    },
+    {
+     "section": "leitsatz",
+     "rn": null,
+     "text": "1. Kann in einer Betreuungssache ein Rechtsanwalt, der zum Verfahrenspfleger bestellt worden ist, nach anwaltlichem Gebührenrecht abrechnen, weil die Erforderlichkeit anwaltsspezifischer Tätigkeiten im Bestellungsbeschluss festgestellt wurde oder in dem konkreten Einzelfall die Wahrnehmung anwaltstypischer Aufgaben erforderlich war, bestimmt sich die Höhe seiner Vergütung nach den Vorschriften des Rechtsanwaltsvergütungsgesetzes.\n2. Ist in diesem Fall der Verfahrenspfleger damit beauftragt, einen vom Betreuer zur betreuungsgerichtlichen Genehmigung vorgelegten Mietvertrag zu überprüfen, bestimmt sich der Geschäftswert für die Berechnung der anwaltlichen Gebühren nach § 23 Abs. 3 Satz 1 RVG i.V.m. § 25 Abs. 1 KostO (nunmehr § 99 GNotKG)."
+    },
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Die Rechtsbeschwerde des weiteren Beteiligten zu 5 gegen den Beschluss der 1. Zivilkammer des Landgerichts Frankenthal (Pfalz) vom 21. Oktober 2013 wird auf dessen Kosten zurückgewiesen.\nDas Rechtsbeschwerdeverfahren ist gerichtsgebührenfrei. Ihre außergerichtlichen Kosten tragen die weiteren Beteiligten selbst.\nBeschwerdewert: 28.724 €"
+    },
+    {
+     "section": "gruende",
+     "rn": 1,
+     "text": "I.\nDer Beteiligte zu 1 begehrt als anwaltlicher Verfahrenspfleger der Betroffenen die Festsetzung einer Vergütung nach dem Rechtsanwaltsvergütungsgesetz."
+    },
+    {
+     "section": "gruende",
+     "rn": 2,
+     "text": "Die Betroffene steht seit 2001 unter umfassender Betreuung."
+    },
+    {
+     "section": "gruende",
+     "rn": 3,
+     "text": "Im März 2011 hat der Beteiligte zu 3 als Betreuer der Betroffenen für Vermögensangelegenheiten einen Antrag auf Genehmigung von drei Mietverträgen gestellt, mit denen Grundstücke, die im Miteigentum der Betroffenen und ihres Ehemannes stehen, an die H. GmbH & Co. KG, an der die Betroffene als Kommanditistin und als Gesellschafterin der Komplementär-GmbH beteiligt ist, vermietet werden sollten. Im Oktober 2011 wurde der Beteiligte zu 1 zum Verfahrenspfleger der Betroffenen mit dem Aufgabenkreis \"Vertretung im Betreuungsverfahren\" bestellt. Die Berufsmäßigkeit der Führung der Verfahrenspflegschaft wurde festgestellt. Die eingereichten Mietverträge wurden ihm zur Prüfung übersandt. In einer ersten Stellungnahme wies der Beteiligte zu 1 auf die Notwendigkeit der Überprüfung von weiteren Untermietverträgen hin, die von der H. GmbH & Co. KG abgeschlossen werden sollten. Nach weiterem Schriftwechsel mit dem Vermögensbetreuer nahm der Beteiligte zu 1 auch zu den Untermietverträgen Stellung."
+    },
+    {
+     "section": "gruende",
+     "rn": 4,
+     "text": "Am 30. April 2012 hat der Beteiligte zu 1 die Festsetzung einer Vergütung in Höhe von insgesamt 96.634,90 € geltend gemacht. Dabei hat er für die Prüfung der Mietverträge eine 1,8-fache Geschäftsgebühr angesetzt und den Geschäftswert aus den zusammengerechneten Werten der gesamten Mieteinnahmen aller Mietverträge während deren Laufzeiten bestimmt. Nach erfolgter Prüfung der Untermietverträge hat der Beteiligte zu 1 seinen Vergütungsantrag berichtigt und die Festsetzung einer Vergütung in Höhe von 196.008,23 € beantragt, wobei er eine 1,8-fache Geschäftsgebühr aus dem Höchstwert von 30.000.000 € berechnet hat."
+    },
+    {
+     "section": "gruende",
+     "rn": 5,
+     "text": "Das Amtsgericht hat nach Einholung eines Gutachtens der Rechtsanwaltskammer den Geschäftswert auf der Grundlage der zu erwartenden Steuerersparnis der Betroffenen auf 2.800.000 € bemessen und unter Zurückweisung des weitergehenden Antrags die Vergütung des Beteiligten zu 1 auf 18.865,78 € festgesetzt. Auf dessen Beschwerde hat das Landgericht die amtsgerichtliche Entscheidung abgeändert und auf der Grundlage eines Geschäftswerts von 6.783.000 € die Vergütung des Beteiligten zu 1 auf 46.925,03 € festgesetzt. Hiergegen richtet sich die zugelassene Rechtsbeschwerde des Beteiligten zu 5 (Justizfiskus), mit der er sich nur noch gegen Höhe des festgesetzten Geschäftswerts wendet.\nII."
+    },
+    {
+     "section": "gruende",
+     "rn": 6,
+     "text": "Die Rechtsbeschwerde ist aufgrund der Zulassung nach § 70 Abs. 1 FamFG statthaft und konnte von dem Beteiligten zu 5 nach § 10 Abs. 4 Satz 2 FamFG ohne Vertretung durch einen beim Bundesgerichtshof zugelassenen Rechtsanwalt eingelegt werden. Sie hat in der Sache keinen Erfolg."
+    },
+    {
+     "section": "gruende",
+     "rn": 7,
+     "text": "1. Das Landgericht hat zur Begründung seiner Entscheidung ausgeführt, grundsätzlich erhalte ein Verfahrenspfleger, der - wie hier - die Verfahrenspflegschaft berufsmäßig geführt habe gemäß § 277 Abs. 2 FamFG neben dem Ersatz seiner Aufwendungen (vgl. § 277 Abs. 1 FamFG) eine Vergütung in entsprechender Anwendung der §§ 1, 2 und 3 Abs. 1 und 2 VBVG. Allerdings sei in der obergerichtlichen Rechtsprechung anerkannt, dass ein zum Verfahrenspfleger bestellter Rechtsanwalt seine Tätigkeit als berufsspezifische Dienstleistung - in entsprechender Anwendung des § 1835 Abs. 3 BGB - dann nach dem Gesetz über die Vergütung der Rechtsanwältinnen und Rechtsanwälte abrechnen könne, wenn die zu erbringenden Dienste derart schwierig und bedeutend seien, dass ein Verfahrenspfleger ohne volljuristische Ausbildung vernünftigerweise einen Rechtsanwalt hinzugezogen hätte."
+    },
+    {
+     "section": "gruende",
+     "rn": 8,
+     "text": "Bei der Prüfung der zum Zwecke der betreuungsgerichtlichen Genehmigung eingereichten (Haupt-)Mietverträge handele es sich um eine rechtsanwaltsspezifische Tätigkeit. Der Verfahrenspfleger habe die Rechtsfolgen und wirtschaftlichen Auswirkungen der in den Verträgen getroffenen Vereinbarungen zwischen der Bruchteilsgemeinschaft der Betroffenen und ihrem Ehemann und der H. GmbH & Co. KG überprüfen und in Relation zu den Interessen der Betroffenen setzen müssen; hierfür seien umfassende Rechtskenntnisse zwingend erforderlich gewesen."
+    },
+    {
+     "section": "gruende",
+     "rn": 9,
+     "text": "Der Beteiligte zu 1 könne daher für die Überprüfung der Mietverträge eine Geschäftsgebühr nach Nr. 2300 VV RVG verlangen. Diese sehe einen Gebührenrahmen von 0,5 bis 2,5 vor, wobei bestimmt sei, dass eine Gebühr von mehr als 1,3 nur gefordert werden könne, wenn die Tätigkeit umfangreich oder schwierig gewesen sei. In Anlehnung an die Ausführungen im Gutachten der Rechtsanwaltskammer sei es angemessen, im vorliegenden Fall eine Gebühr von 1,8 anzusetzen."
+    },
+    {
+     "section": "gruende",
+     "rn": 10,
+     "text": "Der Geschäftswert sei nicht an der erwarteten Steuerersparnis der Betroffenen auszurichten. Auftrag des Beteiligten zu 1 sei die Wahrnehmung der Interessen der Betroffenen im Verfahren über die Genehmigung der (Haupt)-Mietverträge gewesen. Er sei als Rechtsanwalt bestellt worden, um die Vor- und Nachteile dieser Verträge, gemessen am Wohl und den rechtlichen und wirtschaftlichen Interessen der Betroffenen zu prüfen."
+    },
+    {
+     "section": "gruende",
+     "rn": 11,
+     "text": "Der Geschäftswert für die anwaltliche Tätigkeit bestimme sich vorliegend nach § 23 Abs. 3 RVG. Da für die Prüfung von Mietverträgen zur Vorbereitung einer betreuungsgerichtlichen Genehmigung bzw. für die beantragte Genehmigung des Betreuungsgerichts keine gesonderten wertabhängigen Gerichtsgebühren entstünden, könne § 23 Abs. 1 RVG, der eine entsprechende Anwendung der Wertvorschriften für Gerichtsgebühren vorsehe, nicht zur Anwendung gelangen. Vielmehr sei der Verweisung des § 23 Abs. 3 Satz 1 RVG zu folgen und (der zum Zeitpunkt der Beschwerdeentscheidung noch gültige) § 25 Abs. 1 KostO (jetzt § 99 Abs. 1 GNotKG) zur Bestimmung des Geschäftswertes heranzuziehen. § 23 Abs. 3 Satz 2 RVG, der eine Bestimmung des Geschäftswertes nach billigem Ermessen vorsehe, sei hier nicht anwendbar, da gerade nicht der Fall vorliege, dass \"sich der Geschäftswert aus diesen Vorschriften nicht ergibt und auch sonst nicht feststeht...\". Im Übrigen sei Gegenstand der beauftragten Prüfungen des Verfahrenspflegers ersichtlich nicht (nur) die steuerrechtliche Vorteilhaftigkeit der Mietverträge gewesen, sondern er habe eine umfassende, an den wohlverstandenen Interessen der Betroffenen ausgerichtete Prüfung aller Risiken und Rechtsfolgen der Verwertung der im Miteigentum der Betroffenen stehenden Grundstücke durch langfristige Vermietung vorzunehmen gehabt."
+    },
+    {
+     "section": "gruende",
+     "rn": 12,
+     "text": "Nach § 25 Abs. 1 KostO bemesse sich der Wert eines Mietrechts nach der Höhe der während der Vertragslaufzeit zu erbringenden Leistungen des Mieters. Als Geschäftswert für die Prüfung der drei Hauptmietverträge sei daher die Höhe der vereinbarten Miete während der gesamten Vertragsdauer zugrunde zu legen. Allerdings sei lediglich die Hälfte der nach den Hauptmietverträgen geschuldeten Miete anzusetzen, da die Betroffene, auf deren berechtigte Interessen es bei der Geschäftswertbestimmung letztendlich allein ankomme, als hälftige Miteigentümerin nur die Hälfte der Mieteinnahmen ihrem Einkommen bzw. Vermögen zurechnen könne."
+    },
+    {
+     "section": "gruende",
+     "rn": 13,
+     "text": "Zudem seien nur die (hälftigen) Einnahmen aus den drei Hauptmietverträgen anzusetzen. Denn nur diese Mietverträge seien genehmigungspflichtig i.S.d. § 1907 Abs. 3 BGB. Demgegenüber bestünde keine Genehmigungspflicht hinsichtlich der zur Untervermietung derselben Grundstücke abgeschlossenen Verträge. Denn die Untermietverträge seien von der H. GmbH & Co. KG, nicht aber von der Betroffenen persönlich bzw. vertreten durch ihren Betreuer abgeschlossen worden. Ihre mittelbare Beteiligung an dem Rechtsgeschäft durch ihre Stellung als Kommanditistin der KG bewirke nicht, dass der Abschluss dieser Untermietverträge ebenfalls genehmigungspflichtig werde."
+    },
+    {
+     "section": "gruende",
+     "rn": 14,
+     "text": "Schließlich sei auch davon auszugehen, dass die Prüfung der drei Hauptmietverträge eine einheitliche Angelegenheit i.S.v. § 15 Abs. 1 und 2 RVG darstelle. Der Geschäftswert betrage daher 6.783.000 €. Daraus ergebe sich bei einer hier anzusetzenden 1,8-fachen Gebühr ein Betrag von 39.412,80 €. Zuzüglich der Auslagenpauschale gemäß Nr. 7002 VV RVG in Höhe von 20 € und Umsatzsteuer von 19 % (Nr. 7006 VV RVG) errechne sich eine an den Beteiligten zu 1 gemäß § 277 Abs. 5 FamFG aus der Staatskasse zu zahlende Vergütung in Höhe von 46.925,03 €."
+    },
+    {
+     "section": "gruende",
+     "rn": 15,
+     "text": "Eine Kürzung dieses Vergütungsanspruchs aus Gründen der Verhältnismäßigkeit sei nicht veranlasst. Denn eine derartige Beschränkung ergebe sich aus dem Gesetz nicht. Die in § 22 Abs. 1 RVG und § 25 Abs. 1 Satz 3 KostO enthaltenen Begrenzungen werden nach vorstehender Berechnung nicht erreicht. In diesen Normen komme eine gesetzgeberische Wertung zum Ausdruck. Danach sei es bis zum Erreichen der gesetzlich festgelegten Grenzen zu akzeptieren, dass bei hohem Geschäftswert eine entsprechend hohe Vergütung entstehen könne."
+    },
+    {
+     "section": "gruende",
+     "rn": 16,
+     "text": "Letztlich habe auch keine standesrechtliche Verpflichtung des Beteiligten zu 1 bestanden, vor der Übernahme des Amtes auf eine \"angemessene\" Honorarvereinbarung hinzuwirken."
+    },
+    {
+     "section": "gruende",
+     "rn": 17,
+     "text": "2. Diese Ausführungen halten einer rechtlichen Überprüfung stand."
+    },
+    {
+     "section": "gruende",
+     "rn": 18,
+     "text": "a) Nach § 277 Abs. 1 Satz 1 FamFG erhält der Verfahrenspfleger Ersatz seiner Aufwendungen nach § 1835 Abs. 1 bis 2 BGB. Gemäß § 277 Abs. 2 Satz 2 FamFG erhält er neben den Aufwendungen nach Absatz 1 eine Vergütung in entsprechender Anwendung der §§ 1, 2 und 3 Abs. 1 und 2 des Vormünder- und Betreuervergütungsgesetzes (VBVG), wenn die Verfahrenspflegschaft ausnahmsweise berufsmäßig geführt wird. Auf § 1835 Abs. 3 BGB, wonach als Aufwendungen auch solche Dienste des Vormunds oder des Gegenvormunds gelten, die zu seinem Gewerbe oder seinem Beruf gehören, verweist § 277 FamFG zwar nicht. Nach ständiger Rechtsprechung des Senats ist diese Vorschrift jedoch auf den anwaltlichen Verfahrenspfleger anzuwenden. Dieser kann daher eine Vergütung nach dem Rechtsanwaltsvergütungsgesetz beanspruchen, soweit er im Rahmen seiner Bestellung solche Tätigkeiten zu erbringen hat, für die ein juristischer Laie in gleicher Lage vernünftigerweise einen Rechtsanwalt zuziehen würde (Senatsbeschluss vom 24. September 2014 - XII ZB 444/13 - FamRZ 2015, 137 Rn. 8 mwN)."
+    },
+    {
+     "section": "gruende",
+     "rn": 19,
+     "text": "b) Die Frage, unter welchen Umständen ein Verfahrenspfleger im Einzelfall die Voraussetzungen erfüllt, unter denen ihm eine Vergütung nach dem Rechtsanwaltsvergütungsgesetz zu bewilligen ist, obliegt einer wertenden Betrachtung des Tatrichters, die im Rechtsbeschwerdeverfahren nur eingeschränkt überprüfbar ist (Senatsbeschluss vom 24. September 2014 - XII ZB 444/13 - FamRZ 2015, 137 Rn. 10 mwN). Soweit das Beschwerdegericht angenommen hat, dass im vorliegenden Fall ein Verfahrenspfleger ohne juristische Ausbildung die Dienste eines Rechtsanwalts in Anspruch genommen hätte, begegnet dies keinen rechtlichen Bedenken. Auch die Rechtsbeschwerde erhebt hiergegen keine Einwendungen."
+    },
+    {
+     "section": "gruende",
+     "rn": 20,
+     "text": "c) Hat das Amtsgericht bereits bei der Bestellung des Verfahrenspflegers die für das Vergütungsverfahren bindende Feststellung getroffen, dass der Verfahrenspfleger eine anwaltsspezifische Tätigkeit ausübt oder liegen die Voraussetzungen hierfür vor (vgl. hierzu Senatsbeschluss vom 24. September 2014 - XII ZB 444/13 - FamRZ 2015, 137 Rn. 9 mwN), bestimmt sich die Höhe seiner Vergütung nach den maßgeblichen Vorschriften des Rechtsanwaltsvergütungsgesetzes. Für die Überprüfung eines Vertrags durch einen Rechtsanwalt entsteht eine Geschäftsgebühr nach Nr. 2300 VV RVG, die einen Gebührenrahmen von 0,5 bis 2,5 vorsieht (vgl. dazu Mayer/Kroiß/Teubel RVG 6. Aufl. Vorbemerkung 2.3 zu Nr. 2300 VV RVG Rn. 6). Soweit das Beschwerdegericht unter Heranziehung des Gebührengutachtens der Rechtsanwaltskammer die vom Verfahrenspfleger geltend gemachte 1,8-fache Gebühr für angemessen hält, ist dies aus rechtsbeschwerderechtlichen Gründen nicht zu beanstanden. Auch hiergegen erinnert die Rechtsbeschwerde nichts."
+    },
+    {
+     "section": "gruende",
+     "rn": 21,
+     "text": "d) Dass das Beschwerdegericht den Geschäftswert im vorliegenden Fall nach § 23 Abs. 3 Satz 1 RVG i.V.m. § 25 Abs. 1 Satz 1 KostO (jeweils in der bis zum 31. Juli 2013 geltenden Fassung, vgl. § 136 Abs. 1 Nr. 1 GNotKG) bestimmt hat, ist ebenfalls frei von Rechtsfehlern."
+    },
+    {
+     "section": "gruende",
+     "rn": 22,
+     "text": "aa) Wird ein Rechtsanwalt in einem gerichtlichen Verfahren tätig, richtet sich der Gegenstandswert grundsätzlich nach den für die Gerichtsgebühren geltenden Vorschriften (§ 23 Abs. 1 RVG). Von dieser Regelung werden grundsätzlich auch die Verfahren der freiwilligen Gerichtsbarkeit erfasst (BeckOK RVG/Sommerfeldt/Sommerfeldt [Stand: 1. Dezember 2014] § 23 Rn. 2). Da für die Erteilung der Genehmigung der Mietverträge innerhalb eines anhängigen Betreuungsverfahrens jedoch keine eigene Gebühr anfällt, weil die für die Betreuung zu erhebende Jahresgebühr nach § 92 KostO (nunmehr Nr. 11101 ff. der Anlage 1 zu § 3 Abs. 2 GNotKG) die gesamte Tätigkeit des Betreuungsgerichts abdeckt, findet § 23 Abs. 1 Satz 1 RVG vorliegend keine Anwendung. Der Geschäftswert kann auch nicht nach § 23 Abs. 1 Satz 2 RVG bestimmt werden, der für die Tätigkeit außerhalb eines gerichtlichen Verfahrens gilt, wenn die Tätigkeit auch Gegenstand eines gerichtlichen Verfahrens sein könnte (vgl. Mayer/Kroiß/Mayer RVG 6. Aufl. § 23 Rn. 13). Denn die Tätigkeit des Beteiligten zu 1, die sich nur auf die Überprüfung der Mietverträge erstreckt hat, kann nicht Gegenstand eines gesonderten Gerichtsverfahrens sein. Zu Recht hat daher das Beschwerdegericht § 23 Abs. 3 Satz 1 RVG herangezogen, der für die Bestimmung des Geschäftswerts außerhalb eines gerichtlichen Verfahrens unter anderem auch auf § 25 KostO verwies. Nach § 25 Abs. 1 Satz 1 KostO bemisst sich der Wert eines Miet- oder Pachtrechts nach dem Wert aller Leistungen des Mieters oder Pächters während der ganzen Vertragszeit. Daher ist für den Geschäftswert einer außergerichtlichen Tätigkeit eines Rechtsanwalts im Zusammenhang mit der Erstellung oder Überprüfung eines Miet- oder Pachtvertrags die Höhe der vom Mieter während der gesamten Vertragslaufzeit zu erbringenden Mietzahlungen maßgeblich. Dies gilt auch, wenn ein Rechtsanwalt als Verfahrenspfleger mit der Überprüfung eines Mietvertrags beauftragt wurde und - wie im vorliegenden Fall - die Voraussetzungen für die Abrechnung nach den Bestimmungen des Rechtsanwaltsvergütungsgesetzes gegeben sind."
+    },
+    {
+     "section": "gruende",
+     "rn": 23,
+     "text": "bb) Soweit die Rechtsbeschwerde meint, § 25 KostO sei nicht anwendbar, weil der Beteiligte zu 1 nicht unmittelbar am Vertragsschluss mitgewirkt habe, folgt der Senat dem nicht. Soweit im Schrifttum die Auffassung vertreten wird, dass § 25 KostO nur für die inhaltliche Gestaltung eines Miet- oder Pachtvertrags und nicht für Maßnahmen gelte, die das Miet- oder Pachtverhältnis nur von außen betreffen (Bengel in Korintenberg/Lappe/Bengel/Reimann KostO 17. Aufl. § 25 Rn. 3; BeckOK KostR/Soutier [Stand: 15. November 2014] § 25 Rn. 2), bezieht sich dies nur auf Sachverhalte, in denen sich auch der Umfang der zu vergütenden Tätigkeit nach der Kostenordnung bestimmt. Bei der Vergütung einer anwaltlichen Tätigkeit ergibt sich der Gebührentatbestand hingegen allein aus den Bestimmungen der Vergütungsverordnung, im vorliegenden Fall aus Nr. 2300 VV RVG. Nach der Vorbemerkung 2.3 zu Nr. 2300 VV RVG umfasst die Geschäftsgebühr unter anderem auch die Mitwirkung bei der Gestaltung von Verträgen, wozu auch die Überprüfung eines Vertrags zählt (vgl. Mayer/Kroiß/Teubel RVG 6. Aufl. Vorbemerkung 2.3 zu Nr. 2300 VV RVG Rn. 6). Ist nach den Vorschriften des Rechtsanwaltsvergütungsgesetzes ein Gebührentatbestand verwirklicht, finden die Vorschriften der Kostenordnung über die Verweisung in § 23 Abs. 3 Satz 1 RVG nur entsprechend Anwendung, um den für die Vergütung maßgeblichen Geschäftswert festzulegen."
+    },
+    {
+     "section": "gruende",
+     "rn": 24,
+     "text": "e) Eine Reduzierung der Vergütung des Beteiligten zu 1 aus Gründen der Verhältnismäßigkeit kommt mangels einer gesetzlichen Grundlage nicht in Betracht. Soweit die Rechtsbeschwerde hierzu meint, zur Vermeidung absolut unbilliger Ergebnisse müsse es möglich sein, in besonders gelagerten Einzelfällen auch bei der Erbringung anwaltsspezifischer Dienste die Vergütung nach dem Erfolg angemessen zu beschränken, insbesondere dann, wenn ein absolutes Missverhältnis zwischen dem vom Verfahrenspfleger betriebenen Aufwand und der ihm zugebilligten Vergütung bestehe, kann dem nicht gefolgt werden. Eine ausdrückliche gesetzliche Vorschrift, die eine Herabsetzung der Vergütung des Verfahrenspflegers erlaubt, besteht nicht. § 49 b Abs. 1 Satz 1 BRAO verbietet es einem Rechtsanwalt sogar eine geringere als die gesetzlich vorgesehene Vergütung zu verlangen. Im Übrigen weist das Beschwerdegericht zu Recht darauf hin, dass mit den in § 22 Abs. 1 RVG und § 25 Abs. 1 Satz 3 KostO getroffenen Begrenzungsregelungen die gesetzgeberische Wertung verbunden ist, bis zu welcher Höhe ein Geschäftswert für die Berechnung der anwaltlichen Gebühren zu akzeptieren ist."
+    },
+    {
+     "section": "gruende",
+     "rn": 25,
+     "text": "Eine Herabsetzung der gesetzlich vorgesehenen Vergütung lässt sich auch nicht damit rechtfertigen, dass der Verfahrenspfleger bei Vorliegen anwaltsspezifischer Dienstleistungen nicht zwingend nach dem Rechtsanwaltsvergütungsgesetz abrechnen müsse. Liegt eine anwaltsspezifische Dienstleistung vor, steht dem Verfahrenspfleger ein Wahlrecht zu, eine Vergütung nach § 3 VBVG zu verlangen oder seine Tätigkeit nach dem Rechtsanwaltsvergütungsgesetz abzurechnen (Keidel/Budde FamFG 18. Aufl. § 277 Rn. 11). Macht der anwaltliche Verfahrenspfleger von der letztgenannten Möglichkeit Gebrauch, stehen ihm die verdienten Gebühren in vollem Umfang zu. Dabei ist auch zu berücksichtigen, dass die Tätigkeit des anwaltlichen Verfahrenspflegers auf der Grundlage seiner Bestellung durch das Betreuungsgericht erfolgt. Das Gebührenrisiko kann daher schon bei der Bestellungsentscheidung angemessen berücksichtigt werden. In Ausnahmefällen kann einer unverhältnismäßig hohen Gebührenforderung auch damit begegnet werden, dass mit dem Verfahrenspfleger eine entsprechende Gebührenvereinbarung getroffen wird (vgl. § 277 Abs. 3 FamFG)."
+    },
+    {
+     "section": "gruende",
+     "rn": 26,
+     "text": "f) Soweit die Rechtsbeschwerde meint, dass der vom Verfahrenspfleger im vorliegenden Fall betriebene Aufwand in einem völligen Missverhältnis zur Höhe der geltend gemachten Vergütung stehe, verkennt sie, dass das Anwaltsgebührenrecht nicht auf den Umfang der geleisteten Tätigkeiten abstellt, sondern an Gebühren auslösende Tatbestände anknüpft, um die den Vergütungsregelungen für die anwaltliche Tätigkeit zu Grunde liegende Mischkalkulation sicherzustellen."
+    }
+   ]
+  },
+  {
+   "file": "jb-JURE160019189.xml",
+   "metadata": {
+    "decision_id": "JURE160019189",
+    "aktenzeichen": "XI ZR 6/16",
+    "court": "BGH",
+    "date": "2016-10-25",
+    "doktyp": "Beschluss",
+    "ecli": "ECLI:DE:BGH:2016:251016BXIZR6.16.0"
+   },
+   "units": [
+    {
+     "section": "titelzeile",
+     "rn": null,
+     "text": "Nichtzulassungsbeschwerde: Beschwer durch die Feststellung des wirksamen Widerrufs eines Verbraucherdarlehensvertrags"
+    },
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Die Nichtzulassungsbeschwerde der Kläger gegen den Beschluss des 14. Zivilsenats des Oberlandesgerichts Düsseldorf vom 17. Dezember 2015 wird auf ihre Kosten als unzulässig verworfen.\nStreitwert: 8.178,16 €."
+    },
+    {
+     "section": "gruende",
+     "rn": 1,
+     "text": "I.\nDie Parteien schlossen am 17. Februar 2011 einen Verbraucherdarlehensvertrag über 75.000 € mit einem effektiven Jahreszins in Höhe von 4,65% p.a. In den Darlehensvertrag war folgende Widerrufsinformation eingefügt:"
+    },
+    {
+     "section": "gruende",
+     "rn": 2,
+     "text": "Die Darlehensvaluta wurde den Klägern vereinbarungsgemäß im Dezember 2013 zur Verfügung gestellt. Mit Schreiben vom 16. August 2014, der Beklagten zugegangen am 17. August 2014, widerriefen sie ihre auf Abschluss des Darlehensvertrags gerichtete Willenserklärung."
+    },
+    {
+     "section": "gruende",
+     "rn": 3,
+     "text": "Ihre Klage auf Feststellung, dass der Darlehensvertrag \"wirksam widerrufen\" worden sei und die Kläger der Beklagten zum 17. August 2014 \"nicht mehr als 68.729,27 €\" schuldeten, hat das Landgericht abgewiesen. Die dagegen gerichtete Berufung hat das Berufungsgericht nach Erteilung eines Hinweises durch einstimmigen Beschluss zurückgewiesen.\nII."
+    },
+    {
+     "section": "gruende",
+     "rn": 4,
+     "text": "Die Nichtzulassungsbeschwerde der Kläger ist unzulässig, weil der Wert der von den Klägern mit einer Revision geltend zu machenden Beschwer 20.000 € nicht übersteigt (§ 26 Nr. 8 Satz 1 EGZPO, §§ 544, 97 Abs. 1 ZPO)."
+    },
+    {
+     "section": "gruende",
+     "rn": 5,
+     "text": "Der Wert der Feststellung, dass der zwischen den Parteien geschlossene Darlehensvertrag wirksam widerrufen wurde, richtet sich nach der Hauptforderung, die die Kläger gemäß § 357 Abs. 1 Satz 1 BGB in der bis zum 12. Juni 2014 geltenden Fassung in Verbindung mit §§ 346 ff. BGB beanspruchen zu können meinen und die sich auf 8.178,16 € beläuft (Senatsbeschlüsse vom 12. Januar 2016 - XI ZR 366/15, WM 2016, 454 Rn. 6 ff. und vom 4. März 2016 - XI ZR 39/15, BKR 2016, 204 Rn. 2). Daneben hat die negative Feststellung, dass die Kläger der Beklagten nicht mehr als den von ihnen aufgrund des Rückgewährschuldverhältnisses errechneten Saldo schulden, gemäß dem von der Beschwerde zitierten Senatsbeschluss vom 4. März 2016 (aaO Rn. 3) keinen eigenständigen, darüber hinausgehenden Wert. Das Begehren, bestellte Sicherheiten freizugeben, das die Kläger bis zum Schluss der mündlichen Verhandlung in der Berufungsinstanz nicht eingeführt haben, können sie in dritter Instanz nicht zur Begründung einer höheren Beschwer anführen (BGH, Beschluss vom 7. Juli 2016 - V ZR 11/16, juris Rn. 9 mwN).\nIII."
+    },
+    {
+     "section": "gruende",
+     "rn": 6,
+     "text": "Im Übrigen wäre die Nichtzulassungsbeschwerde auch unbegründet, weil die Rechtssache keine grundsätzliche Bedeutung hat und die Fortbildung des Rechts sowie die Sicherung einer einheitlichen Rechtsprechung eine Entscheidung des Revisionsgerichts nicht erfordern (§ 543 Abs. 2 Satz 1 ZPO). Das gälte auch bei einer Beurteilung anhand revisionsrechtlicher Maßstäbe (vgl. BVerfGK 6, 79, 81 ff.; 18, 105, 111 f.; 19, 467, 475)."
+    },
+    {
+     "section": "gruende",
+     "rn": 7,
+     "text": "Die von der Beklagten erteilte Widerrufsinformation entsprach wörtlich der Anlage 6 zu Artikel 247 § 6 Abs. 2 und § 12 Abs. 1 EGBGB in der hier maßgeblichen, zwischen dem 30. Juli 2010 und dem 3. August 2011 geltenden Fassung (künftig: aF) und genügte, ohne dass es auf Art. 247 § 6 Abs. 2 Satz 3 EGBGB aF ankommt, den gesetzlichen Anforderungen des Art. 247 § 6 Abs. 2 Satz 1 und 2 EGBGB aF. Auch ohne besondere grafische Hervorhebung war die von der Beklagten verwandte Widerrufsinformation klar und verständlich (Senatsurteile vom 23. Februar 2016 XI ZR 101/15, WM 2016, 706 Rn. 24 ff., zur Veröffentlichung bestimmt in BGHZ, und - XI ZR 549/14, juris Rn. 14 ff.). Ein normal informierter, angemessen aufmerksamer und verständiger Verbraucher konnte die für seinen Vertrag maßgeblichen Pflichtangaben ermitteln. Der zugunsten der Kläger als notwendig unterstellte Hinweis nach Art. 247 § 9 Abs. 1 Satz 2 EGBGB in der zwischen dem 11. Juni 2010 und dem 20. März 2016 geltenden Fassung stand unter Nr. 13 des Darlehensvertrags. Bei Erklärung des Widerrufs war die Widerrufsfrist abgelaufen, so dass der Widerruf der Kläger, was das Berufungsgericht richtig erkannt hat, ins Leere ging."
+    },
+    {
+     "section": "gruende",
+     "rn": 8,
+     "text": "Von einer weiteren Begründung wird gemäß § 544 Abs. 4 Satz 2 Halbsatz 2 ZPO abgesehen."
+    }
+   ]
+  },
+  {
+   "file": "jb-JURE130006754.xml",
+   "metadata": {
+    "decision_id": "JURE130006754",
+    "aktenzeichen": "AnwZ (Brfg) 60/12",
+    "court": "BGH",
+    "date": "2013-03-21",
+    "doktyp": "Beschluss"
+   },
+   "units": [
+    {
+     "section": "titelzeile",
+     "rn": null,
+     "text": "Verleihungsvoraussetzungen für die Bezeichnung Fachanwalt für Bau- und Architektenrecht: Verweigerung der Berufungszulassung gegen ein Urteil des Anwaltsgerichtshofes; Berufungszulassungsgrund; Nachweiswert eines Fachgesprächs"
+    },
+    {
+     "section": "tenor",
+     "rn": null,
+     "text": "Auf Antrag des Klägers wird die Berufung gegen das Urteil des 1. Senats des Anwaltsgerichtshofs des Landes Nordrhein-Westfalen vom 29. Juni 2012 zugelassen."
+    },
+    {
+     "section": "gruende",
+     "rn": 1,
+     "text": "Der Kläger stellte am 5. Februar 2010 den Antrag auf Verleihung der Fachanwaltsbezeichnung \"Bau- und Architektenrecht\", der von der Beklagten mit Bescheid vom 17. März 2011 abgelehnt wurde. Entsprechend einem vor dem Anwaltsgerichtshof geschlossenen Vergleich wurde vor dem Fachausschuss der Beklagten ein Fachgespräch zu den Themen \"Besonderheiten der Verfahrens- und Prozessführung, insbesondere selbständige Beweisverfahren\" sowie \"Recht der Architekten und Ingenieure\" durchgeführt. Mit Bescheid vom 23. Januar 2012 lehnte die Beklagte den Antrag des Klägers erneut ab. Auf die dagegen gerichtete Klage hat der Anwaltsgerichtshof den Bescheid vom 23. Januar 2012 aufgehoben und die weitergehende Klage abgewiesen; die Berufung hat er nicht zugelassen. Gegen die Klageabweisung wendet sich der Kläger mit seinem Antrag auf Zulassung der Berufung."
+    },
+    {
+     "section": "gruende",
+     "rn": 2,
+     "text": "1. Der nach § 112e Satz 2 BRAO, § 124a Abs. 4 VwGO statthafte Antrag hat Erfolg. Die Berufung ist zuzulassen, weil ernstliche Zweifel an der Richtigkeit des erstinstanzlichen Urteils bestehen (§ 112e Satz 2 BRAO, § 124 Abs. 2 Nr. 1, §124a Abs. 5 Satz 2 VwGO)."
+    },
+    {
+     "section": "gruende",
+     "rn": 3,
+     "text": "Dieser Zulassungsgrund setzt voraus, dass ein einzelner tragender Rechtssatz oder eine erhebliche Tatsachenfeststellung mit schlüssigen Argumenten in Frage gestellt wird (BVerfGE 110, 77, 83; BVerfG, NVwZ 2000, 1163, 1164; NVwZ-RR 2008, 1; NJW 2009, 3642; BGH, Beschluss vom 23. März 2011 - AnwZ (Brfg) 9/10, juris Rn. 3). Der Anwaltsgerichtshof, der allerdings nicht auf die Frage eingegangen ist, ob eine Verfehlung des in § 5 FAO vorgesehenen Fallquorums überhaupt im Wege der Durchführung eines Fachgesprächs ausgeglichen werden kann (vgl. Senatsbeschlüsse vom 16. April 2007 - AnwZ (B) 31/06, NJW 2007, 2125 Rn. 13 f.; vom 25. Februar 2008 - AnwZ (B) 14/07, BRAK-Mitt. 2008, 133 Rn. 6 ff.), hat sich im angefochtenen Urteil gehindert gesehen, hinsichtlich des Antrags des Klägers, die Beklagte zur Verleihung der Fachanwaltsbezeichnung zu verpflichten, die Entscheidungsreife herzustellen. Er hat sich ferner nicht dazu geäußert, ob der Kläger die Ablehnung seines Antrags zu Recht insbesondere insoweit angreift, als bestimmte im Fachgespräch gegebene Antworten als falsch bewertet worden sind. Zumindest dagegen wendet sich der Kläger mit beachtlichen Argumenten, deren abschließende Beurteilung dem Berufungsverfahren vorzubehalten ist."
+    },
+    {
+     "section": "gruende",
+     "rn": 4,
+     "text": "2. Das Verfahren wird als Berufungsverfahren fortgesetzt; der Einlegung einer Berufung bedarf es nicht (§ 112e Satz 2 BRAO, § 124a Abs. 5 Satz 5 VwGO).\nRechtsmittelbelehrung:\nDie Berufung ist innerhalb eines Monats nach Zustellung des Beschlusses über die Zulassung der Berufung zu begründen. Die Begründung ist beim Bundesgerichtshof, Herrenstraße 45a, 76133 Karlsruhe, einzureichen. Die Begründungsfrist kann auf einen vor ihrem Ablauf gestellten Antrag vom Vorsitzenden verlängert werden. Die Begründung muss einen bestimmten Antrag enthalten sowie die im Einzelnen anzuführenden Gründe der Anfechtung (Berufungsgründe). Wegen der Verpflichtung, sich im Berufungsverfahren vertreten zu lassen, wird auf die Rechtsmittelbelehrung in der angefochtenen Entscheidung Bezug genommen. Mangelt es an einem dieser Erfordernisse, so ist die Berufung unzulässig (§ 112e Satz 2 BRAO, § 124a Abs. 6 VwGO)."
+    }
+   ]
+  }
+ ]
+}

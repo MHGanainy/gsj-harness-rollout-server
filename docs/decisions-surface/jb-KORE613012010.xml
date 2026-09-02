@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dokument
+  SYSTEM "https://www.rechtsprechung-im-internet.de/dtd/v1/rii-dok.dtd">
+<dokument>
+   <doknr>KORE613012010</doknr>
+   <ecli/>
+   <gertyp>BGH</gertyp>
+   <gerort/>
+   <spruchkoerper>11. Zivilsenat</spruchkoerper>
+   <entsch-datum>20100601</entsch-datum>
+   <aktenzeichen>XI ZR 63/10</aktenzeichen>
+   <doktyp>Beschluss</doktyp>
+   <norm>§ 276 BGB, § 280 Abs 1 S 2 BGB, WpHG, § 269 Abs 3 S 1 ZPO, § 269 Abs 4 ZPO</norm>
+   <vorinstanz>vorgehend LG Stendal, 8. September 2009, Az: 23 O 498/08, Urteil<br/>vorgehend Oberlandesgericht des Landes Sachsen-Anhalt, 9. Februar 2010, Az: 6 U 147/09, Urteil<br/>
+   </vorinstanz>
+   <region>
+      <abk>DEU</abk>
+      <long>Bundesrepublik Deutschland</long>
+   </region>
+   <mitwirkung/>
+   <titelzeile/>
+   <leitsatz/>
+   <sonstosatz/>
+   <tenor>
+      <div>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p>Die Urteile der Zivilkammer 3 des Landgerichts Stendal vom 8. September 2009 und des 6. Zivilsenats des Oberlandesgerichts Naumburg vom 9. Februar 2010 sind wirkungslos, nachdem der Kläger seine Klage mit Zustimmung der Beklagten zurückgenommen hat (§ 269 Abs. 3 Satz 1, Abs. 4 ZPO).</p>
+            </dd>
+         </dl>
+         <dl class="RspDL">
+            <dt/>
+            <dd>
+               <p>Der Streitwert für das Verfahren der Nichtzulassungsbeschwerde wird auf bis zu 65.000 € festgesetzt.</p>
+            </dd>
+         </dl>
+      </div>
+   </tenor>
+   <tatbestand/>
+   <entscheidungsgruende/>
+   <gruende/>
+   <abwmeinung/>
+   <sonstlt/>
+   <identifier>http://www.rechtsprechung-im-internet.de/jportal/?quelle=jlink&amp;docid=jb-KORE613012010&amp;psml=bsjrsprod.psml&amp;max=true</identifier>
+   <coverage>Deutschland</coverage>
+   <language>deutsch</language>
+   <publisher>BMJV</publisher>
+   <accessRights>public</accessRights>
+</dokument>
