@@ -39,7 +39,7 @@ Get three things from the operator: the rollout API's URL, **the operator's YAML
 ```yaml
 estate:
   clone_url_for: "http://forgejo.estate:3000/gsj-staging/{case_id}.git"  # {case_id} placeholder; must resolve from INSIDE the sandbox
-  # clone_credential_env: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING  # CP-56: only if the operator's estate requires sign-in for read — then export that var (fail-closed if set-but-unset)
+  # clone_credential_env: GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING  # CP-56: only if the operator's estate requires sign-in for read — then export that var, or keep it in the .env beside this file (CP-75; the environment wins; fail-closed if in neither)
   mcp_url_base: "http://mcp.estate:8790"            # retrieval service, sandbox-reachable
   serving_base_url: "http://vllm.estate:8000"       # NO /v1 suffix — rejected at load
   model: "Qwen/Qwen3-0.6B"                          # byte-for-byte the engine's served name
@@ -180,7 +180,7 @@ Loading is strict — `ValueError` with `config <path>: invalid YAML: <error>`, 
 
 | section | required keys | fields (default) |
 | --- | --- | --- |
-| `estate` | `clone_url_for`, `mcp_url_base`, `serving_base_url`, `model` | `provider` (`gsj`) — wire `model_name` is `<provider>/<model>`; `clone_credential_env` (`None`; CP-56 — env-var name of a read-scoped token for a sign-in-required estate, spliced into the clone URL, fail-closed if set); `mcp_token_secret_env` (`GSJ_MCP_TOKEN_SECRET`); `model_revision` (`None`, never read by the server); `serving_base_url` must not end in `/v1` |
+| `estate` | `clone_url_for`, `mcp_url_base`, `serving_base_url`, `model` | `provider` (`gsj`) — wire `model_name` is `<provider>/<model>`; `clone_credential_env` (`None`; CP-56 — env-var name of a read-scoped token for a sign-in-required estate, spliced into the clone URL; the value comes from the environment or, since CP-75, the `.env` beside the config — read, never exported; fail-closed if set and in neither); `mcp_token_secret_env` (`GSJ_MCP_TOKEN_SECRET`); `model_revision` (`None`, never read by the server); `serving_base_url` must not end in `/v1` |
 | `runtime` | — | `backend` (`docker`), `image` (`ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3`), `network` (`bridge`) |
 | `harness` | — | `import_path` (`gsj_rollout.pi_harness:PiHarness`), `tools_allowlist` (11 tools), `artifacts_dir` (`/tmp/gsj-artifacts`), `workdir` (`/workspace`), `context_window` (`32768`), `max_tokens` (`8192`), `thinking` (`off` — pi's levels `off`…`max`; non-`off` needs the thinking-on pins on both sides), `mcp_token_ttl_s` (`3600`), `pi_entry`/`pi_mcp_extension` (`None`) |
 | `builder` | — | `strategy` (`gsj_rollout.builder:ValidatingPrefixMergingBuilder`), `end_of_turn_token_id` (`151645`, Qwen3's `<\|im_end\|>`), `generation_prompt_glue_ids` (`None`) |

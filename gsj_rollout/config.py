@@ -13,7 +13,7 @@ from typing import Any, get_origin
 from urllib.parse import urlsplit
 
 import yaml
-from pydantic import (BaseModel, ConfigDict, Field, ValidationError,
+from pydantic import (BaseModel, ConfigDict, Field, PrivateAttr, ValidationError,
                       field_validator, model_validator)
 
 from . import checks
@@ -50,8 +50,8 @@ class EstateConfig(_Section):
     clone_credential_env: str | None = None  # env var NAME holding a
     # read-scoped Forgejo token; set it when the estate requires sign-in for
     # read (CP-56) and render splices the token into clone_url_for's userinfo.
-    # Value never in this file (the mcp_token_secret_env pattern); pi_harness
-    # strips userinfo from the echoed URL, so it never reaches a trace.
+    # The value lives in the environment or the `.env` beside this file (CP-75,
+    # `_named_value`), never here; pi_harness strips it from the echoed URL.
     mcp_url_base: str  # the MCP retrieval service, again sandbox-reachable
     mcp_token_secret_env: str = "GSJ_MCP_TOKEN_SECRET"  # env var holding the
     # HMAC secret; must equal the mcp-service's own secret
@@ -232,6 +232,7 @@ class RunConfig(_Section):
     polar: PolarConfig
     receiver: ReceiverConfig
     user: dict[str, Any] = Field(default_factory=dict)  # reserved, never read
+    _env_file: Path = PrivateAttr(default=Path(".env"))  # CP-75: beside the config
 
 
 def _default_url(host: str, port: int) -> str:
@@ -256,6 +257,26 @@ def _null_sections_to_empty(data: dict[str, Any], model: type[BaseModel]) -> Non
             data[name] = {}
 
 
+def _named_value(cfg: RunConfig, key: str, name: str) -> str:
+    """CP-75: a variable the config names by NAME — the environment wins (an
+    export is meant); else the `.env` beside the config, `KEY='value'` per line
+    as `estate.py` writes it ('\\'' an inner quote; bare/"-quoted refused), never exported."""
+    env_file, value = cfg._env_file.absolute(), os.environ.get(name, "")
+    for number, line in enumerate([] if value or not env_file.is_file() else
+                                  env_file.read_text().splitlines(), 1):
+        var, eq, raw = (part.strip() for part in line.partition("="))
+        quoted = raw[1:] and raw[0] == raw[-1] == "'"  # the writer's one shape; bare = hand-edit
+        body = raw[1:-1].replace("'\\''", "") if quoted else raw and "'"  # bare: refused below
+        if (var or eq) and var[:1] != "#" and (not (eq and var.isidentifier()) or "'" in body):
+            raise ValueError(f"{env_file} line {number}: not KEY='value' — fix or delete "
+                             f"that line (estate.py writes an inner ' as '\\'')")
+        value = raw[1:-1].replace("'\\''", "'") if var == name else value
+    if not value:
+        raise ValueError(f"{key} names {name!r} but that variable is unset or empty in the "
+                         f"submitting process and not set in {env_file} (an export wins over it)")
+    return value
+
+
 def load_config(path: str | Path) -> RunConfig:
     """Load and validate the one YAML; unknown keys name section and key."""
     with open(path) as handle:
@@ -278,6 +299,7 @@ def load_config(path: str | Path) -> RunConfig:
             else:
                 details.append(f"'{'.'.join(loc)}': {err['msg']}")
         raise ValueError(f"config {path} invalid — " + "; ".join(details)) from exc
+    cfg._env_file = Path(os.path.abspath(path)).parent / ".env"  # CP-75: read at the seam
     # ADR-0010: rebind the process default; last `load_config` wins.
     checks.DEFAULT_POLICY = checks.CheckPolicy(**cfg.checks.model_dump())
     return cfg
@@ -354,11 +376,7 @@ def render_task_request(
         raise ValueError(f"split must be 'train' or 'eval' (ADR-0015), got {split!r}")
     clone_url_for = cfg.estate.clone_url_for
     if cfg.estate.clone_credential_env:  # CP-56: sign-in-required estate
-        token = os.environ.get(cfg.estate.clone_credential_env)
-        if not token:
-            raise ValueError(
-                f"estate.clone_credential_env names {cfg.estate.clone_credential_env!r} "
-                f"but that variable is unset or empty in the submitting process")
+        token = _named_value(cfg, "estate.clone_credential_env", cfg.estate.clone_credential_env)
         scheme, sep, rest = clone_url_for.partition("://")
         if sep and "@" not in rest.split("/", 1)[0]:  # don't double-credential
             clone_url_for = f"{scheme}://{token}@{rest}"

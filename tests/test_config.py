@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
-from gsj_rollout.config import load_config, render_task_request, render_topology
+from gsj_rollout.config import RunConfig, load_config, render_task_request, render_topology
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rollout.yaml"
 GOLDEN = Path(__file__).parent / "golden"
@@ -398,3 +400,176 @@ def test_thinking_yaml11_bare_spellings(tmp_path):
     doc["harness"]["thinking"] = True    # what bare `on`/`yes`/`true` parse to
     with pytest.raises(ValueError, match=r"'harness\.thinking'.*silently clamps"):
         load_config(_write(tmp_path, doc))
+
+
+# --- CP-75: the .env beside the config, read not exported ------------------
+
+
+def _estate_tool():
+    """`estate/estate.py`'s writer is the grammar's author (`Run.write_env`,
+    `_env_quote`: single quotes, an inner ' as '\\''); the reader must read
+    its output back exactly, so the round-trip test imports the writer."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "estate_tool", Path(__file__).parent.parent / "estate" / "estate.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+READ_TOKEN_ENV = "GSJ_FORGEJO_READ_TOKEN_GSJ_STAGING"
+
+
+def _closed_estate(tmp_path, monkeypatch, env_lines=None):
+    """A config naming the read-token variable (the CP-56 closed-estate shape)
+    with an optional `.env` beside it; the variable scrubbed from the
+    environment so the file is the only other place a value can come from."""
+    monkeypatch.delenv(READ_TOKEN_ENV, raising=False)
+    monkeypatch.delenv("GSJ_MCP_TOKEN_SECRET", raising=False)  # an operator's shell may carry it
+    doc = yaml.safe_load(FIXTURE.read_text())
+    doc["estate"]["clone_credential_env"] = READ_TOKEN_ENV
+    path = _write(tmp_path, doc, "rollout.yaml")
+    if env_lines is not None:
+        (tmp_path / ".env").write_text("\n".join(env_lines) + "\n")
+    return path
+
+
+def _spliced_credential(path):
+    url = render_task_request(load_config(path), task_id="t", instruction="i",
+                              case_id="c", timestep=1)["agent"]["settings"]["clone_url_for"]
+    scheme, _, rest = url.partition("://")
+    return rest.split("@", 1)[0] if "@" in rest.split("/", 1)[0] else None
+
+
+def test_env_file_beside_the_config_resolves_a_named_variable(tmp_path, monkeypatch):
+    """Absent from the environment, present in the `.env` beside the config:
+    resolved — and READ, not exported: the submitting process's environment
+    is untouched afterwards (the CP-75 point; `env | grep -c '^GSJ_'` → 0)."""
+    path = _closed_estate(tmp_path, monkeypatch, [
+        "# the header estate.py writes, with an = sign in it: KEY='value'",
+        "", "GSJ_MCP_TOKEN_SECRET='not-the-one-asked-for'",
+        f"{READ_TOKEN_ENV}='tok-from-file'"])
+    before = dict(os.environ)
+    assert _spliced_credential(path) == "tok-from-file"
+    assert os.environ == before  # nothing written — not the name asked for, not the others
+
+
+def test_env_file_is_strictly_beside_the_config_not_the_cwd(tmp_path, monkeypatch):
+    """Where it looks: the config's own directory, nothing else — a `.env` in
+    the cwd (a foreign project's) is never consulted."""
+    path = _closed_estate(tmp_path, monkeypatch)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / ".env").write_text(f"{READ_TOKEN_ENV}='cwd-token'\n")
+    monkeypatch.chdir(elsewhere)
+    with pytest.raises(ValueError, match=re.escape(str(tmp_path / ".env")) + r" \(an export"):
+        _spliced_credential(path)
+    # a RELATIVE config path is bound to its directory at load (cli.py's abspath
+    # precedent), so a cwd change between load and render cannot re-aim the read
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config("rollout.yaml")
+    monkeypatch.chdir(elsewhere)
+    with pytest.raises(ValueError, match=re.escape(str(tmp_path / ".env"))):
+        render_task_request(cfg, task_id="t", instruction="i", case_id="c", timestep=1)
+    # a config built in memory (nothing in the library does) reads the cwd's — the
+    # dotenv convention — and its refusal still names the real file
+    (elsewhere / ".env").write_text("garbage\n")
+    doc = yaml.safe_load(path.read_text())
+    with pytest.raises(ValueError, match=re.escape(str(elsewhere / ".env")) + " line 1"):
+        render_task_request(RunConfig.model_validate(doc), task_id="t", instruction="i",
+                            case_id="c", timestep=1)
+
+
+def test_the_environment_wins_over_the_env_file(tmp_path, monkeypatch):
+    """An operator who exported something meant it; a file silently overriding
+    an export is the surprise this project avoids — and with the export
+    present the file is not even opened (a malformed one cannot refuse)."""
+    path = _closed_estate(tmp_path, monkeypatch, [f"{READ_TOKEN_ENV}='tok-from-file'"])
+    monkeypatch.setenv(READ_TOKEN_ENV, "tok-from-env")
+    assert _spliced_credential(path) == "tok-from-env"
+    (tmp_path / ".env").write_text("this line is garbage\n")
+    assert _spliced_credential(path) == "tok-from-env"
+    # an EMPTY export is absence, not a winning value — estate.py's own rule
+    # (`Runner.secret`: `if os.environ.get(env)`) and the CP-56 message's
+    # "unset or empty", kept
+    monkeypatch.setenv(READ_TOKEN_ENV, "")
+    (tmp_path / ".env").write_text(f"{READ_TOKEN_ENV}='tok-from-file'\n")
+    assert _spliced_credential(path) == "tok-from-file"
+
+
+def test_absent_from_both_is_the_cp56_refusal_naming_both_places(tmp_path, monkeypatch):
+    """Absent from the environment and the file (or no file at all): the
+    existing refusal, now naming the file and the environment-wins rule."""
+    for env_lines in (None, [], ["OTHER='x'"], [f"{READ_TOKEN_ENV}=''"]):
+        path = _closed_estate(tmp_path, monkeypatch, env_lines)
+        with pytest.raises(ValueError, match=(
+                rf"estate\.clone_credential_env names '{READ_TOKEN_ENV}' but that "
+                r"variable is unset or empty in the submitting process and not set "
+                r"in " + re.escape(str(tmp_path / ".env")) + r" \(an export wins over it\)")):
+            _spliced_credential(path)
+
+
+def test_a_malformed_env_line_is_refused_naming_file_and_line(tmp_path, monkeypatch):
+    """CP-27's standard: refuse, name the file and the line, say what to do —
+    never skip. The forms: no `=`, a non-name key (`export KEY=…` is the
+    common dotenv-ism estate.py never writes), an unterminated quote, a bare
+    inner quote. Comments and blank lines are not lines of the grammar."""
+    for bad in ("garbage", "export FOO='x'", "FOO='unterminated", "FOO='a'b'", "'=x", "=x",
+                "   =  ", "9FOO='x'", "FOO-BAR='x'",
+                # a bare or "-quoted value is the hand-edit shape the writer never emits
+                # and the three readers (this, `.`, compose) read DIFFERENTLY — refused,
+                # never spliced with its quotes or its trailing comment (CP-75's review)
+                f'{READ_TOKEN_ENV}="dq"', f"{READ_TOKEN_ENV}=bare", f"{READ_TOKEN_ENV}=tok # c",
+                f"{READ_TOKEN_ENV}=$HOME", "FOO='"):
+        path = _closed_estate(tmp_path, monkeypatch, [
+            "# a comment with an = and an odd ' in it", "", bad,
+            f"{READ_TOKEN_ENV}='present-but-never-reached'"])
+        with pytest.raises(ValueError, match=(
+                re.escape(str(tmp_path / ".env")) + r" line 3: not KEY='value' — fix or "
+                r"delete that line \(estate\.py writes an inner ' as '\\''\)")):
+            _spliced_credential(path)
+    # `KEY=` (nothing at all) is absence, not a malformed line — what `.` reads too
+    path = _closed_estate(tmp_path, monkeypatch, [f"{READ_TOKEN_ENV}="])
+    with pytest.raises(ValueError, match="not set in"):
+        _spliced_credential(path)
+
+
+def test_env_file_grammar_round_trips_estate_py_writer(tmp_path, monkeypatch):
+    """The quoting round-trip: a value with a quote, a space and a `$` (and
+    the rest of the shell's metacharacters) survives `estate.py`'s writer
+    (`Run.write_env`) and this reader byte-for-byte — the file is the tool's
+    output, and CP-59's single-quote choice is what both `.` and compose read
+    back identically."""
+    tool = _estate_tool()
+    values = ["it's $HOME `x` \"q\" \\ back;semi #hash", "'", "''", "it''s", "a'b'c",
+              " leading and trailing ", "plain", "x=y=z", "#not-a-comment"]
+    for value in values:
+        path = _closed_estate(tmp_path, monkeypatch)
+        run = tool.Run("probe")
+        run.dir = tmp_path
+        run.env = {READ_TOKEN_ENV: value, "GSJ_MCP_TOKEN_SECRET": "unrelated"}
+        run.write_env()
+        assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600  # the tool's mode
+        assert _spliced_credential(path) == value, repr(value)
+    # and estate.py's own reader agrees on every one (one grammar, two readers)
+    run.env = {READ_TOKEN_ENV: values[0]}
+    run.write_env()
+    again = tool.Run("probe")
+    again.dir = tmp_path
+    again.load()
+    assert again.env[READ_TOKEN_ENV] == values[0]
+
+
+def test_env_file_is_read_lazily_only_at_the_named_seam(tmp_path, monkeypatch):
+    """The receiver's `serve` and a submit against an open estate name no
+    variable, so the file is never opened for them: a config with no
+    `clone_credential_env` beside a malformed `.env` loads and renders."""
+    doc = yaml.safe_load(FIXTURE.read_text())
+    assert doc["estate"].get("clone_credential_env") is None
+    path = _write(tmp_path, doc, "rollout.yaml")
+    (tmp_path / ".env").write_text("garbage\n")
+    cfg = load_config(path)
+    rendered = render_task_request(cfg, task_id="t", instruction="i", case_id="c", timestep=1)
+    assert "@" not in rendered["agent"]["settings"]["clone_url_for"]
+    assert render_topology(cfg)["gateway"]["nodes"][0]["id"] == "gsj-node-01"

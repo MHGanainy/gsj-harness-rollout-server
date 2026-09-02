@@ -35,7 +35,7 @@ callbacks: http://127.0.0.1:8300/callbacks/session_result | traces -> /home/sysa
 receiver listening on 127.0.0.1:8300
 ```
 
-Run them in two shells, rollout API first (the gateway registers with it). `GSJ_MCP_TOKEN_SECRET` goes on the **gateway** line only — the harness mints each episode's token there; unset, the episode fails with `token secret env var 'GSJ_MCP_TOKEN_SECRET' is unset in the gateway process`. `PYTHONPATH=<checkout>` makes `gsj_rollout` importable in Polar's process. From a wheel install (no `vendor/`), `serve` prints a `NOTE:` line and `<checkout>` placeholders.
+Run them in two shells, rollout API first (the gateway registers with it). `GSJ_MCP_TOKEN_SECRET` goes on the **gateway** line only — the harness mints each episode's token there, reading the gateway process's own environment (it is Polar's process, not ours — the one place a secret must still be *in* an environment); unset, the episode fails with `token secret env var 'GSJ_MCP_TOKEN_SECRET' is unset in the gateway process`. `serve` itself reads no secret, and since CP-75 `submit` reads the run's `.env` beside its config for the read token (below) — so with an `estate.py` run directory the gateway line is the only one that ever sees a value. `PYTHONPATH=<checkout>` makes `gsj_rollout` importable in Polar's process. From a wheel install (no `vendor/`), `serve` prints a `NOTE:` line and `<checkout>` placeholders.
 
 ![Every process on the server host with its port and who dials whom](img/server-processes.png)
 
@@ -87,7 +87,7 @@ Full reference — every key, type, default (unknown keys are rejected everywher
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `estate.clone_url_for` | str | **required** | clone URL with `{case_id}`; the harness runs `git clone --depth 1 --branch timestep-<T>` **inside** the sandbox |
-| `estate.clone_credential_env` | str \| None | `None` | env-var **name** of a read-scoped Forgejo token (CP-56). Set it when the estate requires sign-in for read: render splices the value into `clone_url_for`'s userinfo, and `_strip_credentials` keeps it out of the trace. Fail-closed — if set, the var **must** be exported or `submit` errors. Unset = anonymous clone |
+| `estate.clone_credential_env` | str \| None | `None` | env-var **name** of a read-scoped Forgejo token (CP-56). Set it when the estate requires sign-in for read: render splices the value into `clone_url_for`'s userinfo, and `_strip_credentials` keeps it out of the trace. Fail-closed — if set, the value must be exported **or present in the `.env` beside the config** (CP-75: `KEY='value'` per line as `estate.py` writes it; the environment wins over the file; the file is read only for this variable, only when the environment lacks it, and never exported; a malformed line refuses naming file and line; absent from both, `submit` refuses naming both). Wheels through 0.1.6 read the environment only. Unset = anonymous clone |
 | `estate.mcp_url_base` | str | **required** | retrieval-service root; harness appends `/mcp/<token>` |
 | `estate.mcp_token_secret_env` | str | `"GSJ_MCP_TOKEN_SECRET"` | env-var **name** of the HMAC secret, read in the gateway process; must equal the service's secret |
 | `estate.serving_base_url` | str | **required** | engine root the gateway proxies to; `/v1` suffix rejected at load |
@@ -233,6 +233,8 @@ python3 corpus/ingest_corpus.py scaffold --corpus corpus/staging
 ./estate.py ingest --corpus corpus/staging
 ./estate.sh serve 0.6b && ./estate.sh health
 ```
+
+(The three `export` lines are this by-hand path's, whose tokens live in `forgejo/.token*` files — there is no `.env` here for `submit` to read. An `estate.py` run directory needs none of them before `submit`: its `rollout.yaml` names the read token by variable and the `.env` beside it carries the value, read at submit and never exported (CP-75). Only Polar's `serve_gateway` still wants `GSJ_MCP_TOKEN_SECRET` in *its* environment.)
 
 The three networking traps:
 - **The clone happens inside the sandbox.** `clone_url_for` must resolve from the episode container; with `runtime.network` unset or wrong, every episode dies at its `git` setup step with `PiHarness setup failed` after consuming the attempt. The cure is `runtime.network: gsj-staging-net`. If the estate requires sign-in for read (below) and `clone_credential_env` is unset or its token wrong, the same setup step dies with a `git ... Authentication failed`.

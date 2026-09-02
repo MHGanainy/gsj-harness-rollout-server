@@ -1,6 +1,6 @@
 # docs/ — the shelf map
 
-`docs/` holds two things — the **user guide** ([`guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md), six pages, written for people adopting the library) and the **evaluation record** (everything else, written while the library was built); the product itself is [`gsj_rollout/`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/main/gsj_rollout) — 2,016 lines, eight files, `pip install gsj-harness-rollout-server` for the trainer role.
+`docs/` holds two things — the **user guide** ([`guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md), six pages, written for people adopting the library) and the **evaluation record** (everything else, written while the library was built); the product itself is [`gsj_rollout/`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/main/gsj_rollout) — 2,034 lines, eight files, `pip install gsj-harness-rollout-server` for the trainer role.
 
 > [!IMPORTANT]
 > **Most of this directory is private since CP-48.** The operator untracked the development record: `reports/`, `prompts/` (all of them since CP-49a; `CP-48.md` was the last tracked), `decisions/`, `AUDIT-2026-08-24.md`, `CLASSIFICATION.md`, the shelf README under `polar/`, and every `golden/`/`polar/` file except the seven bodies that CI, the release gate, the test suites, and the pins walk read.
@@ -32,7 +32,7 @@
 | `golden/` | The golden-pair evidence (`mac/`, `h200/`, `COMPARISON.md`) — the A-1 fidelity proof against the archived predecessor | anyone re-verifying the `loss_mask`/`prompt_ids` claims | private; Mac fixtures tracked at `../tests/fixtures/golden-mac/` |
 | `reports/` | One report per checkpoint (CP-00 → present, plus CP-04′, CP-09′, CP-11b, CP-13a) — the primary evidence behind every number in the root README and the verdict | an auditor chasing a claim | private |
 | `prompts/` | Every checkpoint's instructions, verbatim — compare with the same-numbered report | an auditor verifying process | private |
-| `decisions/` | The ADRs, append-only, Context → Decision → Consequence (ADR-0001–0026 at CP-46; ADR-0027–0032 since) | anyone asking "why is it built this way" | private |
+| `decisions/` | The ADRs, append-only, Context → Decision → Consequence (ADR-0001–0026 at CP-46; ADR-0027–0033 since) | anyone asking "why is it built this way" | private |
 | `AUDIT-2026-08-24.md`, `CLASSIFICATION.md` | The adversarial audit, and the CP-47 census that classified every tracked file — the basis of the CP-48 untracking | an auditor | private |
 
 ## Who needs what

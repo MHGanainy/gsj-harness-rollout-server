@@ -435,12 +435,12 @@ def test_serve_printout_foreign_path_polar_still_hints(tmp_path, capsys, monkeyp
 
 
 def test_size_law_census_is_machine_checked():
-    """ADR-0028: scope law 2 is 2,016 — the landed size EXACTLY, zero headroom
-    by design, an equality in both directions (ADR-0021's form applied to the
-    whole census). Growth is a stop-and-justify; a shrink must lower the law
-    with it. Moving this number is an ADR's decision plus this line, together.
-    (Homed here by CP-65's freeze-lift; the assertion, not the address, is the
-    decision.)"""
+    """ADR-0028 (2,016) → ADR-0033 (2,034): scope law 2 is the landed size
+    EXACTLY, zero headroom by design, an equality in both directions
+    (ADR-0021's form applied to the whole census). Growth is a
+    stop-and-justify; a shrink must lower the law with it. Moving this number
+    is an ADR's decision plus this line, together. (Homed here by CP-65's
+    freeze-lift; the assertion, not the address, is the decision.)"""
     census = sum(path.read_text().count("\n")  # [!.]*: wc -l's shell glob skips dotfiles
                  for path in sorted((REPO_ROOT / "gsj_rollout").glob("[!.]*.py")))
-    assert census == 2016, f"gsj_rollout census {census} != ADR-0028's exact 2,016"
+    assert census == 2034, f"gsj_rollout census {census} != ADR-0033's exact 2,034"
