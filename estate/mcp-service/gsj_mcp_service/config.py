@@ -184,7 +184,7 @@ class DecisionsConfig(BaseModel):
     model_config = _FORBID
 
     seed: int = DEFAULT_SEED
-    corpus_size: int = N_DECISIONS  # 30 reproduces the pinned corpus exactly
+    corpus_size: int = Field(default=N_DECISIONS, ge=1)  # 30 = the pinned corpus
 
 
 class AuthConfig(BaseModel):

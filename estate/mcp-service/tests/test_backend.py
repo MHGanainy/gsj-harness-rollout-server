@@ -15,6 +15,7 @@ the oracle's bound follows the configured model's scale."""
 from __future__ import annotations
 
 import json
+import logging
 import math
 import shutil
 import time
@@ -34,16 +35,20 @@ from helpers import (
     SECOND_REVISION,
     SERIAL_RE,
     SERVICE_DIR,
+    canonical,
     get_health,
     make_state,
     write_config,
 )
 
+import gsj_mcp_service.index as index_module
 import gsj_mcp_service.state as state_module
 from gsj_mcp_service.config import load_config
-from gsj_mcp_service.index import (CHROMA_VERSION, PRE_CP57_STORE_IDENTITY,
+from gsj_mcp_service.index import (ADD_BATCH_SIZE, CHROMA_VERSION,
+                                   PRE_CP57_STORE_IDENTITY, batch_spans,
                                    corpus_fingerprint, read_fingerprint,
-                                   read_store_identity, write_fingerprint)
+                                   read_store_identity, sweep_orphans,
+                                   write_fingerprint)
 
 
 def chunk_ids_within(index, timestep: int) -> set[str]:
@@ -183,11 +188,19 @@ def test_stored_vectors_are_the_pinned_encoders(built_state):
     384 dims, so under the default model a substitution would produce
     plausible scores, not errors; the bound is set so every measured row
     of that substitution fails it. The shape is the MODEL's dimension —
-    384 only because the configured model is the default one."""
+    384 only because the configured model is the default one. The
+    re-encode is cut into the builder's own batches (CP-77): which texts
+    share an encode call moves a short chunk's last bits by up to
+    1.4e-07 — above the bound, at the substitution floor — so a
+    whole-collection re-encode is the wrong reference above
+    ADD_BATCH_SIZE; at case_0001's 51 chunks the two are one call."""
     index = built_state.cases["case_0001"]
     assert built_state.config.embedding.model == MEASURED_MODEL
     assert built_state.encoder.dimension == MEASURED_DIMENSION
-    ours = built_state.encoder.encode_corpus([c.text for c in index.chunks])
+    texts = [c.text for c in index.chunks]
+    ours = np.concatenate([
+        built_state.encoder.encode_corpus(texts[lo:hi])
+        for lo, hi in batch_spans(built_state._client(), len(texts))])
     for row in (0, len(index.chunks) // 2, len(index.chunks) - 1):
         chunk = index.chunks[row]
         got = index.collection.get(
@@ -418,6 +431,11 @@ def test_forged_identity_is_caught_at_the_collection(
     second, root = second_model_state
     forged = tmp_path_factory.mktemp("forged")
     shutil.copytree(root / "index", forged / "index")
+    # A refused store stays byte-untouched, orphans included (CP-77): the
+    # reuse-path sweep runs only after the load's own checks pass.
+    orphan = forged / "index" / "chroma" / "0f0f0f0f-0000-4000-8000-c0ffee000080"
+    orphan.mkdir()
+    (orphan / "header.bin").write_bytes(b"\0" * 100)
     config_path = write_config(
         forged, repos=["case_0001"], clone_cache_dir=shared_dirs["clones"],
         index_path=forged / "index", max_tokens=SECOND_MAX_TOKENS,
@@ -436,6 +454,7 @@ def test_forged_identity_is_caught_at_the_collection(
                                   "collection was filled by "
                                   f"{SECOND_MODEL!r}"), state.error
     assert "index.rebuild: always" in state.error
+    assert (orphan / "header.bin").exists(), "a refused store was swept"
 
     # Strip the stamp (an out-of-band store with none): the width alone.
     state._client().get_collection("case_0001").modify(
@@ -731,3 +750,307 @@ def test_chunks_that_retokenize_past_the_window_are_refused(
     assert state.error.startswith("EmbeddingModelError: case_000"), state.error
     assert "re-tokenize past" in state.error and "100-token window" in state.error
     assert "truncated silently" in state.error
+
+
+# -- CP-77: the add ceiling, the batch, the orphans (wishlist 66) -----------
+
+def _hnsw_dirs(index_root) -> set[str]:
+    return {p.name for p in (index_root / "chroma").iterdir() if p.is_dir()}
+
+
+def _segment_rows(index_root) -> set[str]:
+    import sqlite3
+    with sqlite3.connect(index_root / "chroma" / "chroma.sqlite3") as con:
+        return {row[0] for row in con.execute("SELECT id FROM segments")}
+
+
+def test_chromas_add_ceiling_is_a_count_and_the_batch_sits_under_it(tmp_path):
+    """The pinned chroma refuses one add above 5,461 items, and the ceiling
+    is a COUNT: 5,461 passes with 12 metadata keys per record, 5,462 fails
+    with none — the shape CP-77 measured (0/1/12/40/120 keys, venv and
+    Linux image alike; wishlist 66). The number is 32766 // 6 — the Rust
+    bindings' SQLite variable limit over six variables per record.
+    ADD_BATCH_SIZE sits at least 5x under it, so a chroma bump that moves
+    the ceiling fails here by design; batch_spans cuts 0, 51 and 2,500
+    items into no span, one, and 1000/1000/500."""
+    client = index_module.chroma_client(tmp_path)
+    ceiling = client.get_max_batch_size()
+    assert ceiling == 5461 == 32766 // 6, (
+        "the pinned chroma's ceiling moved — re-argue ADD_BATCH_SIZE")
+    assert ADD_BATCH_SIZE * 5 <= ceiling
+    assert batch_spans(client, 0) == []
+    assert batch_spans(client, 51) == [(0, 51)]
+    assert batch_spans(client, 2500) == [(0, 1000), (1000, 2000), (2000, 2500)]
+    collection = client.create_collection(
+        "ceiling", configuration={"hnsw": {"space": "cosine"}},
+        embedding_function=index_module._NoTextOps())
+    unit = [1.0] + [0.0] * 7
+    collection.add(ids=[f"i{n}" for n in range(ceiling)],
+                   embeddings=[unit] * ceiling,
+                   metadatas=[{f"k{k:02d}": (f"v{k}" if k % 2 else n + k)
+                               for k in range(12)} for n in range(ceiling)])
+    assert collection.count() == ceiling
+    with pytest.raises(Exception) as excinfo:
+        collection.add(ids=[f"j{n}" for n in range(ceiling + 1)],
+                       embeddings=[unit] * (ceiling + 1))
+    assert (f"Batch size of {ceiling + 1} is greater than max batch size "
+            f"of {ceiling}") in str(excinfo.value)
+    assert collection.count() == ceiling
+
+
+def test_batched_build_serves_what_a_single_add_served(
+        built_state, shared_dirs, tmp_path_factory, monkeypatch, caplog):
+    """ADD_BATCH_SIZE forced to 7, so every collection is filled by several
+    adds: the store must be the one a single add built — the same counts,
+    byte-identical results at tool level AND raw chunk level (the A-25
+    canary's shape, applied to insertion order; a two-builds comparison,
+    which A-25 measured to hold at 213 chunks and not at the chunk tail
+    of 19,215 — this test is pinned to the staging scale) — and the build
+    progress must have walked every batch of every collection, visible in
+    /health (with state "indexing") and as one INFO line per batch while
+    it ran, and gone from /health once ready. The encoder is pinned to
+    one text per call for BOTH builds, because the vectors' last bits
+    depend on which texts share an encode call (measured at CP-77: the
+    30 decisions encoded in sevens differ from one call by max|Δ|
+    9.7e-08, full-window 220-token chunks by 0, page-tail chunks by up to
+    1.4e-07) — that is the encode's property, ADD_BATCH_SIZE joins
+    embedding.batch_size in it, and this test isolates the ADD."""
+    real = built_state.encoder.encode_corpus
+    monkeypatch.setattr(built_state.encoder, "encode_corpus",
+                        lambda texts: np.stack([real([t])[0] for t in texts]))
+    single_root = tmp_path_factory.mktemp("single-add")
+    single = make_state(write_config(
+        single_root, repos=ALL_REPOS, clone_cache_dir=shared_dirs["clones"],
+        index_path=single_root / "index"), encoder=built_state.encoder)
+    assert single.status == "ready", single.error
+
+    monkeypatch.setattr(index_module, "ADD_BATCH_SIZE", 7)
+    root = tmp_path_factory.mktemp("batched")
+    state = state_module.AppState(load_config(write_config(
+        root, repos=ALL_REPOS, clone_cache_dir=shared_dirs["clones"],
+        index_path=root / "index")))
+    state.encoder = built_state.encoder
+    seen: list = []
+    report = state._on_batch
+
+    def spy(*args):
+        report(*args)
+        health = state.health()
+        seen.append((args, health.get("build"), health["state"]))
+    state._on_batch = spy
+    caplog.set_level(logging.INFO, logger="gsj_mcp_service")
+    state.initialize()
+    assert state.status == "ready", state.error
+    assert state.reused_index is False
+    assert "build" not in state.health()
+
+    walked: dict[str, list] = {}
+    for (name, done, total, batch, batches), snapshot, status in seen:
+        walked.setdefault(name, []).append((done, total, batch, batches))
+        assert status == "indexing"
+        assert snapshot == {"collection": name, "vectors": done,
+                            "total": total, "batch": batch,
+                            "batches": batches}
+        assert (f"{name}: {done}/{total} vectors embedded and added "
+                f"(batch {batch}/{batches})") in caplog.messages
+    assert set(walked) == set(ALL_REPOS) | {"decisions"}
+    for name, rows in walked.items():
+        total = rows[0][1]
+        n = math.ceil(total / 7)
+        assert n >= 5, (name, total)
+        assert [r[2] for r in rows] == list(range(1, n + 1))
+        assert rows[-1] == (total, total, n, n)
+    for case_id in ALL_REPOS:
+        assert (state.cases[case_id].collection.count()
+                == len(built_state.cases[case_id].chunks)
+                == single.cases[case_id].collection.count())
+    assert state.decisions.collection.count() == 30
+
+    probes = [("case_0001", 12, "the sealed ledgers were moved to the antechamber"),
+              ("case_0002", 22, "the warehouse ledger and invoices"),
+              ("case_0003", 9, "deposition slip concerning the sealed ledgers")]
+    for case_id, timestep, query in probes:
+        vec, _ = built_state.encoder.encode_query(query)
+        ours = state.cases[case_id].search(vec, k=10, timestep=timestep)
+        theirs = single.cases[case_id].search(vec, k=10, timestep=timestep)
+        assert ours and canonical(ours) == canonical(theirs)
+        candidates = len(chunk_ids_within(built_state.cases[case_id], timestep))
+        raw = [index.collection.query(
+            query_embeddings=[vec], n_results=candidates,
+            where={"page": {"$lte": timestep}}, include=["distances"])
+            for index in (state.cases[case_id], single.cases[case_id])]
+        assert raw[0]["ids"] == raw[1]["ids"]
+        assert [repr(d) for d in raw[0]["distances"][0]] == \
+            [repr(d) for d in raw[1]["distances"][0]]
+    vec, _ = built_state.encoder.encode_query(
+        "warehouse lease counterclaim dismissed")
+    assert canonical(state.decisions.search(vec, k=10)) == \
+        canonical(single.decisions.search(vec, k=10))
+
+
+def test_a_build_above_the_ceiling(built_state, shared_dirs, tmp_path_factory):
+    """The decisions builder past 5,461 items — 6,000, above the ceiling
+    the pre-CP-77 single add hit (the test above): it builds, records,
+    serves 20 sorted distinct hits, and a fresh start reuses the store and
+    serves the same bytes."""
+    root = tmp_path_factory.mktemp("above-ceiling")
+    state = make_state(write_config(
+        root, repos=["case_0003"], clone_cache_dir=shared_dirs["clones"],
+        index_path=root / "index", decisions_size=6000),
+        encoder=built_state.encoder)
+    assert state.status == "ready", state.error
+    assert state.reused_index is False
+    assert (state.decisions.collection.count() == 6000
+            == len(state.decisions.corpus))
+    assert state.health()["decisions"] == 6000
+    vec, _ = built_state.encoder.encode_query(
+        "AZ-2021-OLG-B-1 salvage award appeal")
+    hits = state.decisions.search(vec, k=20)
+    assert len(hits) == 20
+    assert hits == sorted(hits, key=lambda h: (-h["score"], h["decision_id"]))
+    assert len({h["decision_id"] for h in hits}) == 20
+
+    again = make_state(write_config(
+        root, repos=["case_0003"], clone_cache_dir=shared_dirs["clones"],
+        index_path=root / "index", decisions_size=6000, name="again.yaml"),
+        encoder=built_state.encoder)
+    assert again.status == "ready", again.error
+    assert again.reused_index is True
+    assert canonical(again.decisions.search(vec, k=20)) == canonical(hits)
+
+
+def test_a_kill_between_batches_is_never_served(
+        built_state, shared_dirs, tmp_path_factory, monkeypatch):
+    """A build killed between two add batches (ADD_BATCH_SIZE forced to 7,
+    the encoder dying on its third call — the store then holds a
+    half-filled collection and no sidecar): CP-57's record, written before
+    the first drop, has no fingerprint, so the next start under rebuild:
+    never refuses (missing) and under if-stale REBUILDS — the partial
+    store is never ready, and /health keeps the last batch that landed
+    (2/7, 14 of 43) so the failure names where it stopped. Batching makes
+    this kill likelier, not the outcome different."""
+    monkeypatch.setattr(index_module, "ADD_BATCH_SIZE", 7)
+    root = tmp_path_factory.mktemp("killed-batch")
+    real = built_state.encoder.encode_corpus
+    calls = {"n": 0}
+
+    def dying(texts):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("simulated kill between add batches")
+        return real(texts)
+    monkeypatch.setattr(built_state.encoder, "encode_corpus", dying)
+
+    def config(name, **overrides):
+        return write_config(root, repos=["case_0003"],
+                            clone_cache_dir=shared_dirs["clones"],
+                            index_path=root / "index", name=name, **overrides)
+    killed = make_state(config("kill.yaml"), encoder=built_state.encoder)
+    assert killed.status == "error" and "simulated kill" in killed.error
+    assert killed.build_progress == {"collection": "case_0003", "vectors": 14,
+                                     "total": 43, "batch": 2, "batches": 7}
+    assert killed.health()["build"] == killed.build_progress
+    monkeypatch.undo()
+    assert read_fingerprint(root / "index") is None
+    assert read_store_identity(root / "index") == built_state.encoder.identity()
+    assert not (root / "index" / "case_0003" / "chunks.json").exists()
+    assert killed._client().get_collection("case_0003").count() == 14
+
+    refused = make_state(config("never.yaml", rebuild="never"),
+                         encoder=built_state.encoder)
+    assert refused.status == "error"
+    assert refused.error.startswith(
+        "IngestError: index.rebuild=never but the stored index is missing")
+    assert refused.cases == {} and refused.decisions is None
+
+    rebuilt = make_state(config("stale.yaml"), encoder=built_state.encoder)
+    assert rebuilt.status == "ready", rebuilt.error
+    assert rebuilt.reused_index is False
+    assert rebuilt.cases["case_0003"].collection.count() == 43
+    vec, _ = built_state.encoder.encode_query(
+        "deposition slip concerning the sealed ledgers")
+    assert canonical(rebuilt.cases["case_0003"].search(vec, k=10, timestep=9)) \
+        == canonical(built_state.cases["case_0003"].search(vec, k=10, timestep=9))
+    assert _hnsw_dirs(root / "index") <= _segment_rows(root / "index")
+    assert len(_hnsw_dirs(root / "index")) == 2
+
+
+def test_orphaned_hnsw_directories_are_swept(built_state, shared_dirs,
+                                             tmp_path_factory):
+    """chroma 1.5.9 leaves a dropped collection's HNSW directory behind in
+    every case measured (same process, fresh process, opened first), so
+    every rebuild used to leak one directory per collection — 39 in
+    estate/runs/cp73 (wishlist 66b). Now a rebuild removes the dropped
+    collection's directory and a start sweeps what earlier rebuilds left,
+    by the one rule the store supports: a directory no segment row names.
+    What the sweep refuses: a live directory, a directory that is not a
+    segment uuid, a stray file, a symlink wearing a segment's name, an
+    entry it cannot remove (skipped with its reason, the start still
+    ready; the read-only leg holds for a non-root uid — CI's runner, the
+    image's 1000) — and everything when the system database cannot be
+    read."""
+    root = tmp_path_factory.mktemp("orphans")
+
+    def config(name, **overrides):
+        return write_config(root, repos=["case_0003"],
+                            clone_cache_dir=shared_dirs["clones"],
+                            index_path=root / "index", name=name, **overrides)
+    seed = make_state(config("seed.yaml"), encoder=built_state.encoder)
+    assert seed.status == "ready", seed.error
+    first = _hnsw_dirs(root / "index")
+    assert len(first) == 2 and first <= _segment_rows(root / "index")
+
+    # a rebuild: the two dropped directories go, the two new ones stay
+    rebuilt = make_state(config("always.yaml", rebuild="always"),
+                         encoder=built_state.encoder)
+    assert rebuilt.status == "ready", rebuilt.error
+    second = _hnsw_dirs(root / "index")
+    assert len(second) == 2 and second.isdisjoint(first)
+    assert second <= _segment_rows(root / "index")
+
+    # planted: an orphan (a segment-shaped name no row names), a directory
+    # that is not a segment, a stray file
+    chroma = root / "index" / "chroma"
+    orphan = chroma / "0f0f0f0f-0000-4000-8000-c0ffee000077"
+    orphan.mkdir()
+    (orphan / "header.bin").write_bytes(b"\0" * 100)
+    (chroma / "not-a-segment").mkdir()
+    (chroma / "not-a-segment" / "keep").write_text("x")
+    (chroma / "stray.txt").write_text("x")
+
+    # and two the sweep must leave alone without stopping the start: an
+    # orphan the process cannot remove (another uid's directory under a
+    # bind mount, here a read-only one holding a file) and a symlink that
+    # wears a segment's name (rmtree refuses symlinks; nothing of chroma's
+    # is one)
+    stuck = chroma / "0f0f0f0f-0000-4000-8000-c0ffee000078"
+    stuck.mkdir()
+    (stuck / "header.bin").write_bytes(b"\0" * 100)
+    stuck.chmod(0o555)
+    link = chroma / "0f0f0f0f-0000-4000-8000-c0ffee000079"
+    link.symlink_to(chroma / "not-a-segment")
+
+    try:
+        reused = make_state(config("reuse.yaml"), encoder=built_state.encoder)
+        assert reused.status == "ready", reused.error
+        assert reused.reused_index is True
+        assert not orphan.exists()
+        assert stuck.is_dir() and (stuck / "header.bin").exists()
+        assert link.is_symlink() and (chroma / "not-a-segment" / "keep").exists()
+        assert (chroma / "stray.txt").exists()
+        assert _hnsw_dirs(root / "index") == second | {
+            "not-a-segment", stuck.name, link.name}
+    finally:
+        stuck.chmod(0o755)
+    vec, _ = built_state.encoder.encode_query(
+        "deposition slip concerning the sealed ledgers")
+    assert reused.cases["case_0003"].search(vec, k=3, timestep=9)
+
+    # the refusal: no readable system database ⇒ nothing is deleted
+    blind = tmp_path_factory.mktemp("blind")
+    planted = blind / "0f0f0f0f-0000-4000-8000-c0ffee000078"
+    planted.mkdir()
+    fake_client = SimpleNamespace(get_settings=lambda: SimpleNamespace(
+        persist_directory=str(blind)))
+    assert sweep_orphans(fake_client) == []
+    assert planted.exists()

@@ -35,6 +35,18 @@ each collection's stamp and its stored vectors' width are the loaded
 model's (``_check_collection_identity``) — Chroma would otherwise accept
 the collection and fail at the first query, or not at all.
 
+Since CP-77 the builders never hand Chroma the whole corpus in one call:
+``chromadb==1.5.9`` refuses a single ``add`` above 5,461 items (its Rust
+bindings' bundled SQLite binds at most 32,766 variables and the write path
+spends 6 per record — a COUNT, measured independent of the metadata width),
+so both builders encode and add in ``ADD_BATCH_SIZE`` batches with a
+progress callback per batch, and every rebuild sweeps the HNSW directories
+Chroma leaves behind — ``delete_collection`` drops the segment rows and
+never the directory (measured: same process, fresh process, opened first)
+— by the one rule the store's own system database supports: a directory
+no segment row names is unreachable by any Chroma code path and is removed
+(``sweep_orphans``); everything else under ``chroma/`` is left alone.
+
 Result shape (the compatibility requirement any future backend must keep —
 G5's transcript backstop parses it via the library's
 ``extract_case_search_pages``): every ``search_case`` hit carries
@@ -49,8 +61,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
+import shutil
+import sqlite3
 from dataclasses import asdict
 from pathlib import Path
+from typing import Callable
 
 import chromadb
 from chromadb.config import Settings
@@ -62,6 +79,37 @@ from .ingest import CaseSource, Chunk
 
 INDEX_FORMAT = 2  # 1 = vectors.npy + numpy scan, retired at CP-15 (ADR-0016)
 CHROMA_VERSION = chromadb.__version__
+
+logger = logging.getLogger("gsj_mcp_service")
+
+# The add batch (CP-77, wishlist 66a). chromadb 1.5.9 refuses one ``add``
+# above 5,461 items: ``32766 // 6`` — the Rust bindings' bundled SQLite
+# variable limit over the six variables its write path binds per record —
+# reported by ``client.get_max_batch_size()`` and measured at CP-77 to be a
+# count of items and nothing else (5,461 passes with 0, 1, 12 or 40
+# metadata keys; 5,462 fails with 0, 1 or 40; identical in the venv and in
+# the Linux image). 1,000 sits 5.46× under that: the margin is against the
+# count MOVING — a chroma bump rebuilds the store loudly through the
+# fingerprint but runs this same code — not against width, which was
+# measured not to matter; and the batch is clamped at run time to what the
+# client reports, so it can never exceed the ceiling of the host it runs
+# on. Throughput is indifferent above ~100 (the embed dominates: ~91
+# chunks/s single-threaded at 220 tokens), and one progress line per 1,000
+# vectors is a readable cadence for a million-vector build. Every
+# collection any estate has recorded fits in one batch (max 62 chunks, 30
+# decisions), so their bytes are exactly what the single call wrote. Above
+# it the batch decides which texts share an encode call, and the vectors'
+# last bits depend on that (sentence-transformers length-sorts a call and
+# pads per mini-batch): a change here owes an INDEX_FORMAT bump, the
+# chunker's rule (ADR-0016 as amended at CP-57 and CP-77).
+ADD_BATCH_SIZE = 1000
+
+# A persisted HNSW segment lives at ``<persist>/<segment uuid>/``.
+_SEGMENT_DIR_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+# progress(collection, vectors_done, vectors_total, batch, batches)
+ProgressFn = Callable[[str, int, int, int, int], None]
 
 # The one pin any store written before CP-57 was built by: the model id was
 # the config default in every deployment and the revision the shipped one
@@ -176,17 +224,132 @@ def _collection_stamp(identity: dict) -> dict:
             "gsj_dimension": int(identity["dimension"])}
 
 
+def _persist_dir(client) -> Path:
+    return Path(client.get_settings().persist_directory)
+
+
+def _known_segments(client) -> set[str] | None:
+    """Every segment id the store's system database records — read straight
+    from ``chroma.sqlite3``'s ``segments`` table (``id, type, scope,
+    collection``; the pinned 1.5.9 layout, the same private-format
+    dependency ``evict_chroma_client_cache`` already takes), the one place
+    Chroma writes which directories under the persist dir are its. None
+    when the table cannot be read: then nothing is deleted."""
+    path = _persist_dir(client) / "chroma.sqlite3"
+    try:
+        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro",
+                                     uri=True)
+    except sqlite3.Error as error:
+        logger.warning("orphan sweep skipped — %s unreadable (%s)", path, error)
+        return None
+    try:
+        return {row[0] for row in connection.execute("SELECT id FROM segments")}
+    except sqlite3.Error as error:
+        logger.warning("orphan sweep skipped — %s unreadable (%s)", path, error)
+        return None
+    finally:
+        connection.close()
+
+
+def sweep_orphans(client) -> list[tuple[str, int]]:
+    """Remove every HNSW directory no segment row references (CP-77,
+    wishlist 66b) and return ``[(directory, bytes)]``.
+
+    What is safe to delete, argued: Chroma reaches a persisted HNSW index
+    only through its segment row — the directory is named by the segment
+    id and nothing else records the name — so a directory without a row
+    cannot be opened, queried, or recovered by any Chroma path; it is
+    dead weight the size of a collection. ``delete_collection`` (1.5.9,
+    the Rust bindings) drops the rows and leaves the directory in every
+    case measured. An interrupted rebuild is no exception in this store:
+    CP-57's order writes the identity record with NO fingerprint before
+    the first ``delete_collection``, so the old collection's rows are
+    gone before its directory is orphaned and the store as a whole is
+    refused-or-rebuilt on the next start, never served — the corpus in
+    git is the source the rebuild regenerates it from, the orphan is not
+    a copy anything can serve. What is refused: any directory a segment
+    row names (live, or the half-filled one an interrupted add left —
+    that collection's row exists and the next rebuild drops it properly),
+    any name that is not a segment uuid, a symlink, every file, an entry
+    the process cannot remove, and everything when the system database
+    cannot be read. Two things it assumes, both the service's already:
+    one writer per store (the known set is read once, before the loop —
+    a second process filling a collection meanwhile is not a supported
+    state; ``request_reindex`` serialises in-process), and that
+    ``chroma.sqlite3`` and the directories beside it are one snapshot (a
+    database restored alone over a newer tree names the newer directories
+    as orphans; that restore is a re-embed, the corpus in git being the
+    source — not a recoverable store)."""
+    persist = _persist_dir(client)
+    known = _known_segments(client)
+    if known is None or not persist.is_dir():
+        return []
+    removed: list[tuple[str, int]] = []
+    for entry in sorted(persist.iterdir()):
+        if (entry.is_symlink() or not entry.is_dir() or entry.name in known
+                or not _SEGMENT_DIR_RE.match(entry.name)):
+            continue
+        # One entry that cannot be removed (another uid's directory under
+        # a bind mount, a file the process may not stat) is skipped with
+        # its reason — an orphan is inert, and a sweep that cannot finish
+        # must never stop a store that served before it existed.
+        try:
+            size = sum(f.stat().st_size for f in entry.rglob("*")
+                       if f.is_file())
+            shutil.rmtree(entry)
+        except OSError as error:
+            logger.warning("orphan sweep: %s left in place (%s)", entry.name,
+                           error)
+            continue
+        removed.append((entry.name, size))
+    return removed
+
+
 def _recreate_collection(client, name: str, identity: dict):
-    """The rebuild path: drop any existing collection, create fresh —
-    stamped with the model that is about to fill it."""
+    """The rebuild path: drop any existing collection, sweep the HNSW
+    directory Chroma leaves behind it, create fresh — stamped with the
+    model that is about to fill it."""
     try:
         client.delete_collection(name)
     except NotFoundError:
         pass
+    else:
+        removed = sweep_orphans(client)
+        logger.info("%s: dropped for rebuild — %d HNSW director%s removed "
+                    "(%d bytes)", name, len(removed),
+                    "y" if len(removed) == 1 else "ies",
+                    sum(size for _, size in removed))
     return client.create_collection(
         name, configuration=dict(_HNSW_COSINE),
         metadata=_collection_stamp(identity),
         embedding_function=_NoTextOps())
+
+
+def batch_spans(client, total: int) -> list[tuple[int, int]]:
+    """The ``[lo, hi)`` slices a build of ``total`` items encodes and adds,
+    in order — ``ADD_BATCH_SIZE`` clamped to the ceiling the client
+    reports. Exposed because the slices decide the vectors' last bits
+    (which texts share an encode call), so anything that re-encodes a
+    collection to compare against the store must cut the same way."""
+    size = min(ADD_BATCH_SIZE, client.get_max_batch_size())
+    return [(lo, min(lo + size, total)) for lo in range(0, total, size)]
+
+
+def _add_batched(client, collection, encoder: Encoder, name: str,
+                 texts: list[str], ids: list[str], metadatas: list[dict],
+                 progress: ProgressFn | None) -> None:
+    """Encode then add, one ``ADD_BATCH_SIZE`` batch at a time (clamped to
+    the ceiling the client reports), calling ``progress`` after each —
+    so a long build is visible while it runs and the corpus's vectors are
+    never all in memory at once."""
+    total = len(texts)
+    spans = batch_spans(client, total)
+    for number, (lo, hi) in enumerate(spans, 1):
+        vectors = encoder.encode_corpus(texts[lo:hi])
+        collection.add(ids=ids[lo:hi], embeddings=vectors,
+                       metadatas=metadatas[lo:hi])
+        if progress is not None:
+            progress(name, hi, total, number, len(spans))
 
 
 class CaseIndex:
@@ -210,7 +373,9 @@ class CaseIndex:
         score-descending, ties by page ascending, non-positive scores
         dropped. ``n_results`` is the WHOLE filtered candidate set, so the
         page aggregation sees every candidate's best chunk — parity with
-        the exact scan this replaced; a larger corpus that needs a bounded
+        the exact scan this replaced at the frozen estate's scale (213
+        chunks); measured ≈0.1% short at 19,215, a different tail per
+        build (CP-77, wishlist 68); a larger corpus that needs a bounded
         fetch moves the approximation boundary and re-opens A-25
         (ADR-0016)."""
         candidates = sum(1 for page in self._pages_by_chunk
@@ -258,15 +423,17 @@ class DecisionsIndex:
                 for score, d in ranked[:k] if score > 0]
 
 
-def build_case_index(client, encoder: Encoder, source: CaseSource) -> CaseIndex:
-    vectors = encoder.encode_corpus([c.text for c in source.chunks])
+def build_case_index(client, encoder: Encoder, source: CaseSource,
+                     progress: ProgressFn | None = None) -> CaseIndex:
     collection = _recreate_collection(client, source.case_id,
                                       encoder.identity())
-    collection.add(
+    _add_batched(
+        client, collection, encoder, source.case_id,
+        texts=[c.text for c in source.chunks],
         ids=[_chunk_id(c) for c in source.chunks],
-        embeddings=vectors,
         metadatas=[{"case_id": c.case_id, "page": c.page, "file": c.file,
-                    "chunk_idx": c.chunk_idx} for c in source.chunks])
+                    "chunk_idx": c.chunk_idx} for c in source.chunks],
+        progress=progress)
     return CaseIndex(source.case_id, collection, source.chunks, source.pages,
                      source.refs, source.timesteps)
 
@@ -335,16 +502,16 @@ def load_case_index(client, root: Path, case_id: str,
                      doc["timesteps"])
 
 
-def build_decisions_index(client, encoder: Encoder,
-                          corpus: list[dict]) -> DecisionsIndex:
-    vectors = encoder.encode_corpus(
-        [f"{d['decision_id']} {d['court']} {d['year']} {d['text']}"
-         for d in corpus])
+def build_decisions_index(client, encoder: Encoder, corpus: list[dict],
+                          progress: ProgressFn | None = None) -> DecisionsIndex:
     collection = _recreate_collection(client, "decisions", encoder.identity())
-    collection.add(
+    _add_batched(
+        client, collection, encoder, "decisions",
+        texts=[f"{d['decision_id']} {d['court']} {d['year']} {d['text']}"
+               for d in corpus],
         ids=[d["decision_id"] for d in corpus],
-        embeddings=vectors,
-        metadatas=[{"court": d["court"], "year": d["year"]} for d in corpus])
+        metadatas=[{"court": d["court"], "year": d["year"]} for d in corpus],
+        progress=progress)
     return DecisionsIndex(collection, corpus)
 
 

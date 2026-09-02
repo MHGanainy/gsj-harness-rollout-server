@@ -108,6 +108,19 @@ def test_respect_page_boundaries_false_fails(tmp_path):
     assert "respect_page_boundaries" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("size", [0, -1])
+def test_decisions_corpus_size_below_one_fails(tmp_path, size):
+    """An empty decisions corpus is refused at config load (CP-77): the
+    batched builder would otherwise add nothing, come up ready, and fail
+    at the first search_decisions — where the single add used to refuse
+    at startup with chroma's own error."""
+    doc = base_doc()
+    doc["decisions"]["corpus_size"] = size
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(dump(tmp_path, doc))
+    assert "corpus_size" in str(excinfo.value)
+
+
 @pytest.mark.parametrize("overlap", [220, 300])
 def test_overlap_ge_max_tokens_fails(tmp_path, overlap):
     """overlap >= max_tokens would make the chunk window stride <= 0."""

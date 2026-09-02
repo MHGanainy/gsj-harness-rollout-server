@@ -23,7 +23,7 @@ from .index import (CHROMA_VERSION, PRE_CP57_STORE_IDENTITY, CaseIndex,
                     evict_chroma_client_cache, load_case_index,
                     load_decisions_index, read_fingerprint,
                     read_store_identity, save_case_index,
-                    save_decisions_index, write_fingerprint)
+                    save_decisions_index, sweep_orphans, write_fingerprint)
 from .ingest import IngestError, ingest_case
 
 logger = logging.getLogger("gsj_mcp_service")
@@ -45,6 +45,11 @@ class AppState:
         self.decisions: DecisionsIndex | None = None
         self.fingerprint: str | None = None
         self.reused_index = False
+        # The build in flight (CP-77): which collection, how many of its
+        # vectors are embedded and added, which batch — /health "build"
+        # while indexing, kept as the last batch that landed when a build
+        # fails (the failure names where it stopped), absent once ready.
+        self.build_progress: dict | None = None
         self.started_at = time.time()
         self.ready_at: float | None = None
         self._reindex_lock = threading.Lock()
@@ -133,29 +138,58 @@ class AppState:
         corpus = decisions_corpus(config.decisions.seed,
                                   config.decisions.corpus_size)
         client = self._client()
+        self._sweep(client)
         # The record FIRST, before anything is destroyed: the identity of
         # the model about to fill the store and no reusable fingerprint. A
         # rebuild interrupted anywhere below leaves a store the next start
         # refuses under the old model (the record names the new one) and
         # rebuilds under the new (no fingerprint) — never one it serves
-        # (CP-57 review: the interrupted same-width re-pin).
+        # (CP-57 review: the interrupted same-width re-pin; CP-77: the
+        # same holds for a kill between two add batches).
         write_fingerprint(config.index.path, None, self.encoder.identity())
         for repo, source in sources.items():
-            index = build_case_index(client, self.encoder, source)
+            index = build_case_index(client, self.encoder, source,
+                                     progress=self._on_batch)
             save_case_index(config.index.path, index)
             self.cases[repo] = index
             self.progress[repo]["embedded"] = True
-        self.decisions = build_decisions_index(client, self.encoder, corpus)
+        self.decisions = build_decisions_index(client, self.encoder, corpus,
+                                               progress=self._on_batch)
         save_decisions_index(config.index.path, self.decisions)
         write_fingerprint(config.index.path, fingerprint,
                           self.encoder.identity())
         self.fingerprint = fingerprint
         self.reused_index = False
+        self.build_progress = None
         self.status = "ready"
         self.ready_at = time.time()
         logger.info("index built: fingerprint %s — READY (embedded by %s @ %s, "
                     "%d dims)", fingerprint, config.embedding.model,
                     config.embedding.revision, self.encoder.dimension)
+
+    def _on_batch(self, collection: str, done: int, total: int,
+                  batch: int, batches: int) -> None:
+        """One add batch landed (CP-77): the operator watching a long build
+        sees it move — in the log and in /health — instead of a silent
+        hour-long embed (the demo's F-46 shape)."""
+        self.build_progress = {"collection": collection, "vectors": done,
+                               "total": total, "batch": batch,
+                               "batches": batches}
+        logger.info("%s: %d/%d vectors embedded and added (batch %d/%d)",
+                    collection, done, total, batch, batches)
+
+    def _sweep(self, client) -> None:
+        """Remove the HNSW directories earlier rebuilds left behind (CP-77,
+        wishlist 66b) — only those no segment row names; see
+        ``index.sweep_orphans`` for what is refused and why."""
+        removed = sweep_orphans(client)
+        if removed:
+            logger.warning(
+                "swept %d orphaned HNSW director%s (%d bytes) left under "
+                "%s/chroma by earlier rebuilds — chromadb 1.5.9 never "
+                "removes a dropped collection's directory (CP-77)",
+                len(removed), "y" if len(removed) == 1 else "ies",
+                sum(size for _, size in removed), self.config.index.path)
 
     def _check_store_identity(self) -> None:
         """CP-57's gate: a store built by one model and served under another
@@ -205,6 +239,11 @@ class AppState:
                                                repo, identity)
         self.decisions = load_decisions_index(client, self.config.index.path,
                                               identity)
+        # The sweep AFTER the load's own checks (CP-77 review): a store the
+        # load refuses — another model's stamp, a count off its sidecar —
+        # stays byte-untouched, as the refusal promises; a store that loads
+        # sheds what earlier rebuilds left.
+        self._sweep(client)
         self.fingerprint = fingerprint
         self.reused_index = True
         self.status = "ready"
@@ -255,6 +294,7 @@ class AppState:
             self.decisions = None
             self.fingerprint = None
             self.reused_index = False
+            self.build_progress = None
             # Restart-equivalence (ADR-0016): drop the cached chroma system
             # so the init thread observes the REAL on-disk store — without
             # this, a store replaced out-of-band stays a served phantom.
@@ -296,6 +336,9 @@ class AppState:
         }
         if self.error:
             doc["error"] = self.error
+        build = self.build_progress  # read once: the init thread clears it
+        if build is not None:
+            doc["build"] = dict(build)
         if self.status == "ready":
             doc["backend"]["collections"] = (
                 len(self.cases) + (1 if self.decisions is not None else 0))
