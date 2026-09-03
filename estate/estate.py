@@ -912,7 +912,7 @@ search:
 decisions:
   seed: 20260204
   corpus_size: 30
-{decisions_path}
+
 auth:
   token_secret_env: {secret_env}
   leeway_s: 30
@@ -1927,14 +1927,21 @@ def cmd_up(args: argparse.Namespace) -> None:
             say("mcp", f"--mcp-config overrides kept from the record: "
                        f"{sorted(residual)} (pass --mcp-config to replace "
                        "them; an empty file clears them)")
-        cfg_text = render_mcp_config(MCP_CONFIG.format(
+        cfg_text = MCP_CONFIG.format(
             prog=PROG, run=name, forgejo_url=fj.container_url, owner=owner,
             repos=", ".join(case_ids), read_env=read_env, model=model,
             revision=revision, chunk_max=chunk_max, chunk_overlap=chunk_overlap,
-            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV,
-            decisions_path=(f"  path: {MCP_DECISIONS_MOUNT}   # --decisions-dir "
-                            f"{ddir}, mounted read-only (CP-79)\n" if ddir else "")),
-            residual)
+            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV)
+        if ddir:
+            # the drop's line joins the template's decisions block after the
+            # format (the template's placeholder set is pinned by the frozen
+            # corpus suite — CP-79's first CI run)
+            anchor = "  corpus_size: 30\n"
+            assert cfg_text.count(anchor) == 1, "MCP_CONFIG's decisions block moved"
+            cfg_text = cfg_text.replace(
+                anchor, anchor + f"  path: {MCP_DECISIONS_MOUNT}   # --decisions-dir "
+                                 f"{ddir}, mounted read-only (CP-79)\n", 1)
+        cfg_text = render_mcp_config(cfg_text, residual)
         # the review (CP-70 item 7): shown before anything is embedded under
         # it — every run, so a -y run still sees what it is spending; the
         # CONFIRM fires only when an embed is actually about to be spent —
