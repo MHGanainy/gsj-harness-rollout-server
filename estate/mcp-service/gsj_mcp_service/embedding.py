@@ -159,10 +159,17 @@ class Encoder:
         were truncated silently at encode time. Refused at startup naming
         the count and the worst chunk."""
         window = self.max_seq_length
-        encoded = self.tokenizer(texts, add_special_tokens=True,
-                                 truncation=False, return_attention_mask=False)
-        lengths = [len(ids) for ids in encoded["input_ids"]]
-        over = [(n, i) for i, n in enumerate(lengths) if n > window]
+        # in slices (CP-79): a drop is a million pieces, and one tokenizer
+        # call over all of them materialises every id list at once
+        over: list[tuple[int, int]] = []
+        step = 4096
+        for lo in range(0, len(texts), step):
+            encoded = self.tokenizer(texts[lo:lo + step], add_special_tokens=True,
+                                     truncation=False,
+                                     return_attention_mask=False)
+            over.extend((len(ids), lo + i)
+                        for i, ids in enumerate(encoded["input_ids"])
+                        if len(ids) > window)
         if over:
             worst, index = max(over)
             raise EmbeddingModelError(

@@ -125,6 +125,33 @@ def parse_timesteps(refs: dict[str, str], ref_pattern: str) -> list[int]:
     return steps
 
 
+def split_spans(tokenizer, text: str,
+                chunking: ChunkingConfig) -> list[tuple[int, int]]:
+    """The token-window split, as character spans ``[begin, end)`` of
+    ``text``: windows of ``max_tokens`` tokenizer tokens with ``overlap``
+    tokens of overlap, mapped back through the tokenizer's offsets so every
+    piece is a verbatim, contiguous slice, adjacent pieces overlap, and the
+    pieces cover the text (a text with no tokens is one piece — itself).
+    The one splitter for a case page (``chunk_page``) and, since CP-79, for
+    a decision's unit (spec §6: the same four constraints, the window the
+    implementation's)."""
+    encoding = tokenizer(text, add_special_tokens=False,
+                         return_offsets_mapping=True)
+    offsets = [span for span in encoding["offset_mapping"] if span[1] > span[0]]
+    if not offsets:
+        return [(0, len(text))]
+    stride = chunking.max_tokens - chunking.overlap
+    spans: list[tuple[int, int]] = []
+    start_tok = 0
+    while start_tok < len(offsets):
+        window = offsets[start_tok:start_tok + chunking.max_tokens]
+        spans.append((int(window[0][0]), int(window[-1][1])))
+        if start_tok + chunking.max_tokens >= len(offsets):
+            break
+        start_tok += stride
+    return spans
+
+
 def chunk_page(tokenizer, case_id: str, page: int, text: str,
                chunking: ChunkingConfig) -> list[Chunk]:
     """Token-window chunks of ONE page — never across pages (ADR-0040(e)).
@@ -133,23 +160,10 @@ def chunk_page(tokenizer, case_id: str, page: int, text: str,
     mapped back to character spans so chunk text is a verbatim slice of the
     page. Every chunk carries exactly one (page, file).
     """
-    encoding = tokenizer(text, add_special_tokens=False,
-                         return_offsets_mapping=True)
-    offsets = [span for span in encoding["offset_mapping"] if span[1] > span[0]]
     file = f"md/page_{page:04d}.md"
-    if not offsets:
-        return [Chunk(case_id, page, file, 0, text)]
-    stride = chunking.max_tokens - chunking.overlap
-    chunks: list[Chunk] = []
-    start_tok = 0
-    while start_tok < len(offsets):
-        window = offsets[start_tok:start_tok + chunking.max_tokens]
-        begin, end = window[0][0], window[-1][1]
-        chunks.append(Chunk(case_id, page, file, len(chunks), text[begin:end]))
-        if start_tok + chunking.max_tokens >= len(offsets):
-            break
-        start_tok += stride
-    return chunks
+    return [Chunk(case_id, page, file, index, text[begin:end])
+            for index, (begin, end) in enumerate(split_spans(tokenizer, text,
+                                                             chunking))]
 
 
 def ingest_case(source: SourceConfig, chunking: ChunkingConfig, tokenizer,

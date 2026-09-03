@@ -47,6 +47,19 @@ never the directory (measured: same process, fresh process, opened first)
 no segment row names is unreachable by any Chroma code path and is removed
 (``sweep_orphans``); everything else under ``chroma/`` is left alone.
 
+Since CP-79 the ``decisions`` collection has two sources: a rii-dok v1
+drop at ``decisions.path`` — parsed and cut into units by ``decisions.py``
+per docs/decisions-surface.md (the Randnummer as the retrieval unit), each
+unit split into pieces through the same token-window splitter the pages use
+(``ingest.split_spans``; spec §6), best piece per unit at query time with a
+fetch bounded by ``k`` (spec §8; ``DECISIONS_FETCH_PER_K``) — or, with no
+path, the 30 synthetic decisions the pinned episodes saw, byte-unchanged.
+The fingerprint gains a ``decisions_drop`` component only when a drop is
+configured (a key present with None would move the hash — measured at
+CP-76), and ``fingerprint.json`` records one fingerprint per collection so
+a start rebuilds only the collections whose inputs moved: a decisions drop
+never re-embeds the cases (wishlist 61).
+
 Result shape (the compatibility requirement any future backend must keep —
 G5's transcript backstop parses it via the library's
 ``extract_case_search_pages``): every ``search_case`` hit carries
@@ -74,8 +87,9 @@ from chromadb.config import Settings
 from chromadb.errors import NotFoundError
 
 from .config import ChunkingConfig, EmbeddingConfig
+from .decisions import SECTION_ORDER, SURFACE_VERSION, Drop
 from .embedding import Encoder
-from .ingest import CaseSource, Chunk
+from .ingest import CaseSource, Chunk, split_spans
 
 INDEX_FORMAT = 2  # 1 = vectors.npy + numpy scan, retired at CP-15 (ADR-0016)
 CHROMA_VERSION = chromadb.__version__
@@ -103,6 +117,31 @@ logger = logging.getLogger("gsj_mcp_service")
 # pads per mini-batch): a change here owes an INDEX_FORMAT bump, the
 # chunker's rule (ADR-0016 as amended at CP-57 and CP-77).
 ADD_BATCH_SIZE = 1000
+
+# The candidate fetch of the decisions surface (CP-79, spec §8.4): a
+# function of ``k``, never of the corpus size — ``DECISIONS_FETCH_PER_K × k``
+# pieces are fetched, aggregated best-piece-per-unit, and the top ``k``
+# units returned. Why a multiple of k: a unit contributes as many pieces
+# as its split produced (the longest Randnummer, 2,814 tokens, cuts into
+# 16 at 220/40), so k units can hide behind many more pieces; gsj-next
+# fetches 5·k. Why 200 and not 20: the number is a measurement, not a
+# taste. Against an exact numpy scan over every stored vector of a
+# 1,999-decision drop (43,760 units, 71,946 pieces; 60 queries, 52 of
+# them sentence-sized slices of the drop's own units) the unbounded HNSW
+# fetch is exact (recall 1.000 at k=5 and k=20), so what a bounded fetch
+# loses is the graph's search beam — chroma's ``hnsw:ef_search`` is 100
+# and ``n_results`` widens it — not the aggregation: 20·k gave recall
+# 0.953 at k=5 (one query 0 of 5) and 0.984 at k=20; 100·k 0.993/0.998;
+# 200·k 1.000 (60/60 queries, the exact order) at k=5 and 0.998 (min
+# 0.95) at k=20; 400·k 1.000/0.999. So 200·k: 1,000 pieces at the default
+# k, 4,000 at ``max_k`` 20 — under 0.2 s with metadatas, and 8× under the
+# 32,763-result ceiling chroma's read path enforces on a metadata fetch
+# (the write path's SQLite variable limit again, measured at CP-79).
+# Recorded in wishlist 68 and A-25; ``tests/measure_decisions_recall.py``
+# re-runs the measurement for any drop (a full 34k-file drop owes its
+# own run). Not a config key: nothing on the wire can test it, and a knob
+# without a measurement behind it is a guess.
+DECISIONS_FETCH_PER_K = 200
 
 # A persisted HNSW segment lives at ``<persist>/<segment uuid>/``.
 _SEGMENT_DIR_RE = re.compile(
@@ -187,28 +226,105 @@ def evict_chroma_client_cache(root: Path) -> None:
         system.stop()
 
 
+def drop_component(drop: Drop) -> dict:
+    """The decisions drop's fingerprint component (CP-79): the drop's
+    content hash (every kept file's name and bytes, in order), the surface
+    version whose unit rule cut it, and the file count. It enters the
+    fingerprint document only when ``decisions.path`` is set — a key
+    present with ``None`` still moves the hash (measured at CP-76) — so
+    every store built without a drop keeps its fingerprint byte-identical
+    and nothing rebuilds on upgrade."""
+    return {"sha256": drop.sha256, "surface_version": SURFACE_VERSION,
+            "files": len(drop.decisions)}
+
+
+def _digest(doc: dict) -> str:
+    blob = json.dumps(doc, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+# The encode composition every recorded store was built under (wishlist 69
+# (c), decided at CP-79): ``embedding.batch_size`` shapes a collection's
+# last bits above the smaller batch size (sentence-transformers pads per
+# mini-batch — measured at CP-77), so it IS identity — but every store any
+# estate holds was built at 32, so the component enters the hashed
+# document only when the configured value differs: a store built at 32
+# keeps its fingerprint byte for byte, a config that moves the value
+# re-embeds (the bytes would differ), and the one estate that ever merged
+# ``batch_size: 64`` over a 32-built store (cp73, CP-73) rebuilds once —
+# correctly, its config and its bytes never agreed.
+PINNED_ENCODE_BATCH_SIZE = 32
+
+
+def _embedding_component(embedding: EmbeddingConfig) -> dict:
+    doc = {"model": embedding.model, "revision": embedding.revision,
+           "normalize": embedding.normalize}
+    if embedding.batch_size != PINNED_ENCODE_BATCH_SIZE:
+        doc["batch_size"] = embedding.batch_size
+    return doc
+
+
 def corpus_fingerprint(sources: dict[str, CaseSource],
                        embedding: EmbeddingConfig,
                        chunking: ChunkingConfig,
                        decisions_seed: int, decisions_size: int,
-                       chroma_version: str = CHROMA_VERSION) -> str:
+                       chroma_version: str = CHROMA_VERSION,
+                       decisions_drop: dict | None = None) -> str:
     """sha256 over everything that determines index bytes: repo main SHAs,
     model + revision, chunking params, decisions corpus params, index
     format, and (since CP-15) the Chroma version — an upgrade that changes
-    the on-disk format must rebuild loudly, never fail silently."""
+    the on-disk format must rebuild loudly, never fail silently. Since
+    CP-79 also the decisions drop's component (``drop_component``) and a
+    non-default ``embedding.batch_size`` — each an ADDITIONAL key, present
+    only when set, so the document a store built without a drop at the
+    pinned batch size hashes is byte-identical to before."""
     doc = {
         "index_format": INDEX_FORMAT,
         "cases": {cid: src.main_sha for cid, src in sorted(sources.items())},
-        "embedding": {"model": embedding.model, "revision": embedding.revision,
-                      "normalize": embedding.normalize},
+        "embedding": _embedding_component(embedding),
         "chunking": {"max_tokens": chunking.max_tokens,
                      "overlap": chunking.overlap,
                      "respect_page_boundaries": chunking.respect_page_boundaries},
         "decisions": {"seed": decisions_seed, "size": decisions_size},
         "chroma": {"version": chroma_version},
     }
-    blob = json.dumps(doc, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode()).hexdigest()
+    if decisions_drop is not None:
+        doc["decisions_drop"] = decisions_drop
+    return _digest(doc)
+
+
+def collection_fingerprints(sources: dict[str, CaseSource],
+                            embedding: EmbeddingConfig,
+                            chunking: ChunkingConfig,
+                            decisions_seed: int, decisions_size: int,
+                            chroma_version: str = CHROMA_VERSION,
+                            decisions_drop: dict | None = None) -> dict[str, str]:
+    """One fingerprint per collection (CP-79, wishlist 61): each hashes
+    only what determines THAT collection's bytes — a case's its own main
+    SHA, the chunking, the model and the store format; the decisions
+    collection's the drop component and the chunking (a drop is split),
+    or the generator's seed and size (the 30 are not). Recorded beside
+    the whole-store fingerprint so a start under ``if-stale`` rebuilds the
+    collections whose inputs moved and loads the rest: a decisions drop
+    never re-embeds the cases, a one-case edit never re-embeds the others.
+    The whole-store fingerprint stays the reuse gate (a match means every
+    collection matches and the case SET is the same)."""
+    common = {
+        "index_format": INDEX_FORMAT,
+        "embedding": _embedding_component(embedding),
+        "chroma": {"version": chroma_version},
+    }
+    chunk = {"max_tokens": chunking.max_tokens, "overlap": chunking.overlap,
+             "respect_page_boundaries": chunking.respect_page_boundaries}
+    out = {cid: _digest({**common, "chunking": chunk, "case": {cid: src.main_sha}})
+           for cid, src in sorted(sources.items())}
+    if decisions_drop is not None:
+        out["decisions"] = _digest({**common, "chunking": chunk,
+                                    "decisions_drop": decisions_drop})
+    else:
+        out["decisions"] = _digest({**common, "decisions": {
+            "seed": decisions_seed, "size": decisions_size}})
+    return out
 
 
 def _chunk_id(chunk: Chunk) -> str:
@@ -402,12 +518,20 @@ class CaseIndex:
 
 class DecisionsIndex:
     """Cutoff-exempt (ADR-0007(e)): ranks the full deterministic corpus —
-    ``n_results`` is the whole corpus, tie-break by decision_id is ours."""
+    ``n_results`` is the whole corpus, tie-break by decision_id is ours.
+    The no-path fallback since CP-79: its hits keep their level-0 shape
+    (``{decision_id, court, year, score, text}`` — spec §7.6) inside the
+    wrapper ``tools.py`` puts around both sources; ``index_commit`` is
+    ``""`` (a synthetic corpus names no drop)."""
+
+    kind = "synthetic"
+    index_commit = ""
 
     def __init__(self, collection, corpus: list[dict]) -> None:
         self.collection = collection
         self.corpus = corpus
         self._by_id = {d["decision_id"]: d for d in corpus}
+        self.n_decisions = len(corpus)
 
     def search(self, query_vec, k: int) -> list[dict]:
         result = self.collection.query(
@@ -421,6 +545,156 @@ class DecisionsIndex:
         return [{"decision_id": d["decision_id"], "court": d["court"],
                  "year": d["year"], "score": float(score), "text": d["text"]}
                 for score, d in ranked[:k] if score > 0]
+
+
+class RiiDecisionsIndex:
+    """The decisions surface at level 2 (CP-79, docs/decisions-surface.md):
+    the unit of spec §4 is what a hit returns, the pieces of spec §6 are
+    what is embedded, a unit's score is its best piece's (§8.1), hits are
+    ordered by the total order of §8.2, the fetch is bounded by ``k``
+    (§8.4). Cutoff-exempt like the synthetic corpus it replaces. The
+    sidecar document holds every unit's text and its pieces' character
+    spans, so a hit carries the whole unit (never a piece) and ``excerpt``
+    is the best piece without re-splitting."""
+
+    kind = "rii"
+
+    def __init__(self, collection, doc: dict) -> None:
+        self.collection = collection
+        self.doc = doc
+        self.decisions: list[dict] = doc["decisions"]
+        self.drop: dict = doc["drop"]
+        self._by_id = {d["decision_id"]: d for d in self.decisions}
+        self.n_decisions = len(self.decisions)
+        self.n_units = sum(len(d["units"]) for d in self.decisions)
+        self.n_pieces = sum(len(u["pieces"]) for d in self.decisions
+                            for u in d["units"])
+        # what decision_stats aggregates: year and court per decision
+        self.corpus = [{"decision_id": d["decision_id"], "court": d["court"],
+                        "year": int(d["date"][:4])} for d in self.decisions]
+
+    @property
+    def index_commit(self) -> str:
+        """The drop's content hash (spec §7.5) — the value the decisions
+        lock will record once corpus-contract v3 lands."""
+        return self.drop["sha256"]
+
+    def search(self, query_vec, k: int, fetch: int | None = None) -> list[dict]:
+        """Top-``k`` units for the query: fetch ``DECISIONS_FETCH_PER_K × k``
+        pieces (``fetch`` overrides the bound — for the recall measurement
+        only), keep each unit's best piece (§8.1), order per §8.2 — score
+        descending, then ``decision_id``, section in DTD order, ``rn`` with
+        null first, document order — drop non-positive scores, return the
+        whole unit's text with the best piece as ``excerpt``."""
+        if self.n_pieces == 0:
+            return []
+        wanted = DECISIONS_FETCH_PER_K * k if fetch is None else fetch
+        result = self.collection.query(
+            query_embeddings=[query_vec],
+            n_results=max(1, min(self.n_pieces, wanted)),
+            include=["metadatas", "distances"])
+        best: dict[tuple[str, int], tuple[float, int]] = {}
+        for meta, distance in zip(result["metadatas"][0],
+                                  result["distances"][0]):
+            key = (str(meta["doknr"]), int(meta["unit"]))
+            score = 1.0 - float(distance)
+            if key not in best or score > best[key][0]:
+                best[key] = (score, int(meta["piece"]))
+
+        def order(item):
+            (doknr, ordinal), (score, _) = item
+            unit = self._by_id[doknr]["units"][ordinal]
+            return (-score, doknr, SECTION_ORDER[unit["section"]],
+                    unit["rn"] is not None, unit["rn"] or 0, ordinal)
+
+        hits: list[dict] = []
+        for (doknr, ordinal), (score, piece) in sorted(best.items(), key=order)[:k]:
+            if score <= 0:
+                break
+            decision = self._by_id[doknr]
+            unit = decision["units"][ordinal]
+            hit = {"decision_id": decision["decision_id"],
+                   "aktenzeichen": decision["aktenzeichen"]}
+            if decision.get("ecli"):
+                hit["ecli"] = decision["ecli"]
+            begin, end = unit["pieces"][piece]
+            hit.update({"court": decision["court"], "date": decision["date"],
+                        "doktyp": decision["doktyp"], "rn": unit["rn"],
+                        "section": unit["section"], "score": float(score),
+                        "text": unit["text"],
+                        "excerpt": unit["text"][begin:end]})
+            hits.append(hit)
+        return hits
+
+
+def rii_pieces(drop: Drop, tokenizer, chunking: ChunkingConfig):
+    """Every unit of the drop split into pieces (spec §6): verbatim
+    contiguous slices that cover the unit and never span two, each
+    carrying its unit's identity and ordinal. Yields the sidecar's per-
+    decision entries and, flat, the piece texts, ids and metadatas.
+    Piece ids follow the spec's reference scheme —
+    ``<doknr>:rn:<N>:p<i>`` / ``<doknr>:<section>:p<i>``, a repeated
+    (doknr, number) taking ``:d2``, ``:d3`` … before ``:p<i>`` — and the
+    metadata's ``unit`` ordinal is what a hit resolves through."""
+    entries: list[dict] = []
+    texts: list[str] = []
+    ids: list[str] = []
+    metadatas: list[dict] = []
+    for decision in drop.decisions:
+        seen: dict[str, int] = {}
+        units: list[dict] = []
+        for ordinal, unit in enumerate(decision.units):
+            spans = split_spans(tokenizer, unit.text, chunking)
+            # spec §6 constraint 2, at the edges: the tokenizer's normalizer
+            # gives no offset to a format character (U+00AD, U+200B) that
+            # opens or closes a unit, so the first and last piece are
+            # widened to the unit's bounds — still verbatim, still
+            # contiguous; one unit of the March 2026 drop ends with a soft
+            # hyphen (CP-79 review)
+            spans[0] = (0, spans[0][1])
+            spans[-1] = (spans[-1][0], len(unit.text))
+            prefix = (f"{decision.decision_id}:rn:{unit.rn}" if unit.rn is not None
+                      else f"{decision.decision_id}:{unit.section}")
+            seen[prefix] = seen.get(prefix, 0) + 1
+            if seen[prefix] > 1:
+                prefix += f":d{seen[prefix]}"
+            for piece, (begin, end) in enumerate(spans):
+                texts.append(unit.text[begin:end])
+                ids.append(f"{prefix}:p{piece}")
+                meta = {"doknr": decision.decision_id, "unit": ordinal,
+                        "piece": piece, "section": unit.section}
+                if unit.rn is not None:
+                    meta["rn"] = unit.rn
+                metadatas.append(meta)
+            units.append({"section": unit.section, "rn": unit.rn,
+                          "text": unit.text,
+                          "pieces": [[begin, end] for begin, end in spans]})
+        entry = decision.header()
+        entry["units"] = units
+        entry["anomalies"] = list(decision.anomalies)
+        entries.append(entry)
+    return entries, texts, ids, metadatas
+
+
+def build_rii_decisions_index(client, encoder: Encoder, drop: Drop,
+                              chunking: ChunkingConfig,
+                              progress: ProgressFn | None = None) -> RiiDecisionsIndex:
+    """The drop → units → pieces → the ``decisions`` collection, batched
+    (CP-77's path — a real drop is far above chroma's single-add ceiling),
+    every piece window-checked against the model first (the refusal that
+    stops a silently truncated store, CP-57)."""
+    entries, texts, ids, metadatas = rii_pieces(drop, encoder.tokenizer,
+                                                chunking)
+    encoder.check_chunks_fit("decisions", texts)
+    collection = _recreate_collection(client, "decisions", encoder.identity())
+    _add_batched(client, collection, encoder, "decisions", texts=texts,
+                 ids=ids, metadatas=metadatas, progress=progress)
+    doc = {"source": "rii", "surface_version": SURFACE_VERSION,
+           "drop": {"path": drop.path, "sha256": drop.sha256,
+                    "files": len(drop.decisions),
+                    "skipped": [list(item) for item in drop.skipped]},
+           "decisions": entries}
+    return RiiDecisionsIndex(collection, doc)
 
 
 def build_case_index(client, encoder: Encoder, source: CaseSource,
@@ -515,24 +789,38 @@ def build_decisions_index(client, encoder: Encoder, corpus: list[dict],
     return DecisionsIndex(collection, corpus)
 
 
-def save_decisions_index(root: Path, index: DecisionsIndex) -> None:
+def save_decisions_index(root: Path, index) -> None:
+    """The sidecar: the synthetic corpus as the list it always was (bytes
+    unchanged), a drop as the document ``build_rii_decisions_index``
+    assembled (``source: rii``)."""
     dec_dir = root / "decisions"
     dec_dir.mkdir(parents=True, exist_ok=True)
+    payload = index.doc if index.kind == "rii" else index.corpus
     (dec_dir / "corpus.json").write_text(
-        json.dumps(index.corpus, ensure_ascii=False))
+        json.dumps(payload, ensure_ascii=False))
 
 
-def load_decisions_index(client, root: Path,
-                         identity: dict) -> DecisionsIndex:
-    corpus = json.loads((root / "decisions" / "corpus.json").read_text())
+def load_decisions_index(client, root: Path, identity: dict):
+    """Either kind, told apart by the sidecar's shape; the count check is
+    against pieces for a drop and decisions for the synthetic corpus."""
+    doc = json.loads((root / "decisions" / "corpus.json").read_text())
     collection = client.get_collection("decisions",
                                        embedding_function=_NoTextOps())
-    if collection.count() != len(corpus):
+    if isinstance(doc, dict) and doc.get("source") == "rii":
+        index = RiiDecisionsIndex(collection, doc)
+        expected = index.n_pieces
+        what = "pieces"
+    else:
+        index = DecisionsIndex(collection, doc)
+        expected = len(doc)
+        what = "decisions"
+    if collection.count() != expected:
         raise ValueError(
             f"decisions: chroma collection holds {collection.count()} "
-            f"vectors, sidecar records {len(corpus)} — stored index corrupt")
+            f"vectors, sidecar records {expected} {what} — stored index "
+            f"corrupt")
     _check_collection_identity(collection, "decisions", identity)
-    return DecisionsIndex(collection, corpus)
+    return index
 
 
 def _read_fingerprint_doc(root: Path) -> dict:
@@ -547,6 +835,14 @@ def read_fingerprint(root: Path) -> str | None:
     return _read_fingerprint_doc(root).get("fingerprint")
 
 
+def read_collection_fingerprints(root: Path) -> dict[str, str]:
+    """The per-collection record (CP-79); ``{}`` for a store written before
+    it existed — such a store is reused whole on a fingerprint match and
+    gets the record backfilled then (``state._backfill_identity``)."""
+    doc = _read_fingerprint_doc(root).get("collections")
+    return {str(k): str(v) for k, v in doc.items()} if isinstance(doc, dict) else {}
+
+
 def read_store_identity(root: Path) -> dict | None:
     """The ``embedding`` block — which model built this store (CP-57).
     None for no store, and for a store written before CP-57 (its
@@ -558,15 +854,19 @@ def read_store_identity(root: Path) -> dict | None:
 
 
 def write_fingerprint(root: Path, fingerprint: str | None,
-                      embedding: dict) -> None:
+                      embedding: dict,
+                      collections: dict[str, str] | None = None) -> None:
     """The fingerprint plus the store's identity: the model, revision and
     dimension that produced these vectors, next to the artifact (CP-57).
     ``fingerprint=None`` is the record a rebuild writes BEFORE it destroys
     anything: identity of the model about to fill the store, no reusable
     fingerprint — an interrupted rebuild is then refused under the old
-    model and rebuilt under the new, never served."""
+    model and rebuilt under the new, never served. ``collections`` (CP-79)
+    is the per-collection record — during a rebuild, the collections that
+    are complete under this identity, so a kill keeps them reusable."""
     root.mkdir(parents=True, exist_ok=True)
-    (root / "fingerprint.json").write_text(
-        json.dumps({"fingerprint": fingerprint, "index_format": INDEX_FORMAT,
-                    "chroma_version": CHROMA_VERSION,
-                    "embedding": dict(embedding)}))
+    doc = {"fingerprint": fingerprint, "index_format": INDEX_FORMAT,
+           "chroma_version": CHROMA_VERSION, "embedding": dict(embedding)}
+    if collections is not None:
+        doc["collections"] = dict(sorted(collections.items()))
+    (root / "fingerprint.json").write_text(json.dumps(doc))

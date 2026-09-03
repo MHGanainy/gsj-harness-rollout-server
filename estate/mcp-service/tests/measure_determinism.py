@@ -26,6 +26,18 @@ command line (the staging probes above assume the staging pages):
         --decisions 12000 \
         --probe 'case_big:650:10:the sealed ledgers were moved' \
         --probe 'case_big:1300:20:salvage award appeal'
+
+Over a real decisions drop (CP-79 — the level-2 surface, best piece per
+unit over a fetch bounded by k): ``--decisions-path <dir>`` replaces the
+synthetic corpus, ``--decision-probe 'K:QUERY'`` replaces the English
+probes, and a raw decisions probe (the bounded fetch's ids + distances at
+full float repr, the first decision probe) joins the raw chunk probe:
+
+    .venv/bin/python tests/measure_determinism.py --repos case_0003 \
+        --probe 'case_0003:9:10:deposition slip' \
+        --decisions-path /path/to/drop \
+        --decision-probe '5:Sittenwidrigkeit im Sinne von § 826 BGB' \
+        --decision-probe '20:Widerruf eines Verbraucherdarlehensvertrags'
 """
 
 from __future__ import annotations
@@ -62,10 +74,13 @@ def worker(config_path: str, probes_path: str | None = None) -> None:
     from helpers import make_state
 
     case_queries, raw_probe = CASE_QUERIES, RAW_PROBE
+    decision_queries = DECISION_QUERIES
     if probes_path:
         given = json.loads(Path(probes_path).read_text())
         case_queries = [tuple(p) for p in given["case_queries"]]
         raw_probe = tuple(given["raw_probe"])
+        decision_queries = [tuple(p) for p in
+                            given.get("decision_queries", DECISION_QUERIES)]
     state = make_state(Path(config_path))
     assert state.status == "ready", state.error
     out: dict = {"reused": state.reused_index, "results": {}, "raw": {},
@@ -76,10 +91,20 @@ def worker(config_path: str, probes_path: str | None = None) -> None:
         vec, _ = state.encoder.encode_query(query)
         results = state.cases[case_id].search(vec, k=k, timestep=timestep)
         out["results"][f"{case_id}/T{timestep}/k{k}/{query}"] = results
-    for query, k in DECISION_QUERIES:
+    for query, k in decision_queries:
         vec, _ = state.encoder.encode_query(query)
         out["results"][f"decisions/k{k}/{query}"] = state.decisions.search(
             vec, k=k)
+    if getattr(state.decisions, "kind", "synthetic") == "rii":
+        # the bounded fetch itself (CP-79): which pieces, at what distance
+        from gsj_mcp_service.index import DECISIONS_FETCH_PER_K
+        query, k = decision_queries[0]
+        vec, _ = state.encoder.encode_query(query)
+        n = min(state.decisions.n_pieces, DECISIONS_FETCH_PER_K * k)
+        raw = state.decisions.collection.query(
+            query_embeddings=[vec], n_results=n, include=["distances"])
+        out["raw_decisions"] = {"ids": raw["ids"][0],
+                                "distances": [repr(d) for d in raw["distances"][0]]}
     case_id, timestep, query = raw_probe
     index = state.cases[case_id]
     vec, _ = state.encoder.encode_query(query)
@@ -125,7 +150,18 @@ def compare(label: str, a: dict, b: dict) -> bool:
         print(f"  DIFF {label} :: raw chunk probe — ids equal-as-sets: "
               f"{same_membership}, order equal: "
               f"{a['raw']['ids'] == b['raw']['ids']}")
-    n = len(a["results"]) + 1
+    extra = 0
+    if "raw_decisions" in a and "raw_decisions" in b:
+        extra = 1
+        ra, rb = a["raw_decisions"], b["raw_decisions"]
+        if not (ra["ids"] == rb["ids"] and ra["distances"] == rb["distances"]):
+            identical = False
+            common = set(ra["ids"]) & set(rb["ids"])
+            print(f"  DIFF {label} :: raw decisions probe (bounded fetch of "
+                  f"{len(ra['ids'])}) — ids equal-as-sets: "
+                  f"{set(ra['ids']) == set(rb['ids'])} ({len(common)} shared), "
+                  f"order equal: {ra['ids'] == rb['ids']}")
+    n = len(a["results"]) + 1 + extra
     print(f"{label}: {'IDENTICAL' if identical else 'NOT IDENTICAL'} "
           f"({n}/{n} probes)" if identical else f"{label}: NOT IDENTICAL")
     return identical
@@ -144,7 +180,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                         metavar="CASE:T:K:QUERY",
                         help="a search_case probe for a non-staging case; "
                              "the first one is also the raw chunk probe")
+    parser.add_argument("--decisions-path", default=None,
+                        help="a rii drop directory (CP-79) instead of the "
+                             "synthetic corpus")
+    parser.add_argument("--decision-probe", action="append", default=[],
+                        metavar="K:QUERY",
+                        help="a search_decisions probe (default: the two "
+                             "English probes over the synthetic corpus); "
+                             "the first is also the raw bounded-fetch probe")
     args = parser.parse_args(argv)
+    for spec in args.decision_probe:
+        if len(spec.split(":", 1)) != 2 or not spec.split(":", 1)[0].isdigit():
+            parser.error(f"--decision-probe {spec!r}: expected K:QUERY")
     if args.repos and not args.probe:
         parser.error("--repos names non-staging cases: give at least one "
                      "--probe CASE:T:K:QUERY for them")
@@ -163,22 +210,35 @@ def main() -> None:
     extra = {"decisions_size": args.decisions}
     if args.base_url:
         extra["base_url"] = args.base_url
+    if args.decisions_path:
+        extra["decisions_path"] = str(Path(args.decisions_path).resolve())
 
     root = Path(tempfile.mkdtemp(prefix="cp15-determinism-"))
     print(f"stores under {root}")
     clones = root / "clones"
     probes_path = None
-    if args.probe:
-        case_queries, raw = [], None
-        for spec in args.probe:
-            case_id, timestep, k, query = spec.split(":", 3)
-            case_queries.append((case_id, int(timestep), query, int(k)))
-            raw = raw or (case_id, int(timestep), query)
+    if args.probe or args.decision_probe:
+        case_queries, raw = list(CASE_QUERIES), RAW_PROBE
+        if args.probe:
+            case_queries, raw = [], None
+            for spec in args.probe:
+                case_id, timestep, k, query = spec.split(":", 3)
+                case_queries.append((case_id, int(timestep), query, int(k)))
+                raw = raw or (case_id, int(timestep), query)
+        decision_queries = list(DECISION_QUERIES)
+        if args.decision_probe:
+            decision_queries = []
+            for spec in args.decision_probe:
+                k, query = spec.split(":", 1)
+                decision_queries.append((query, int(k)))
         probes_path = root / "probes.json"
         probes_path.write_text(json.dumps(
-            {"case_queries": case_queries, "raw_probe": raw}))
-    print(f"repos {repos}, decisions {args.decisions}, "
-          f"{len(args.probe) or len(CASE_QUERIES)} case probes")
+            {"case_queries": case_queries, "raw_probe": raw,
+             "decision_queries": decision_queries}))
+    print(f"repos {repos}, decisions "
+          f"{args.decisions_path or args.decisions}, "
+          f"{len(args.probe) or len(CASE_QUERIES)} case probes, "
+          f"{len(args.decision_probe) or len(DECISION_QUERIES)} decision probes")
 
     cfg1 = write_config(root / "s1", repos=repos, clone_cache_dir=clones,
                         index_path=root / "s1" / "index", **extra)
@@ -206,15 +266,19 @@ def main() -> None:
     rebuild = compare("A vs D (two independent builds, same inputs)", a, d)
 
     print()
+    from gsj_mcp_service.index import DECISIONS_FETCH_PER_K
+    fetch = (f"the case fetch the full candidate set, the decisions fetch "
+             f"bounded at {DECISIONS_FETCH_PER_K}·k pieces" if "raw_decisions" in a
+             else "full-candidate-set fetch")
     scale = (f"{sum(a['counts'].values())} case chunks in {a['counts']}, "
-             f"{a['decisions']} decisions")
+             f"{a['decisions']} decision {'pieces' if 'raw_decisions' in a else 'vectors'}")
     if same_store and build_vs_load and rebuild:
         print("VERDICT: IDENTICAL — ids, order, and scores byte-equal across "
               "fresh processes, across build-vs-load, and across two "
               "independent HNSW builds, at tool level and raw chunk level. "
               f"HNSW happens to be reproducible at this scale ({scale}; "
-              "full-candidate-set fetch); this is a measurement, not a "
-              "guarantee — a larger corpus, a bounded fetch, or a Chroma "
+              f"{fetch}); this is a measurement, not a "
+              "guarantee — a larger corpus, a wider fetch, or a Chroma "
               "bump reopens it (A-25).")
     else:
         print("VERDICT: NOT IDENTICAL — see per-comparison diffs above "

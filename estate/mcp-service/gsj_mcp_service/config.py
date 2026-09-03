@@ -181,10 +181,15 @@ class SearchConfig(BaseModel):
 
 
 class DecisionsConfig(BaseModel):
+    """The decisions corpus: a rii-dok v1 drop at ``path`` (CP-79 — the
+    surface of docs/decisions-surface.md, level 2), or, with no path, the
+    deterministic synthetic corpus the pinned episodes saw (``seed`` and
+    ``corpus_size`` are read only then; the two sources never mix)."""
     model_config = _FORBID
 
     seed: int = DEFAULT_SEED
     corpus_size: int = Field(default=N_DECISIONS, ge=1)  # 30 = the pinned corpus
+    path: Path | None = None  # a directory of jb-<doknr>.xml files; None = the 30
 
 
 class AuthConfig(BaseModel):
@@ -276,6 +281,9 @@ def load_config(path: Path) -> ServiceConfig:
             "clone_cache_dir": _resolve(base, config.source.clone_cache_dir)}),
         "index": config.index.model_copy(update={
             "path": _resolve(base, config.index.path)}),
+        "decisions": config.decisions.model_copy(update={
+            "path": (_resolve(base, config.decisions.path)
+                     if config.decisions.path is not None else None)}),
     })
     return resolved
 

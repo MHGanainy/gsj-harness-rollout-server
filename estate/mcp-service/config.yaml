@@ -63,6 +63,9 @@ search:
 decisions:
   seed: 20260204         # the deterministic corpus carried over (ADR-0007)
   corpus_size: 30
+  # path: /app/decisions # CP-79: a directory of rii-dok v1 decisions (jb-<doknr>.xml)
+                         # — the tool then serves Randnummern at level 2 of
+                         # docs/decisions-surface.md; unset = the synthetic 30 above
 
 auth:
   token_secret_env: GSJ_MCP_TOKEN_SECRET   # env var NAME; value never in config

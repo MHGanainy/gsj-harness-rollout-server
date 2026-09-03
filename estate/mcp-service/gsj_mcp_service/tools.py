@@ -1,16 +1,26 @@
 """The four `gsj` tools — declarations byte-identical to the pinned roster.
 
-CONTRACT (G3, tool_roster_hash): the tool NAMES, SIGNATURES (type hints and
-defaults — the SDK generates the schemas from them) and DOCSTRINGS below must
-stay byte-identical to the retired stub's (ADR-0007; last at commit bbd4830) —
-the CP-29 Step 1 check proved this reproduces the pinned wire roster hash
-`a7a7956b…48e56` over streamable-http. Any edit here changes the wire roster
-and G3 fails until a deliberate `gsj-pin` re-pin. Same SDK pin (mcp==2.0.0)
-for the same reason.
+CONTRACT (G3, tool_roster_hash): the tool NAMES, PARAMETERS (names, type
+hints and defaults — the SDK generates the input schemas from them) and
+DOCSTRINGS below must stay byte-identical to the retired stub's (ADR-0007;
+last at commit bbd4830) — the CP-29 Step 1 check proved this reproduces the
+pinned wire roster hash `a7a7956b…48e56` over streamable-http. Any edit
+there changes the wire roster and G3 fails until a deliberate `gsj-pin`
+re-pin. Same SDK pin (mcp==2.0.0) for the same reason. The RETURN
+annotation is outside the contract (CP-78, re-verified through the roster
+suite's renderer): G3 hashes name + description + pi's rendering of the
+INPUT schema, mcp 2.0.0 emits an output schema for `-> list[dict]` and none
+for `-> dict`, and pi-mcp-extension 1.5.0 reads neither — so
+`search_decisions` moved to `-> dict` at CP-79 for the spec's wrapper, and
+had to: under mcp 2.0.0 a dict returned from a `-> list[dict]` tool fails
+the SDK's output validation with a tool error.
 
 Bodies differ from the stub by design: MiniLM cosine retrieval, T from the
 VERIFIED TOKEN CLAIMS only (never a request field), one index per case with
-the cutoff applied as a filter before ranking (ADR-0040(d)).
+the cutoff applied as a filter before ranking (ADR-0040(d)); since CP-79
+`search_decisions` returns the decisions surface's response
+(docs/decisions-surface.md §7: `{query, k, hits, index_commit}` — level-2
+hits over a rii drop, the synthetic 30's level-0 hits with no path).
 """
 
 from __future__ import annotations
@@ -69,18 +79,22 @@ def build_mcp(state: AppState) -> MCPServer:
         return results
 
     @app.tool()
-    def search_decisions(query: str, k: int = 5) -> list[dict]:
+    def search_decisions(query: str, k: int = 5) -> dict:
         """Search the decisions corpus (never clamped by the case timestep)."""
         start = time.perf_counter()
         claims = _scope()
+        effective_k = clamp_k(k, max_k)
         vector, cache_hit = state.encoder.encode_query(query)
-        results = state.decisions.search(vector, k=clamp_k(k, max_k))
+        hits = state.decisions.search(vector, k=effective_k)
         request_log(state, episode_id=claims.episode_id,
                     case_id=claims.case_id, timestep=claims.timestep,
-                    tool="search_decisions", k=k, n_results=len(results),
+                    tool="search_decisions", k=k, n_results=len(hits),
                     latency_ms=round((time.perf_counter() - start) * 1e3, 2),
                     cache_hit=cache_hit)
-        return results
+        # spec §7.2: the query as received, the EFFECTIVE k (§8.3), at most
+        # k hits in §8.2's order, the index's opaque identity ("" unknown)
+        return {"query": query, "k": effective_k, "hits": hits,
+                "index_commit": state.decisions.index_commit}
 
     @app.tool()
     def case_status() -> dict:

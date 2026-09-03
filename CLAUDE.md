@@ -70,7 +70,7 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 109 + mcp-service 114)
+├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 109 + mcp-service 134)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 └── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
@@ -81,7 +81,7 @@ next: <advisory>
     ├── rollout.h200.yaml        #   the one YAML for the H200 estate
     ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
     ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
-    ├── mcp-service/             #   the retrieval service — own suite (114), venv, Dockerfile, GHCR image
+    ├── mcp-service/             #   the retrieval service — own suite (134), venv, Dockerfile, GHCR image
     └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (109) + staging/ (163 frozen fixture files)
 ```
 

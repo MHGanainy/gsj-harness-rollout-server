@@ -127,14 +127,22 @@ def _docket(decision: dict) -> str:
 
 def test_search_decisions_ignores_case_cutoff(server):
     """A low-timestep token still searches the FULL decisions corpus: exact
-    docket queries hit their decision regardless of the case timestep."""
+    docket queries hit their decision regardless of the case timestep.
+    Since CP-79 the result is the decisions surface's envelope
+    (`{query, k, hits, index_commit}`, docs/decisions-surface.md §7.2);
+    with no `decisions.path` the hits are the synthetic 30's level-0 shape
+    and `index_commit` is ""."""
     token = mint_token("case_0001", 5)     # lowest recorded timestep
     corpus = decisions_corpus(20260204)
     for decision in (corpus[0], corpus[17]):
         docket = _docket(decision)
-        results = call_tool(server.base_url, token, "search_decisions",
-                            {"query": docket, "k": 5})
-        assert results
+        response = call_tool(server.base_url, token, "search_decisions",
+                             {"query": docket, "k": 5})
+        assert set(response) == {"query", "k", "hits", "index_commit"}
+        assert response["query"] == docket and response["k"] == 5
+        assert response["index_commit"] == ""
+        results = response["hits"]
+        assert results and len(results) <= 5
         for hit in results:
             assert set(hit) == {"decision_id", "court", "year", "score", "text"}
             assert isinstance(hit["score"], float) and hit["score"] > 0

@@ -17,11 +17,14 @@
 name: gsj-mcp-service
 services:
   mcp:
-    image: gsj-mcp-service:0.4.1   # 0.4.1 = CP-77: batched adds under chroma's
-                                   # 5,461-item ceiling + the orphan sweep (0.4.0 =
-                                   # CP-58: CP-57's configurable encoder + the store
-                                   # identity, config.yaml with the read credential
-                                   # baked; 0.3.0 = CP-15, ChromaDB)
+    image: gsj-mcp-service:0.5.0   # 0.5.0 = CP-79: the decisions surface (a rii drop
+                                   # by decisions.path, level 2; the wrapper; one
+                                   # fingerprint per collection; 0.4.1 = CP-77:
+                                   # batched adds under chroma's 5,461-item ceiling +
+                                   # the orphan sweep; 0.4.0 = CP-58: CP-57's
+                                   # configurable encoder + the store identity,
+                                   # config.yaml with the read credential baked;
+                                   # 0.3.0 = CP-15, ChromaDB)
     container_name: gsj-mcp-service
     network_mode: host
     user: "1000:1000"

@@ -299,7 +299,7 @@ The episode token is HS256, minted host-side by the harness with claims `{case_i
 The compatibility contract for any replacement backend:
 - **The G5 result shape.** Every `search_case` hit carries `"page"` as an integer under exactly that key and `"file"` exactly `md/page_NNNN.md`; `checks.py` re-reads results with `"page"\s*:\s*(\d+)` and `md/page_(\d{4})\.md` — renaming either blinds the gate without failing it.
 - **The cutoff, filter-before-rank,** with T from the verified token claims only.
-- **The exemptions are fixed** — `search_decisions`/`decision_stats` exempt, `case_status` reports the token's scope.
+- **The exemptions are fixed** — `search_decisions`/`decision_stats` exempt, `case_status` reports the token's scope. `search_decisions` answers with one JSON object, `{query, k, hits, index_commit}` (the decisions surface, [`decisions-surface.md`](../decisions-surface.md) §7) — level-2 hits with `rn` and `section` over a drop the estate mounts (`estate.py up --decisions-dir`), the synthetic 30 otherwise; a consumer keys on the tool's name, never on a `page` key.
 - **The configured, pinned embedder, never the backend's own** — stored vectors must be the configured model's output at its pinned revision (to the measured bound); the store records which model built it and refuses to serve under another until an explicit re-embed (`estate/mcp-service/README.md`, *Indexing, fingerprints and reindex*).
 
 Rule reasoning: [docs/checks-spec.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).

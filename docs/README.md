@@ -28,13 +28,13 @@
 | --- | --- | --- | --- |
 | [`guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md) | **The user documentation** — six pages, `guide/README.md` the index, diagrams as PNGs under `guide/img/` (sources: PowerPoint decks outside the repo); not part of the record | anyone adopting the library | tracked |
 | `VERDICT.md`, `CHARTER.md`, `checks-spec.md`, `corpus-contract.md` | The four normative documents, described above | see above | tracked |
-| `decisions-surface.md`, `decisions-surface/` | The decisions surface specification (v1, CP-78) and its conformance fixture — the one document written for a reader outside this repository (`gsj-next`, by permalink) | both implementers of `search_decisions`, and whoever grades a `dec:` citation | tracked |
+| `decisions-surface.md`, `decisions-surface/` | The decisions surface specification (v1, CP-78; implemented by this repository's service at level 2 since CP-79) and its conformance fixture — the one document written for a reader outside this repository (`gsj-next`, by permalink) | both implementers of `search_decisions`, and whoever grades a `dec:` citation | tracked |
 | `polar/` | Real Polar run artifacts — fidelity, the training loops, thinking, the adversarial probe | anyone re-verifying an episode claim | seven bodies tracked, rest private |
 | CP-06 spike (off the tree) | The feasibility spike — stub backend, spike harness, the only observation of pi 0.83.0's true request body, the P1/G3 proofs | anyone re-verifying a wire-dialect fact in `checks-spec.md` or charter A-2/A-12/A-15, rows 11/31 | frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) since CP-68 (commit `a769771`, tree `2082a24f`); `git checkout spike-cp06 -- spike` |
 | `golden/` | The golden-pair evidence (`mac/`, `h200/`, `COMPARISON.md`) — the A-1 fidelity proof against the archived predecessor | anyone re-verifying the `loss_mask`/`prompt_ids` claims | private; Mac fixtures tracked at `../tests/fixtures/golden-mac/` |
 | `reports/` | One report per checkpoint (CP-00 → present, plus CP-04′, CP-09′, CP-11b, CP-13a) — the primary evidence behind every number in the root README and the verdict | an auditor chasing a claim | private |
 | `prompts/` | Every checkpoint's instructions, verbatim — compare with the same-numbered report | an auditor verifying process | private |
-| `decisions/` | The ADRs, append-only, Context → Decision → Consequence (ADR-0001–0026 at CP-46; ADR-0027–0033 since) | anyone asking "why is it built this way" | private |
+| `decisions/` | The ADRs, append-only, Context → Decision → Consequence (ADR-0001–0026 at CP-46; ADR-0027–0035 since) | anyone asking "why is it built this way" | private |
 | `AUDIT-2026-08-24.md`, `CLASSIFICATION.md` | The adversarial audit, and the CP-47 census that classified every tracked file — the basis of the CP-48 untracking | an auditor | private |
 
 ## Who needs what

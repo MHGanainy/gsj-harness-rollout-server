@@ -166,11 +166,13 @@ def write_config(dst_dir: Path, *, repos: list[str], clone_cache_dir,
                  base_url: str = BARES_URL, max_tokens: int = 220,
                  overlap: int = 40, model: str = DEFAULT_MODEL,
                  revision: str = REVISION, decisions_size: int = 30,
+                 decisions_path: str | None = None,
                  name: str = "config.yaml") -> Path:
     """A complete, valid config.yaml mirroring the service's own, pointed at
     the local deterministic bares (owner: null => ownerless file:// URLs).
     ``decisions_size`` above 5,461 puts the decisions builder over chroma's
-    single-add ceiling (CP-77's above-the-ceiling proofs)."""
+    single-add ceiling (CP-77's above-the-ceiling proofs); ``decisions_path``
+    names a rii drop directory (CP-79) — the synthetic 30 otherwise."""
     doc = {
         "source": {"base_url": base_url, "owner": None, "repos": list(repos),
                    "ref_main": "main", "ref_pattern": "timestep-{T}",
@@ -182,7 +184,8 @@ def write_config(dst_dir: Path, *, repos: list[str], clone_cache_dir,
                      "respect_page_boundaries": True},
         "index": {"path": str(index_path), "rebuild": rebuild},
         "search": {"default_k": 5, "max_k": 20, "method": "chroma"},
-        "decisions": {"seed": 20260204, "corpus_size": decisions_size},
+        "decisions": {"seed": 20260204, "corpus_size": decisions_size,
+                      **({"path": decisions_path} if decisions_path else {})},
         "auth": {"token_secret_env": "GSJ_MCP_TOKEN_SECRET", "leeway_s": 30},
         "server": {"host": "127.0.0.1", "port": port, "log_level": "warning"},
     }

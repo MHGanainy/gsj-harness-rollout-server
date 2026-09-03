@@ -103,11 +103,14 @@ SCHEMA = 1
 FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.3"
 FORGEJO_IMAGE_DIGEST = "sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
 FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, measured digest-equal
-MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.4.0"   # the two-platform index (CP-61)
-# CP-58: the store identity + the read credential. From the checkout the
-# local build tag (the H200 loads it out-of-band; nothing pulls there); from
-# the wheel the published index, pulled when absent (wishlist 51 (b)).
-MCP_IMAGE = "gsj-mcp-service:0.4.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
+MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.4.1"   # the two-platform index (0.4.0 CP-61; 0.4.1 CP-79)
+# CP-58: the store identity + the read credential; CP-77/CP-79: 0.4.1, the
+# batched add under chroma's 5,461-item ceiling + the orphan sweep (an
+# estate on 0.4.0 fails any collection above 5,461 vectors). From the
+# checkout the local build tag (the H200 loads it out-of-band; nothing
+# pulls there); from the wheel the published index, pulled when absent
+# (wishlist 51 (b)).
+MCP_IMAGE = "gsj-mcp-service:0.4.1" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
@@ -642,8 +645,10 @@ COMPOSE_MCP = """\
     volumes:
       - {data}:/app/data
       - {config}:/app/config.yaml:ro
-{hf_mount}    restart: unless-stopped
+{hf_mount}{decisions_mount}    restart: unless-stopped
 """
+
+MCP_DECISIONS_MOUNT = "/app/decisions"     # where --decisions-dir lands, read-only
 
 COMPOSE_NET_OWN = """\
 networks:
@@ -856,11 +861,14 @@ def write_compose(rundir: Path, run: Run, network: str, external_net: bool) -> N
     if cm:
         hf_mount = ("      - %s:%s:ro\n" % (cm["hf_model_dir"], cm["hf_model_mount"])
                     if cm.get("hf_model_dir") else "")
+        decisions_mount = ("      - %s:%s:ro\n" % (cm["decisions_dir"], MCP_DECISIONS_MOUNT)
+                           if cm.get("decisions_dir") else "")
         user = f'    user: "{cm["uid"]}:{cm["gid"]}"\n' if cm.get("uid") is not None else ""
         parts.append(COMPOSE_MCP.format(
             image=cm["image"], container=cm["container"], port=cm["port"],
             data=cm["data"], config=cm["config"], secret_env=MCP_SECRET_ENV,
-            read_env=cm["read_env"], hf_mount=hf_mount, user=user))
+            read_env=cm["read_env"], hf_mount=hf_mount,
+            decisions_mount=decisions_mount, user=user))
     parts.append((COMPOSE_NET_EXT if external_net else COMPOSE_NET_OWN)
                  .format(network=network))
     (rundir / "compose.yaml").write_text("".join(parts))
@@ -904,7 +912,7 @@ search:
 decisions:
   seed: 20260204
   corpus_size: 30
-
+{decisions_path}
 auth:
   token_secret_env: {secret_env}
   leeway_s: 30
@@ -937,7 +945,7 @@ MCP_SECTION_KEYS = {
     "embedding": ("model", "revision", "device", "batch_size", "normalize"),
     "chunking": ("max_tokens", "overlap", "respect_page_boundaries"),
     "search": ("default_k", "max_k", "method"),
-    "decisions": ("seed", "corpus_size"),
+    "decisions": ("seed", "corpus_size", "path"),
 }
 # what enters the store's fingerprint (index.py corpus_fingerprint) — a
 # change to any of these re-embeds; everything else serves or paces
@@ -945,7 +953,9 @@ MCP_FINGERPRINT_KEYS = (("embedding", "model"), ("embedding", "revision"),
                         ("embedding", "normalize"),
                         ("chunking", "max_tokens"), ("chunking", "overlap"),
                         ("chunking", "respect_page_boundaries"),
-                        ("decisions", "seed"), ("decisions", "corpus_size"))
+                        ("decisions", "seed"), ("decisions", "corpus_size"),
+                        ("decisions", "path"),   # CP-79: the drop (its content sha, service-side)
+                        ("embedding", "batch_size"))  # CP-79 (wishlist 69 (c)): identity above 32
 
 
 def mcp_fingerprint_components(doc: dict) -> dict:
@@ -970,11 +980,21 @@ def mcp_override_problems(doc) -> list[str]:
                 problems.append(f"{key}.{sub}: not a key of that section "
                                 f"(the service refuses unknown keys at its "
                                 f"start — this refusal is the same one, early)")
+            if key == "decisions" and "path" in doc[key]:
+                # the path is a CONTAINER path the service reads; the host
+                # directory behind it is this run's mount — one flag sets
+                # both, so a file naming only the half the service sees
+                # would start a container that finds nothing there
+                problems.append(f"decisions.path: is set by --decisions-dir "
+                                f"<host directory> (mounted read-only at "
+                                f"{MCP_DECISIONS_MOUNT} and written into the "
+                                f"config for you) — not by this file")
             for sub, want in (("batch_size", int), ("max_tokens", int),
                               ("overlap", int), ("default_k", int),
                               ("max_k", int), ("seed", int),
                               ("corpus_size", int), ("normalize", bool),
-                              ("respect_page_boundaries", bool)):
+                              ("respect_page_boundaries", bool),
+                              ("path", str)):
                 if sub in doc[key] and not isinstance(doc[key][sub], want) \
                         or (want is int and isinstance(doc[key].get(sub), bool)):
                     problems.append(f"{key}.{sub}: must be {want.__name__} "
@@ -1023,13 +1043,34 @@ def render_mcp_config(base_text: str, overrides: dict) -> str:
     return head + yaml.safe_dump(doc, sort_keys=False)
 
 
-def mcp_config_review(doc: dict, cfg_path: Path) -> str:
+def mcp_config_review(doc: dict, cfg_path: Path,
+                      decisions_dir: str | None = None) -> str:
     """What the corpus is about to be chunked and embedded under, with what
     each setting costs to change AFTERWARDS — said while the operator can
     still act on it (the asymmetry is the point: some of these are a config
-    edit, some are a corpus-wide re-embed, one is a refusal)."""
+    edit, some are a corpus-wide re-embed, one is a refusal). Since CP-79
+    the decisions line says which SOURCE the decisions tool will serve —
+    a real drop (the host directory, its file count, level 2 of
+    docs/decisions-surface.md) or the synthetic 30 — a drop that appeared
+    silently would defeat the review."""
     e, c = doc.get("embedding", {}), doc.get("chunking", {})
     s, d = doc.get("search", {}), doc.get("decisions", {})
+    if d.get("path"):
+        n = len([f for f in os.listdir(decisions_dir) if f.endswith(".xml")]) \
+            if decisions_dir and os.path.isdir(decisions_dir) else "?"
+        decisions_line = (
+            f"decisions           path {d.get('path')} — a rii-dok v1 drop: "
+            f"{decisions_dir} ({n} .xml files, read-only mount; the tool serves "
+            f"Randnummern, docs/decisions-surface.md level 2)\n"
+            f"          to change later: the decisions collection re-embeds alone "
+            f"(its own fingerprint — a changed drop never re-embeds the cases; "
+            f"a drop above ~5,000 units takes minutes per thousand decisions)")
+    else:
+        decisions_line = (
+            f"decisions           seed {d.get('seed')}, corpus_size {d.get('corpus_size')} "
+            f"— the synthetic 30, no drop (pass --decisions-dir <dir> for real decisions)\n"
+            f"          to change later: the decisions collection re-embeds alone "
+            f"(fingerprint components; the cases stay)")
     return (f"""the retrieval config, before the index is spent under it:
       embedding.model     {e.get('model')}
       embedding.revision  {e.get('revision')}   (normalize {str(e.get('normalize', True)).lower()})
@@ -1038,12 +1079,15 @@ def mcp_config_review(doc: dict, cfg_path: Path) -> str:
       chunking            max_tokens {c.get('max_tokens')}, overlap {c.get('overlap')}, respect_page_boundaries {str(c.get('respect_page_boundaries', True)).lower()}
           to change later: a re-embed of the WHOLE corpus (fingerprint
           components — the next start rebuilds the index)
-      decisions           seed {d.get('seed')}, corpus_size {d.get('corpus_size')}
-          to change later: an index rebuild (fingerprint components)
+      {decisions_line}
       search              default_k {s.get('default_k')}, max_k {s.get('max_k')}
           to change later: nothing re-embeds — edit {cfg_path} and restart
           the container (serving-only)
-      (embedding.device {e.get('device', 'cpu')}, batch_size {e.get('batch_size', 32)} — speed only, not identity)""")
+      embedding.batch_size {e.get('batch_size', 32)} — identity, not only speed (CP-79, wishlist 69):
+          the encode composition shapes a collection's last bits above 32 items;
+          32 is the pinned value every recorded store was built at, another value
+          is a fingerprint component and re-embeds the WHOLE corpus
+      (embedding.device {e.get('device', 'cpu')} — speed only, not identity)""")
 
 
 class Mcp:
@@ -1084,7 +1128,7 @@ class Mcp:
                             f"this daemon is {daemon_arch()} and the image is "
                             f"{'amd64' if daemon_arch() in ('arm64', 'aarch64') else 'foreign'}"
                             "-emulated — build the service natively for this arch "
-                            "(`docker build --platform linux/<arch> -t gsj-mcp-service:0.4.0-<arch> "
+                            f"(`docker build --platform linux/<arch> -t {MCP_IMAGE}-<arch> "
                             "estate/mcp-service`) and pass it with --mcp-image; production "
                             "is amd64 and runs the shipped image as is")
             else:
@@ -1619,6 +1663,13 @@ def cmd_up(args: argparse.Namespace) -> None:
         retarget("the retrieval service", prev["mcp"]["mode"],
                  "created" if mmode == "create" else "adopted")
     mc_over = load_mcp_overrides(A.get("mcp_config", None, None))
+    if mmode == "adopt" and A.get("decisions_dir", None, None):
+        die("--decisions-dir mounts a drop into a service this run would CREATE.",
+            "--mcp adopt (an adopted service's decisions are its operator's)",
+            "--mcp create, or no --decisions-dir",
+            "point the adopted service's own config at its drop (decisions.path, "
+            "mounted read-only) and restart it — this run only checks the "
+            "identity it serves")
     if mc_over is not None and mmode == "adopt":
         die("--mcp-config configures a service this run would CREATE.",
             "--mcp adopt (an adopted service's config is its operator's)",
@@ -1807,6 +1858,32 @@ def cmd_up(args: argparse.Namespace) -> None:
                     "(or --hf-cache <dir> naming a cache that holds it)")
             say("mcp", f"{model} is not the image's baked model — mounting the host's "
                        f"snapshot {hf_dir} into the container (offline load)")
+        # CP-79: the decisions drop — a host directory of rii-dok v1
+        # files, mounted read-only into the service; the config names the
+        # mount. Recorded, so a re-run keeps it; a new value replaces it
+        # (the decisions collection alone re-embeds, its own fingerprint)
+        ddir = A.get("decisions_dir", "decisions drop directory (jb-<doknr>.xml "
+                                      "files, rii-dok v1; none = the synthetic 30; "
+                                      "recorded — a re-run keeps it, "
+                                      "--decisions-dir '' removes it)",
+                     (pm or {}).get("decisions_dir"))
+        if ddir:
+            ddir = str(Path(str(ddir)).expanduser().resolve())
+            if not os.path.isdir(ddir):
+                die(f"--decisions-dir {ddir} is not a directory.", None,
+                    "a directory of jb-<doknr>.xml files (docs/decisions-surface.md §2)",
+                    "point --decisions-dir at the drop, or omit it for the synthetic 30")
+            n_xml = len([f for f in os.listdir(ddir) if f.endswith(".xml")])
+            if n_xml == 0:
+                die(f"--decisions-dir {ddir} holds no .xml file.", None,
+                    "at least one jb-<doknr>.xml (the service refuses a drop "
+                    "with no conforming decision at its start)",
+                    "point --decisions-dir at the drop, or omit it for the synthetic 30")
+        else:
+            ddir = None
+        ddir_changed = bool(pm) and (pm.get("decisions_dir") or None) != ddir
+        if ddir_changed:
+            changed.append(f"the decisions drop: {pm.get('decisions_dir')!r} -> {ddir!r}")
         mport = (pick_port(pm["port"], 8790, "--mcp-port", check=False) if pm
                  else pick_port(A.get("mcp_port", "MCP host port", "auto"),
                                 8790, "--mcp-port"))
@@ -1854,7 +1931,9 @@ def cmd_up(args: argparse.Namespace) -> None:
             prog=PROG, run=name, forgejo_url=fj.container_url, owner=owner,
             repos=", ".join(case_ids), read_env=read_env, model=model,
             revision=revision, chunk_max=chunk_max, chunk_overlap=chunk_overlap,
-            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV),
+            rebuild="always" if rebuild else "if-stale", secret_env=MCP_SECRET_ENV,
+            decisions_path=(f"  path: {MCP_DECISIONS_MOUNT}   # --decisions-dir "
+                            f"{ddir}, mounted read-only (CP-79)\n" if ddir else "")),
             residual)
         # the review (CP-70 item 7): shown before anything is embedded under
         # it — every run, so a -y run still sees what it is spending; the
@@ -1870,9 +1949,11 @@ def cmd_up(args: argparse.Namespace) -> None:
             except yaml.YAMLError:
                 old_components = None      # unreadable old config: treat as moved
         new_components = mcp_fingerprint_components(yaml.safe_load(cfg_text))
-        embed_spend = (stored is None or rebuild
+        # a swapped drop renders to the same mount path, so the components
+        # cannot see it — the record can (CP-79 review)
+        embed_spend = (stored is None or rebuild or ddir_changed
                        or (cfg_before is not None and old_components != new_components))
-        say("mcp-config", mcp_config_review(yaml.safe_load(cfg_text), cfg)
+        say("mcp-config", mcp_config_review(yaml.safe_load(cfg_text), cfg, ddir)
             + ("" if embed_spend else
                "\n      (this config matches the store's — an embed happens now "
                "only if the corpus itself moved)"))
@@ -1898,6 +1979,7 @@ def cmd_up(args: argparse.Namespace) -> None:
             "data": str(rundir / "mcp-data"), "config": str(cfg), "read_env": read_env,
             "hf_model_dir": str(hf_dir) if hf_dir else None,
             "hf_model_mount": f"/opt/hf-cache/hub/{hf_dir.name}" if hf_dir else None,
+            "decisions_dir": ddir,
             "chunking": {"max_tokens": chunk_max, "overlap": chunk_overlap},
             "config_overrides": residual,
             "uid": os.getuid() if platform.system() == "Linux" else None,
@@ -1931,8 +2013,13 @@ def cmd_up(args: argparse.Namespace) -> None:
                 cfg.write_text(cfg.read_text().replace("rebuild: always", "rebuild: if-stale"))
                 say("mcp", "re-embedded; mcp-config.yaml set back to index.rebuild: if-stale "
                            "so the next start reuses this store")
+        dd = h.get("decisions_drop")
         PH.done(f"ready at {mcp.url} (containers: {mcp.container_url}); fingerprint "
-                f"{str(h.get('fingerprint'))[:12]}…; index_reused={h.get('index_reused')}")
+                f"{str(h.get('fingerprint'))[:12]}…; index_reused={h.get('index_reused')}"
+                + (f"; rebuilt {h['rebuilt']}" if h.get("rebuilt") else "")
+                + (f"; decisions: {dd['files']} files, {dd['units']} units, "
+                   f"{dd['pieces']} pieces (drop {dd['sha256'][:12]}…)" if dd
+                   else f"; decisions: the synthetic {h.get('decisions')}"))
         if stored is not None and h.get("index_reused"):
             pass
         elif stored is not None and not rebuild:
@@ -2956,11 +3043,12 @@ def cmd_update(args: argparse.Namespace) -> None:
                     "\n        only) —")
     print(f"""  will: push {len(plan['push'])} repo(s) (only those), refresh their lock rows,
         rebuild the taskbank (corpus-wide by design),{restart_note} trigger ONE reindex —
-        the service's own if-stale decision; its fingerprint covers every
-        case's main SHA, so the frozen service re-embeds the WHOLE corpus
-        when any case moved (per-case incremental reindex is a capability
-        it does not have — wishlist row 61) — then verify, and refresh the
-        run's lock/bank copies.
+        the service's own if-stale decision: since 0.5.0 (CP-79) it keeps
+        one fingerprint per collection and re-embeds only the case(s) that
+        moved (a decisions drop and the untouched cases are reused as they
+        are — wishlist row 61); a service before 0.5.0 re-embeds the WHOLE
+        corpus when any case moved — then verify, and refresh the run's
+        lock/bank copies.
   will not: force a re-embed (--rebuild is `up`'s), push over branches the
         record does not account for (--overwrite-repos is `up`'s).""")
     if not args.defaults and sys.stdin.isatty():
@@ -3254,6 +3342,12 @@ def main() -> None:
     mg.add_argument("--hf-cache", help="create: a HuggingFace cache dir holding a non-default model")
     mg.add_argument("--chunk-max-tokens", type=int, help="create: chunking.max_tokens (default 220)")
     mg.add_argument("--chunk-overlap", type=int, help="create: chunking.overlap (default 40)")
+    mg.add_argument("--decisions-dir",
+                    help="create: a directory of rii-dok v1 decisions (jb-<doknr>.xml, "
+                         "as published by rechtsprechung-im-internet.de) mounted "
+                         f"read-only at {MCP_DECISIONS_MOUNT} — the decisions tool then "
+                         "serves Randnummern (docs/decisions-surface.md, level 2); "
+                         "absent: the synthetic 30. Recorded; a re-run keeps it")
     mg.add_argument("--mcp-config",
                     help="create: YAML of retrieval-config overrides merged "
                          "onto the generated config — the operator sections "
