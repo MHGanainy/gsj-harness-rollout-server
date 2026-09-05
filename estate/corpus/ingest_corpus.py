@@ -1747,7 +1747,7 @@ if __name__ == "__main__":
               f"  {_estate} validate|ingest --corpus <root>\n"
               "(scaffold, taskbank and verify run inside its `up`). This "
               "form keeps working in the release that ships the estate tool "
-              "(0.1.6) and is removed no earlier than 0.1.7; the module "
+              "(0.1.6) and is removed no earlier than 0.1.8; the module "
               "`gsj_rollout.ingest_corpus` stays importable.",
               file=sys.stderr)
     raise SystemExit(main())

@@ -46,6 +46,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fcntl
+import functools
 import getpass
 import hashlib
 import http.client as _http_client
@@ -57,6 +59,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -64,6 +67,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 
 try:
@@ -103,14 +107,13 @@ SCHEMA = 1
 FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.3"
 FORGEJO_IMAGE_DIGEST = "sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
 FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, measured digest-equal
-MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.4.1"   # the two-platform index (0.4.0 CP-61; 0.4.1 CP-79)
-# CP-58: the store identity + the read credential; CP-77/CP-79: 0.4.1, the
-# batched add under chroma's 5,461-item ceiling + the orphan sweep (an
-# estate on 0.4.0 fails any collection above 5,461 vectors). From the
+MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"   # CP-79's published two-platform decisions image
+# CP-83: 0.5.0 supports the decisions drop (CP-79), retaining 0.4.1's
+# batched add under chroma's 5,461-item ceiling and orphan sweep. From the
 # checkout the local build tag (the H200 loads it out-of-band; nothing
 # pulls there); from the wheel the published index, pulled when absent
 # (wishlist 51 (b)).
-MCP_IMAGE = "gsj-mcp-service:0.4.1" if CHECKOUT else MCP_IMAGE_PUBLISHED
+MCP_IMAGE = "gsj-mcp-service:0.5.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
@@ -451,22 +454,129 @@ def _env_unquote(raw: str) -> str:
 
 class Run:
     def __init__(self, name: str) -> None:
+        if not isinstance(name, str) or not RUN_NAME_RE.fullmatch(name):
+            die(f"run name {name!r} is not a token.", repr(name),
+                "lowercase letters or digits first, then lowercase letters, digits, - or _",
+                "pass --name <token>; paths and parent components are not run names")
         self.name = name
-        self.dir = RUNS / name
+        self.root = RUNS.resolve()
+        self.dir = self.root / name
+        if self.dir.is_symlink() or self.dir.resolve() != self.dir:
+            die(f"run {name!r} escapes its named directory.", str(self.dir),
+                f"the direct directory {self.dir}, without a symlink",
+                "use the original --runs-dir and run name; do not point a run at another directory")
+        if self.dir.exists() and not self.dir.is_dir():
+            die(f"run {name!r} is not a directory.", str(self.dir),
+                "a directory beneath --runs-dir", "choose another run name; preserve the existing file")
         self.env: dict[str, str] = {}
         self.record: dict = {}
         self.existing = False
+        self._locked = False
+
+    @contextmanager
+    def mutation(self):
+        """Kernel exclusion lasts for a command; its inode survives `--wipe`."""
+        if self._locked:
+            yield
+            return
+        locks = self.root / ".locks"
+        if locks.is_symlink() or (locks.exists() and not locks.is_dir()):
+            die("the run lock directory is not a real directory.", str(locks),
+                f"a real directory at {locks}", "restore the runs directory's lock directory")
+        locks.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            fd = os.open(locks / f"{self.name}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        except OSError as exc:
+            die(f"cannot open the lock for run {self.name!r}.", str(exc),
+                "a regular writable lock file", "restore the lock file and its permissions; then re-run")
+        with os.fdopen(fd, "w") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                die(f"the lock for run {self.name!r} is not a regular file.",
+                    str(locks / f"{self.name}.lock"), "a regular run lock file",
+                    "restore the lock file before re-running; do not replace a live lock")
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                die(f"run {self.name!r} is busy — another command holds it.",
+                    "the run's exclusive lock is held", "one mutating command per run",
+                    f"wait for it to finish or check status: {PROG} status --name {self.name} "
+                    f"--runs-dir {self.root}; do not delete the lock file")
+            self._locked = True
+            try:
+                yield
+            finally:
+                self._locked = False
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def read_record(self, *, tolerant: bool = False) -> dict:
+        rec = self.dir / "run.json"
+        try:
+            record = json.loads(rec.read_text())
+            problem = record_problem(record, self.name)
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            record, problem = {}, f"unreadable JSON ({type(exc).__name__})"
+        if problem:
+            if tolerant:  # down owns resources by namespace/evidence, not damaged JSON
+                return {}
+            die(f"{rec} is not a supported run record.", problem,
+                f"a schema-{SCHEMA} object for run {self.name!r}",
+                "restore run.json from backup, or use the tool version that wrote it; "
+                f"to stop a partial run use `{PROG} down --name {self.name} "
+                f"--runs-dir {self.root}`; never hand-edit run.json")
+        return record
+
+    def owned(self) -> bool:
+        """Accept our marker or legacy identity; mere directory existence is not ownership."""
+        marker = self.dir / ".estate-run"
+        try:
+            if not marker.is_symlink() and marker.read_text() == f"estate run {self.name}\n":
+                return True
+        except (OSError, UnicodeError):
+            pass
+        if self.read_record(tolerant=True):
+            return True
+        for filename in ("compose.yaml", ".env"):
+            path = self.dir / filename
+            try:
+                first = path.read_text().splitlines()[0] if not path.is_symlink() else ""
+            except (OSError, IndexError, UnicodeError):
+                continue
+            if (filename == "compose.yaml" and first.startswith("# GENERATED by ")
+                    and first.endswith(f" for run {self.name} — do not edit; re-run `up`.")):
+                return True
+            if filename == ".env" and first.endswith(f" — every secret of run {self.name}, KEY='value'."):
+                return True
+        return False
+
+    def require_wipe_owned(self) -> None:
+        if not self.owned():
+            die(f"refusing to wipe {self.dir}: run ownership is unproved.",
+                "no matching estate marker, supported run record or generated run file",
+                "a directory this estate tool created",
+                "restore this run's metadata from backup; use down without --wipe to stop "
+                "recoverable owned services, and inspect unrecognized files yourself")
+
+    def prepare(self) -> None:
+        if self.dir.exists() and any(self.dir.iterdir()) and not self.owned():
+            die(f"refusing to use {self.dir} as a run.",
+                "a nonempty directory with no matching estate ownership evidence",
+                "an empty new directory or a run this tool created",
+                "choose another --name or restore this run's metadata from backup; "
+                "preserve the unrecognized directory")
+        self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        marker = self.dir / ".estate-run"
+        if marker.is_symlink():
+            die("the run ownership marker is a symlink.", str(marker),
+                "the run's own regular marker file", "restore it from backup before re-running up")
+        marker.write_text(f"estate run {self.name}\n")
 
     def load(self) -> None:
         rec = self.dir / "run.json"
         envf = self.dir / ".env"
         if rec.is_file():
-            try:
-                self.record = json.loads(rec.read_text())
-            except ValueError as exc:
-                die(f"{rec} is not valid JSON.", str(exc), "the record this "
-                    "script wrote", "restore it from backup, or pick another "
-                    "--name; never hand-edit run.json")
+            self.record = self.read_record()
             self.existing = True
             if not envf.is_file():
                 names = sorted(self.record.get("secrets", {}).get("names", []))
@@ -489,8 +599,9 @@ class Run:
         self.dir.chmod(0o700)
         envf = self.dir / ".env"
         body = ("# %s — every secret of run %s, KEY='value'.\n"
-                "# `gsj-rollout submit` reads this file beside rollout.yaml when a named\n"
-                "# variable is not exported (CP-75; wheels through 0.1.6: source it first);\n"
+                "# `gsj-rollout submit` (since 0.1.7, CP-75) reads this file beside rollout.yaml\n"
+                "# for an unset named variable; the environment wins when already set.\n"
+                "# Historical wheels through 0.1.6 need it sourced before submit.\n"
                 "# compose takes --env-file; Polar's serve_gateway reads ITS environment —\n"
                 "# source it there: (set -a; . %s; set +a; polar serve_gateway …).\n"
                 "# Never commit; never paste values on a command line.\n"
@@ -506,6 +617,10 @@ class Run:
         envf.chmod(0o600)
 
     def write_record(self) -> None:
+        with self.mutation():
+            self._write_record()
+
+    def _write_record(self) -> None:
         self.record["schema"] = SCHEMA
         self.record["updated_at"] = now_iso()
         self.record.setdefault("created_at", self.record["updated_at"])
@@ -518,9 +633,116 @@ class Run:
             if value and value in text:
                 die("internal: a secret value would land in run.json.",
                     f"the value of {name}", "names only", "report this bug")
-        tmp = self.dir / "run.json.tmp"       # atomic: never a half-written record
-        tmp.write_text(text)
-        os.replace(tmp, self.dir / "run.json")
+        with tempfile.NamedTemporaryFile(mode="w", prefix="run.json.", suffix=".tmp",
+                                         dir=self.dir, delete=False) as handle:
+            tmp = Path(handle.name)
+            handle.write(text)
+        try:
+            os.replace(tmp, self.dir / "run.json")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
+def record_problem(record, name: str) -> str | None:
+    """Check the state boundary, retaining schema 1's optional historical fields."""
+    if not isinstance(record, dict):
+        return "run.json root is not an object"
+    if type(record.get("schema")) is not int or record["schema"] != SCHEMA:
+        return "schema is missing or unsupported (only integer 1 is supported)"
+    if record.get("run") != name:
+        return "run is missing or does not match the requested name"
+    mappings = ("version corpus network forgejo mcp engine pins ports artifacts secrets last_run "
+                "harness compose mcp.embedding mcp.backend compose.forgejo compose.mcp "
+                "compose.mcp.chunking compose.mcp.config_overrides").split()
+    for path in mappings:
+        parent = record
+        keys = path.split(".")
+        for key in keys[:-1]:
+            parent = parent.get(key, {})
+        if keys[-1] in parent and not isinstance(parent[keys[-1]], dict):
+            return f"{path} is not an object"
+    for section in ("forgejo", "mcp"):
+        if section not in record:
+            continue  # a record saved after Forgejo creation is recoverable by up
+        service = record[section]
+        if service.get("mode") not in ("created", "adopted"):
+            return f"{section}.mode is not created or adopted"
+        if "url" not in service:
+            return f"{section}.url is missing"
+    for section in ("forgejo", "mcp", "engine"):
+        url = record.get(section, {}).get("url")
+        if section == "engine" and url is None:
+            continue
+        try:
+            parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+            valid = (parsed is not None and parsed.scheme in ("http", "https")
+                     and parsed.hostname and not re.search(r"\s", url)
+                     and (parsed.port is None or 0 < parsed.port <= 65535))
+        except ValueError:
+            valid = False
+        if section in record and not valid:
+            return f"{section}.url is not an HTTP(S) URL"
+    strings = {
+        "": "run_dir sandbox_image polar_leg gateway_host",
+        "corpus": "path name owner sandbox_image",
+        "network": "name",
+        "forgejo": "container_url owner admin_user admin_credential_env push_token_env read_token_env",
+        "mcp": "container_url secret_env",
+        "mcp.embedding": "model revision",
+        "engine": "url model",
+    }
+    for section, keys in strings.items():
+        values = record
+        for part in section.split(".") if section else ():
+            values = values.get(part, {})
+        for key in keys.split():
+            if key in values and not isinstance(values[key], str):
+                return f"{section + '.' if section else ''}{key} is not a string"
+    for service, fields in {
+        "forgejo": {"image": str, "container": str, "port": int, "data": str,
+                    "signin": bool, "uid": int, "gid": int},
+        "mcp": {"image": str, "container": str, "port": int, "data": str,
+                "config": str, "read_env": str},
+    }.items():
+        values = record.get("compose", {}).get(service, {})
+        if not values:
+            continue
+        for key, kind in fields.items():
+            if type(values.get(key)) is not kind:
+                return f"compose.{service}.{key} is missing or is not {kind.__name__}"
+    for key, port in record.get("ports", {}).items():
+        if type(port) is not int or not 1 <= port <= 65535:
+            return f"ports.{key} is not a port in 1..65535"
+    for key in ("external", "created_by_run"):
+        network = record.get("network", {})
+        if key in network and type(network[key]) is not bool:
+            return f"network.{key} is not a boolean"
+    names = record.get("secrets", {}).get("names", [])
+    if not isinstance(names, list) or any(not isinstance(n, str) for n in names):
+        return "secrets.names is not a list of variable names"
+    return None
+
+
+def _command_run(args: argparse.Namespace, name: str) -> Run:
+    if getattr(args, "_estate_run", None) is None:
+        args._estate_run = Run(name)
+        if not getattr(args, "dry_run", False):
+            args._estate_locks.enter_context(args._estate_run.mutation())
+    return args._estate_run
+
+
+def mutating_command(func):
+    @functools.wraps(func)
+    def wrapped(args):
+        with ExitStack() as args._estate_locks:
+            args._estate_run = None
+            try:
+                if getattr(args, "name", None):
+                    _command_run(args, args.name)
+                return func(args)
+            finally:
+                del args._estate_locks, args._estate_run
+    return wrapped
 
 
 # ---------------------------------------------------------------- docker
@@ -1090,6 +1312,19 @@ def mcp_config_review(doc: dict, cfg_path: Path,
       (embedding.device {e.get('device', 'cpu')} — speed only, not identity)""")
 
 
+def require_decisions_image(image: str, decisions_dir: str | None) -> None:
+    """Only known pre-decisions tags are rejected; custom/offline images stay valid."""
+    known = re.fullmatch(r"(?:ghcr\.io/mhganainy/)?gsj-mcp-service:"
+                         r"(\d+)\.(\d+)\.(\d+)(?:-(?:arm64|aarch64|amd64))?", str(image))
+    if decisions_dir and known and tuple(map(int, known.groups())) < (0, 5, 0):
+        die("the selected retrieval image does not support a decisions drop.",
+            f"{image} with --decisions-dir (decisions.path)",
+            "MCP 0.5.0 or a custom image supporting decisions.path",
+            f"pass --mcp-image {MCP_IMAGE_PUBLISHED}; on an offline host, "
+            "load that image out-of-band first (docker save | docker load), "
+            "or omit the drop (--decisions-dir '' removes a recorded one)")
+
+
 class Mcp:
     def __init__(self, url: str, container_url: str, secret: str, mode: str) -> None:
         self.url = url.rstrip("/")
@@ -1111,7 +1346,19 @@ class Mcp:
             if h is None:
                 line = "unreachable"
                 silent_since = silent_since or time.time()
-                if container and time.time() - silent_since > 20:
+                state = {}
+                if container:
+                    inspected = run(["docker", "inspect", "--format", "{{json .State}}", container],
+                                    capture_output=True)
+                    if inspected.returncode == 0:
+                        try:
+                            state = json.loads(inspected.stdout)
+                        except (ValueError, TypeError):
+                            pass
+                    if not isinstance(state, dict):
+                        state = {}
+                terminal = state.get("Status") in ("exited", "dead", "restarting")
+                if container and (terminal or time.time() - silent_since > 20):
                     # a service that stops answering is not "still indexing":
                     # read the container's own tail once before waiting on
                     # (measured at CP-59: the amd64 image under qemu on an
@@ -1131,6 +1378,15 @@ class Mcp:
                             f"(`docker build --platform linux/<arch> -t {MCP_IMAGE}-<arch> "
                             "estate/mcp-service`) and pass it with --mcp-image; production "
                             "is amd64 and runs the shipped image as is")
+                    if terminal:
+                        fix = (f"the service rejected decisions.path: pass --mcp-image {MCP_IMAGE_PUBLISHED} "
+                               "(or a custom image supporting the drop), then re-run up"
+                               if "decisions.path" in text else
+                               f"inspect `docker logs --tail 80 {container}` and the run's "
+                               "mcp-config.yaml; correct the startup/config error, then re-run up")
+                        die(f"the retrieval service in {container} exited during startup.",
+                            f"container state={state.get('Status')}, exit={state.get('ExitCode')}",
+                            "a running service answering /health while it indexes", fix)
             else:
                 silent_since = None
                 prog = h.get("progress") or {}
@@ -1154,9 +1410,13 @@ class Mcp:
                     "model; a clone failure means the read token or the "
                     "Forgejo URL as seen from the container is wrong")
             time.sleep(3)
+        fix = ("large corpora embed for a while on cpu — re-run to keep waiting "
+               "(the index survives), or --ingest-timeout" if last != "unreachable" else
+               f"check {self.url}/health and the service's startup logs "
+               + (f"(`docker logs --tail 80 {container}`); " if container else "; ")
+               + "correct the service URL or startup error, then re-run")
         die(f"the retrieval service did not reach state=ready within {timeout_s:.0f} s.",
-            last, "state=ready", "large corpora embed for a while on cpu — "
-            "re-run to keep waiting (the index survives), or --ingest-timeout")
+            last, "state=ready", fix)
 
     def reindex(self) -> tuple[int, object]:
         token = ic.mint_admin_token(self.secret)
@@ -1313,6 +1573,7 @@ def gateway_host(network: str, gport: int, explicit: str | None,
 
 # ------------------------------------------------------------- the estate
 
+@mutating_command
 def cmd_up(args: argparse.Namespace) -> None:
     A = Answers(args)
     try:
@@ -1354,13 +1615,18 @@ def cmd_up(args: argparse.Namespace) -> None:
     name = A.get("name", "run name (binding: it names the run directory, "
                          "the containers and the network)",
                  yaml_name, required=True)
-    if not RUN_NAME_RE.match(name):
-        die(f"run name {name!r} is not a token.", repr(name),
-            "lowercase letters, digits, - and _ (it names a compose project)", "--name")
-    run_ = Run(name)
+    run_ = _command_run(args, name)
     run_.load()
+    # Known incompatible explicit/recorded image+drop answers refuse before
+    # creating files, pulling images or touching Forgejo. Interactive choices
+    # are checked again once the actual image and drop have been selected.
+    prior_mcp = run_.record.get("compose", {}).get("mcp") or {}
+    prior_mode = "adopt" if run_.record.get("mcp", {}).get("mode") == "adopted" else "create"
+    if A.get("mcp", None, prior_mode) == "create":
+        require_decisions_image(A.get("mcp_image", None, prior_mcp.get("image", MCP_IMAGE)),
+                                A.get("decisions_dir", None, prior_mcp.get("decisions_dir")))
     rundir = run_.dir
-    rundir.mkdir(parents=True, exist_ok=True)
+    run_.prepare()
     rundir.chmod(0o700)   # the whole run is the operator's: .env, and the MCP's
     # clone cache, whose cold `clone --bare` writes the read token into
     # <case>.git/config (wishlist 47 — frozen-side; measured here at CP-59)
@@ -1867,6 +2133,7 @@ def cmd_up(args: argparse.Namespace) -> None:
                                       "recorded — a re-run keeps it, "
                                       "--decisions-dir '' removes it)",
                      (pm or {}).get("decisions_dir"))
+        require_decisions_image(image, ddir)
         if ddir:
             ddir = str(Path(str(ddir)).expanduser().resolve())
             if not os.path.isdir(ddir):
@@ -2234,8 +2501,9 @@ def cmd_up(args: argparse.Namespace) -> None:
     head = (f"# GENERATED by {PROG} for run {name} — do not edit (run.json dates it);\n"
             f"# re-run `{PROG} up --name {name}`. Schema: gsj_rollout/config.py\n"
             f"# (the one YAML). Secrets are named by variable and live in {rundir / '.env'}:\n"
-            f"# `gsj-rollout submit` reads it beside this file when the variable is not exported\n"
-            f"# (CP-75; wheels through 0.1.6: source it first, in a subshell); Polar's serve_gateway\n"
+            f"# `gsj-rollout submit` (since 0.1.7, CP-75) reads it beside this file for an unset\n"
+            f"# named variable; the environment wins when already set. Historical wheels through\n"
+            f"# 0.1.6 need it sourced before submit, in a subshell. Polar's serve_gateway\n"
             f"# reads its own environment — source it there, in a subshell. `serve` needs no secret.\n"
             f"# Sandbox-side addresses ({fj.container_url}, {mcp.container_url}) resolve on\n"
             f"# the docker network {network!r}; host-side ones ({fj.url}, {mcp.url}) are\n"
@@ -2316,7 +2584,8 @@ next — Polar's leg is yours, in containers (--polar-leg container): rollout.ya
   the three, the only one that needs a value.
 then one episode (the config's whole claim), from a container on {network!r} — submit reads the
   named read token from the .env beside the rollout.yaml it is given: mount the run's .env beside
-  your re-addressed copy (CP-75); a wheel through 0.1.6 reads the environment only (-e <name>):
+  your re-addressed copy (since 0.1.7, CP-75); the environment wins when already set.
+  Historical wheels through 0.1.6 read the environment only (docker -e <name>):
   gsj-rollout submit --config <your rollout.yaml> --from-bank <the taskbank> --row 0"""
     else:
         nxt = f"""
@@ -2326,7 +2595,8 @@ next — the receiver and Polar's two processes, on this host (three terminals; 
   {polar} serve_rollout -c {rel}/topology.rendered.yaml
   (set -a; . {rel}/.env; set +a; {polar} serve_gateway -c {rel}/topology.rendered.yaml)
 then one episode (the config's whole claim) — nothing exported: submit reads {rel}/.env beside rollout.yaml
-  for the named read token (CP-75; on a wheel through 0.1.6, source .env in a subshell first):
+  for an unset named read token (since 0.1.7, CP-75); the environment wins when already set.
+  Historical wheels through 0.1.6 need .env sourced in a subshell before submit:
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
     print(f"""
 == run {name} == {rel}/
@@ -2722,8 +2992,9 @@ def _fj_branches(url: str, token: str, owner: str, cid: str) -> dict[str, str] |
     return heads
 
 
+@mutating_command
 def cmd_update(args: argparse.Namespace) -> None:
-    run_ = _load_run(args.name)
+    run_ = _load_run(args.name, _command_run(args, args.name))
     rec = run_.record
     fj_rec, mcp_rec = rec.get("forgejo", {}), rec.get("mcp", {})
     owner = fj_rec.get("owner") or rec.get("corpus", {}).get("owner")
@@ -3173,8 +3444,8 @@ def cmd_update(args: argparse.Namespace) -> None:
 
 # ------------------------------------------------------- status and down
 
-def _load_run(name: str) -> Run:
-    r = Run(name)
+def _load_run(name: str, r: Run | None = None) -> Run:
+    r = r or Run(name)
     if not (r.dir / "run.json").is_file():
         die(f"no run named {name!r}.", f"{r.dir} has no run.json",
             "a run this script created", f"{PROG} up --name {name} (or --runs-dir "
@@ -3186,6 +3457,11 @@ def _load_run(name: str) -> Run:
 def cmd_status(args: argparse.Namespace) -> None:
     r = _load_run(args.name)
     rec = r.record
+    if not all(rec.get(service) for service in ("forgejo", "mcp")):
+        die(f"run {args.name!r} is incomplete.", f"{r.dir / 'run.json'} records only part of up",
+            "a completed Forgejo and MCP record",
+            f"re-run `{PROG} up --name {args.name} --runs-dir {r.root}` to resume, "
+            "or use down to stop its created services")
     print(f"== run {args.name} == {r.dir}  (last run {rec.get('last_run', {}).get('at')}, "
           f"{rec.get('last_run', {}).get('mode')})")
     if (r.dir / "compose.yaml").is_file():
@@ -3203,7 +3479,8 @@ def cmd_status(args: argparse.Namespace) -> None:
           f"embedding={(h.get('embedding') or {}).get('model')}  fingerprint="
           f"{str(h.get('fingerprint'))[:12]}…")
     e = rec.get("engine", {})
-    probe = probe_engine(e.get("url", ""), e.get("model", ""))
+    probe = (probe_engine(e["url"], e.get("model", "")) if e.get("url")
+             else {"reachable": False, "model_served": False})
     print(f"engine   operator {e.get('url')}  reachable={probe['reachable']}  "
           f"model_served={probe['model_served']}")
     ports = rec.get("ports", {})
@@ -3219,44 +3496,96 @@ def cmd_status(args: argparse.Namespace) -> None:
               f"{'listening' if port_busy(ports.get('rollout', 0)) else 'not listening'}")
 
 
+@mutating_command
 def cmd_down(args: argparse.Namespace) -> None:
-    r = Run(args.name)          # a run that died before its record exists, or whose
+    r = _command_run(args, args.name)  # a run that died before its record exists, or whose
     if not r.dir.is_dir():      # .env/run.json are gone, must still come down
         die(f"no run named {args.name!r}.", f"{r.dir} does not exist",
             "a run this script created", f"{PROG} up --name {args.name} (or --runs-dir "
             "naming the directory that holds it)")
-    try:
-        r.record = json.loads((r.dir / "run.json").read_text())
-    except (OSError, ValueError):
-        r.record = {}
-    if (r.dir / "compose.yaml").is_file():
-        if shutil.which("docker") is None:
-            die("`docker` is not on PATH.", None, None, "install docker to stop the services")
-        if (r.dir / ".env").is_file():
-            compose(r.dir, "down", "--remove-orphans")
-        else:   # compose interpolates ${VAR:?} even on down: the project-name form needs no file
-            run(["docker", "compose", "-p", f"gsj-{args.name}", "down", "--remove-orphans"])
-        say("down", f"created services stopped (data under {r.dir} survives)")
-    else:
-        say("down", "this run created no services; nothing to stop")
-    net = r.record.get("network", {})
-    own = f"gsj-{args.name}-net"    # the run's own network name: also what a run
-    # that died before its record could have created (and never recorded)
-    if shutil.which("docker") and not (r.dir / "compose.yaml").is_file() and (
-            net.get("created_by_run") or (net.get("name", own) == own and
-                                          run(["docker", "network", "inspect", own],
-                                              capture_output=True).returncode == 0)):
-        gone = run(["docker", "network", "rm", net.get("name", own)], capture_output=True)
-        if gone.returncode == 0:
-            say("down", f"network {net.get('name', own)} removed (this run's own)")
+    # Recovery cannot depend on a healthy record or .env. A damaged record
+    # contributes no ownership claims; generated Compose still names this run.
+    r.record = r.read_record(tolerant=True)
     if args.wipe:
+        r.require_wipe_owned()
+    composed = (r.dir / "compose.yaml").is_file()
+    services = composed or bool(r.record.get("compose"))
+    net = r.record.get("network", {})
+    net = net if isinstance(net, dict) else {}
+    own = f"gsj-{args.name}-net"
+    external = net.get("external") or net.get("name", own) != own
+    network = not external and (services or net.get("name") == own or
+                                net.get("created_by_run") is True)
+
+    def failed(action: str, detail: str) -> None:
+        die(f"run {args.name!r}: Docker cleanup failed or is unverified ({action}).",
+            detail, "owned containers and network absent before success or --wipe",
+            "inspect the Docker error above; restore daemon/socket access if unreachable, "
+            "or fix the reported Compose configuration/resource error. "
+            f"inspect `docker ps -a --filter label=com.docker.compose.project=gsj-{args.name}` "
+            f"and `docker network inspect {own}`, then re-run down. "
+            "Resolve any active network endpoints with their owner; run data was preserved.")
+
+    def checked(cmd: list[str], action: str):
+        proc = run(cmd, capture_output=True)
+        if proc.returncode:
+            failed(action, proc.stderr.strip() or f"docker exited {proc.returncode}")
+        return proc
+
+    if services or network:
+        if not r.owned():
+            die(f"run {args.name!r} has no matching estate ownership evidence.",
+                str(r.dir), "this run's generated Compose or estate record/marker",
+                "restore this run's generated files from backup before stopping services")
+        if shutil.which("docker") is None:
+            failed("docker is not on PATH", "Docker executable missing")
+        if services:
+            if composed and (r.dir / ".env").is_file():
+                stopped = compose(r.dir, "down", "--remove-orphans", capture_output=True)
+            else:   # project labels survive missing .env/Compose/record metadata
+                stopped = run(["docker", "compose", "-p", f"gsj-{args.name}",
+                               "down", "--remove-orphans"], capture_output=True)
+            if stopped.returncode:
+                failed("compose down", stopped.stderr.strip() or
+                       f"docker compose exited {stopped.returncode}")
+            remaining = checked(["docker", "ps", "-a", "--filter",
+                                 f"label=com.docker.compose.project=gsj-{args.name}",
+                                 "--format", "{{.Names}}"], "inspect owned containers")
+            if remaining.stdout.strip():
+                failed("owned containers remain", remaining.stdout.strip())
+        if network:
+            # Listing has an unambiguous successful-empty result; a failed
+            # inspect alone cannot distinguish absence from an unavailable daemon.
+            cmd = ["docker", "network", "ls", "--filter", f"name=^{own}$",
+                   "--format", "{{.Name}}"]
+            present = checked(cmd, "inspect owned network").stdout.splitlines()
+            if own in present:
+                checked(["docker", "network", "rm", own], "remove owned network")
+                if own in checked(cmd, "verify removed network").stdout.splitlines():
+                    failed("owned network remains", own)
+                say("down", f"network {own} removed (this run's own)")
+        say("down", f"created services stopped; owned resources absent "
+                    f"(data under {r.dir} survives)")
+    else:
+        say("down", "this run records no owned Docker resources; nothing to stop")
+    if args.wipe:
+        r.require_wipe_owned()
         say("wipe", f"deleting {r.dir}")
         try:
             shutil.rmtree(r.dir)
         except PermissionError:
-            run(["docker", "run", "--rm", "-v", f"{r.dir}:/wipe", "alpine:latest",
-                 "sh", "-c", "rm -rf /wipe/* /wipe/.[!.]* 2>/dev/null || true"])
-            shutil.rmtree(r.dir, ignore_errors=True)
+            removed = run(["docker", "run", "--rm", "-v", f"{r.dir}:/wipe", "alpine:latest",
+                           "find", "/wipe", "-mindepth", "1", "-delete"], capture_output=True)
+            if removed.returncode:
+                die("wipe did not finish; some run data may have been removed.",
+                    removed.stderr.strip() or f"docker exited {removed.returncode}",
+                    "an absent run directory",
+                    f"fix the Docker/filesystem error above under {r.dir}, then re-run down --wipe")
+            try:
+                r.dir.rmdir()
+            except OSError as exc:
+                die("wipe did not finish.", str(exc), "an absent run directory",
+                    f"fix filesystem permissions under {r.dir} and re-run down --wipe")
         say("wipe", "done; the next `up` builds a fresh run")
 
 
