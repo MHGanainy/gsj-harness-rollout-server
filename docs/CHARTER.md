@@ -2699,6 +2699,119 @@ Per-repository push outcomes are recorded with the final CP-86 verification.
 corrected readings; at the booked GPU window record B17’s pinned-runtime
 restart/backend/replay and frozen-archive census before phase 5 work`.
 
+**[CP-87] The audit’s phase 5 — B17 closed, B09 closed by refusal, B18 bounded; two-step proof complete, box released.**
+The four living serving assignments were removed to preserve automatic backend
+selection. On the H200, installed vLLM `0.26.0+cu129` (public version 0.26.0)
+has no Python reader of the removed setting. Both original and corrected
+launches selected FLASH_ATTN / FlashAttention 3; the corrected restart removed
+the unknown-setting warning. Repeated and cross-restart fixed-stream probes
+each gave mean/max absolute delta 0 and 0/6,767 moved positions. The measured
+same-weight restart was 96.089 s. This closes B17 on the measured Qwen/H200
+route, with failing-original/passing-corrected launch regressions at all four
+sites; it is not a training-checkpoint sync measurement or a Llama GPU claim.
+The archived predecessor’s assignment remains byte-untouched.
+
+The operator did not fund entropy or reference-policy KL in this phase.
+Examples ADR-0005 records that decision, the 18.546875 GiB float32 vocabulary
+buffer estimate, F-13’s two entropy OOMs, and the additional reference-policy
+memory/forward leg. B09 stays closed by early refusal; implementation requires
+a later phase’s decision and its own window. No numerical control was added.
+R-21’s Compose gap is measured: the H200’s
+`2.37.1+ds1-0ubuntu2~24.04.1` and workstation’s `2.40.2-desktop.1` each passed
+the 384-context credential grammar matrix byte-identically. VERDICT row 64
+names those builds and distinguishes the review’s separate 391-case matrix.
+
+The retained input exists with fixity: 192 collected files, 576 artifact files,
+and the original rollout.yaml. F-81 records the full manifest/config hashes;
+all 192 rows, three nonzero rewards and five TRUNCATED rows reproduce. Existing
+step summaries now persist monotonic stage starts, completed durations and
+failure state before silent GPU calls; hard termination leaves an unfinished
+stage, and step 2 records reuse of the persistent worker. Seven new stage
+regressions fail on the original source. Measured worker initialization
+was 53.155 s and replay 204.319 s; replay mean absolute delta 0.01429673 and
+831/90,677 positions above 0.21 reproduce CP-82’s result. These are new
+measurements, not invented subdivisions of CP-82’s 3,647-second interval.
+
+B18’s unchanged 32,768-budget full-archive attempt **completed without
+cancellation or a source/partition change**, within its declared 7,200-second
+whole-process observation budget. Grade took 1.978 s, batch 1.977 s,
+advantages 0.177 s, the aggregate optimizer call 2,473.312 s and HF export
+5.540 s. The inner accumulated forward/backward call took 2,471.876 s;
+actual clipping/Adam took 1.205 s. The completed step reported
+pg_loss −0.005961937888 and grad_norm 0.147184148431. Sampled stacks reached
+ordinary logprob computation and autograd backward, then a prolonged NVIDIA
+rwlock wait after an allocator warning, followed without intervention by a
+later forward stack and renewed computation. This repeat establishes a
+completed path through the unchanged full input and rules out a permanent
+deadlock in this observed wait; it does not identify its source cause or prove
+CP-82’s interrupted run would have recovered. Process release also lagged
+export: the main thread was a zombie while cuda-EvtHandlr remained in D-state;
+the sample reporting exit 0 and GPU 7 at 4 MiB was labelled
+5 September 21:00:57.207 UTC before its query; completed exit-file publication
+places release no later than **21:01:02.485841 UTC**.
+The optional fixed-one-row GPU comparison was skipped after this completion;
+its CPU preservation proof does not change the normal recipe.
+
+After an independent baseline check, a fresh isolated estate and original
+serving policy began the real two-step run at **5 September 21:03:04 UTC**:
+192 attempts per collection, trainer GPU 7, engine GPU 0, unchanged dynamic
+32,768 budget and one persistent worker. **Both collections, optimizer steps,
+exports and weight-moving syncs completed**, within the declared 21,600-second
+whole-process allowance. Both collections accepted 192/192; the first retained
+one TRUNCATED row and the second had none. Step 1/2 costs were collect
+819.369/812.491 s, replay 223.732/137.239 s, aggregate optimizer
+1,665.083/482.312 s and export 2.760/3.585 s. Worker initialization took
+93.676 s once. The sidecar records the same worker, optimizer and scheduler
+object identities: all 29 Adam state counters were 1 after step 1 and before
+step 2, then 2 after step 2. Grad norms were 0.069189913571 and
+0.974887311459; pg_loss was −0.002666890349 and 0.085282190636.
+
+The fixed-stream repeated-weight floor had mean/max absolute delta 0 over
+9,887 positions. Both before/after sync probes moved: mean absolute delta
+0.027933861501 with 8,883/9,887 positions, then 0.058111728080 with
+9,447/9,887 positions. Shell-command start through model readiness took
+**218.166449 s and 158.094565 s**, respectively; G-04’s six current timing
+sites use these measurements. The persistent worker’s existing
+`max_ckpt_to_keep=1` also acted: step 2’s export removed `step1/ckpt`;
+the second export remains. Retention code is unchanged, and neither this
+cleanup nor the new run touches the original CP-82 input archive.
+
+Step 2’s collection increased nonzero rewards **1/192 → 75/192** (means
+0.0052083333 → 0.3763950893). All rewarded artifacts in each collection
+contained only rubric headings and page references. The largest identical
+artifact group grew from 4/25 to 37/76 nonblank graded artifacts; unique texts
+fell from 21 to 11. These are observed format concentration and shortcut
+reward uptake, not a substantive summarization improvement or an independent
+diagnosis of mode collapse. Both masks, all long rows, global
+advantages/correction/loss denominator and one accumulated optimizer event
+per collection remain. G-01’s runs-root write probe passed, with no
+G-01/R-01 hit, repair or credential rotation.
+
+**Final cleanup verified:** both trainers exited 0 naturally. The two-step
+exit sample was labelled 5 September 22:26:44.532707 UTC before its query;
+completed exit-file publication bounds release at no later than
+22:26:46.393228 UTC. The engine API received TERM at 22:21:13.360126 UTC;
+host services stopped and estate down completed in 2.7 s, retaining data.
+The final snapshot began at **22:28:18.862375 UTC**: GPUs 0 and 7 each showed
+4 MiB used, 143,163 MiB free and 0% SM; no CP-87 process, container or network
+remained, and its ports 18500/19200/19301/19790/19080/19081/19082/19500 were closed.
+The original five network IDs and ten running tenant container IDs remained.
+GPU 4/5 process IDs were unchanged; 1/2/3/6 process IDs changed while those
+containers remained, with no CP-87 control action targeting those tenants.
+Post-run archive verification reproduced all prior hashes. All final checks
+were received by **5 September 22:29:52 UTC / 6 September 01:29:52 Cairo**,
+the recorded stop, before the declared 7 September 04:30 UTC experiment stop
+and 09:00 Cairo booking end. No CP-87 workload remains running.
+The review establishes that the two CP-81 rehearsal bodies were destroyed by
+their own wipe; no H200 search was made. Phase 6 inherits the unchanged reward
+surface, measured format concentration and that unavailable historical proof,
+with no new reward design here. Both consumer registers still name F-83 as
+the next fresh ID. The final printed CP-87 report records the per-repository
+push outcomes.
+The source cause remains open if further diagnosis is pursued:
+`waiting-on: a separately booked H200 diagnosis window producing allocation
+call-site or kernel-stack evidence that attributes the recovered driver wait`.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

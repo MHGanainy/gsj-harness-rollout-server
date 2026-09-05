@@ -24,9 +24,10 @@
 #   5. The venv + snapshot are REQUIRED to pre-exist (~/<RDIR>/venv, the
 #      predecessor's BRINGUP §3 provisioning — they survive teardown by
 #      design). This script only starts the engine; it does not install.
-# Everything else (ports, tunnel, nohup/pidfile discipline, FLASH_ATTN on a
-# host without nvcc, --enforce-eager, the thinking-off default kwargs, DEBUG
-# request logging) is the predecessor's recipe verbatim.
+# Backend selection is automatic: vLLM 0.26.0 ignores the predecessor's
+# VLLM_ATTENTION_BACKEND setting (CP-82 B17). The sampler setting avoids
+# FlashInfer JIT on this nvcc-less host. Ports, tunnel, nohup/pidfile discipline,
+# --enforce-eager, thinking-off kwargs and DEBUG logging retain the recipe.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,7 +94,7 @@ if [ -f run/vllm.pid ] && kill -0 "$(cat run/vllm.pid)" 2>/dev/null; then
   exit 0
 fi
 CUDA_VISIBLE_DEVICES="$GPU" VLLM_LOGGING_LEVEL=DEBUG \
-VLLM_ATTENTION_BACKEND=FLASH_ATTN VLLM_USE_FLASHINFER_SAMPLER=0 \
+VLLM_USE_FLASHINFER_SAMPLER=0 \
 nohup ./venv/bin/vllm serve "$GSJ_MODEL_ID" \
   --revision "$GSJ_MODEL_REVISION" \
   --host 127.0.0.1 --port "$PORT" \

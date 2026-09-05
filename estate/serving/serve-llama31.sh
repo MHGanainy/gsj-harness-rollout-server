@@ -104,7 +104,7 @@ if [ -f run/vllm-llama31.pid ] && kill -0 "$(cat run/vllm-llama31.pid)" 2>/dev/n
   exit 0
 fi
 CUDA_VISIBLE_DEVICES="$GPU" VLLM_LOGGING_LEVEL=DEBUG \
-VLLM_ATTENTION_BACKEND=FLASH_ATTN VLLM_USE_FLASHINFER_SAMPLER=0 \
+VLLM_USE_FLASHINFER_SAMPLER=0 \
 nohup ./venv/bin/vllm serve "$GSJ_MODEL_ID" \
   --revision "$GSJ_MODEL_REVISION" \
   --host 127.0.0.1 --port "$PORT" \

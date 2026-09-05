@@ -58,7 +58,7 @@ set -euo pipefail
 RDIR="$1"; GPU="$2"; PORT="$3"; GPU_FRAC="$4"; CKPT="$5"; MODEL_ID="$6"; cd ~/"$RDIR"
 [ -f "$CKPT/config.json" ] || { echo "ERROR: $CKPT is not an HF checkpoint dir"; exit 1; }
 CUDA_VISIBLE_DEVICES="$GPU" VLLM_LOGGING_LEVEL=DEBUG \
-VLLM_ATTENTION_BACKEND=FLASH_ATTN VLLM_USE_FLASHINFER_SAMPLER=0 \
+VLLM_USE_FLASHINFER_SAMPLER=0 \
 nohup ./venv/bin/vllm serve "$CKPT" \
   --served-model-name "$MODEL_ID" \
   --host 127.0.0.1 --port "$PORT" \
