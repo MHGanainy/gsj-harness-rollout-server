@@ -535,14 +535,16 @@ def test_a_malformed_env_line_is_refused_naming_file_and_line(tmp_path, monkeypa
         _spliced_credential(path)
 
 
-def test_env_file_grammar_round_trips_estate_py_writer(tmp_path, monkeypatch):
-    """The quoting round-trip: a value with a quote, a space and a `$` (and
-    the rest of the shell's metacharacters) survives `estate.py`'s writer
-    (`Run.write_env`) and this reader byte-for-byte — the file is the tool's
-    output, and CP-59's single-quote choice is what both `.` and compose read
-    back identically."""
+def test_env_file_grammar_round_trips_estate_py_writer(tmp_path, monkeypatch, capsys):
+    """ADR-0037: supported credentials round-trip; apostrophes refuse at write.
+
+    See docs/decisions/ADR-0037-estate-config-and-credential-boundaries.md:
+    the core's legacy quote decoding does not widen the estate writer's grammar.
+    """
+    import subprocess
+
     tool = _estate_tool()
-    values = ["it's $HOME `x` \"q\" \\ back;semi #hash", "'", "''", "it''s", "a'b'c",
+    values = ["its $HOME `x` \"q\" \\ back;semi #hash", "even\\\\",
               " leading and trailing ", "plain", "x=y=z", "#not-a-comment"]
     for value in values:
         path = _closed_estate(tmp_path, monkeypatch)
@@ -552,6 +554,26 @@ def test_env_file_grammar_round_trips_estate_py_writer(tmp_path, monkeypatch):
         run.write_env()
         assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600  # the tool's mode
         assert _spliced_credential(path) == value, repr(value)
+        again = tool.Run("probe")
+        again.dir = tmp_path
+        again.load()
+        assert again.env[READ_TOKEN_ENV] == value
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(yaml.safe_dump({"services": {"probe": {
+            "image": "alpine:3.20", "environment": {
+                READ_TOKEN_ENV: "${" + READ_TOKEN_ENV + "}"}}}}))
+        argv = ["docker", "compose", "--env-file", str(tmp_path / ".env"),
+                "-f", str(compose), "config"]
+        env = {"PATH": os.environ["PATH"]}
+        quiet = subprocess.run(argv + ["-q"], capture_output=True, text=True,
+                               env=env, timeout=10)
+        assert quiet.returncode == 0, quiet.stderr
+        rendered = subprocess.run(argv + ["--environment"], capture_output=True,
+                                  text=True, env=env, timeout=10)
+        assert rendered.returncode == 0, rendered.stderr
+        composed = dict(line.partition("=")[::2] for line in rendered.stdout.split("\n")
+                        if line.startswith(READ_TOKEN_ENV + "="))
+        assert composed[READ_TOKEN_ENV] == value
     # and estate.py's own reader agrees on every one (one grammar, two readers)
     run.env = {READ_TOKEN_ENV: values[0]}
     run.write_env()
@@ -559,6 +581,14 @@ def test_env_file_grammar_round_trips_estate_py_writer(tmp_path, monkeypatch):
     again.dir = tmp_path
     again.load()
     assert again.env[READ_TOKEN_ENV] == values[0]
+    before = (tmp_path / ".env").read_bytes()
+    for value in ["it's synthetic", "'", "''", "it''s", "a'b'c"]:
+        run.env = {READ_TOKEN_ENV: value}
+        with pytest.raises(SystemExit) as exc:
+            run.write_env()
+        assert exc.value.code == 1
+        assert "apostrophe (single quote)" in capsys.readouterr().err
+        assert (tmp_path / ".env").read_bytes() == before
 
 
 def test_env_file_is_read_lazily_only_at_the_named_seam(tmp_path, monkeypatch):
