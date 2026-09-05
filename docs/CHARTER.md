@@ -2647,6 +2647,58 @@ Row 80’s named assertion now cites ADR-0037: supported values round-trip; apos
 The deprecated entry remains functional in 0.1.8. CP-82 §7.4 protects unknown callers; “no earlier than 0.1.8” permits retirement but does not schedule it. The frozen notice already carries that truthful bound after CP-83, so it stays; docs explicitly retain the entry without rolling the floor again. Rows 64/76/78/79/80 are closed, their publication/Actions events fired. Row 81 records the frozen `estate/README.md` publication-pending sentence and the root helper’s legacy-encoding description. The version sweep classifies current-state changes versus dated history, including the demo tuple. Core 2,034/checks 528, all frozen source byte-unchanged. No H200, archive mutation, vendor change or later-phase work. The image-dependent demo is also delivered at `3286271`: its floor `(0, 1, 8)` and `gsj-polar:f0e8343a-gsj0.1.8` follow publication, with A-28’s two-platform proof above. A fresh GitHub clone plus the exact proposed floor/image patch used an unpinned PyPI host install resolving 0.1.8; up 42.682 s, preflight passed, row-2 submit 8.955 s, read/export/empty quarantine, down 3.550 s. Session `sk-polar-7fb2e7b0-6d5a-4cf3-8c83-b11ac0438fdb`: two turns, one case search, 170 trainable tokens, no deliverable, independent findings []. The extra validation script initially used the wrong trace directory; rerunning that read-only check against documented `work/traces` passed. No product correction or scope expansion was needed. A fresh post-push clone matches all 13 published files; exercised runtime/README bytes match, with only measured evidence added to the ADR after execution. Row 77’s composite publication/default-drop/accepted-read/image event is now closed. Original container inventory restored; no CP-85 processes or estate networks remain. Phase 4 inherits B08–B15/B17 unchanged; B18 stays phase 5, reward phase 6, corpus contract phase 7; B07 remains row 50.
 
 
+
+**[CP-86] The audit’s phase 4 — consumer evidence and truthful training controls.**
+Host defects B08–B15 are fixed and regression-proven in the two consumers.
+B08 re-admitted two genuine old rows with rewards [0, 1] after zero new
+results; new collection/training now refuses nonempty output/run directories
+before imports or collection. Existing archives remain CPU-readable via dry-run;
+implicit archive training/resume is no longer advertised. B09 reproduced on the
+real bridge DataProto and pinned verl CPU loss: entropy 0 and 0.5 both
+−0.4495418668, no entropy metric, KL missing ref_log_prob. Both unsupported
+requests now refuse before collection, with a second guard before CUDA worker
+allocation. No entropy or KL implementation; their separate memory/compute costs
+are documented for phase 5. B10's 1.223 s shell+ready path reported 0.012 s;
+the timer now covers command start through readiness and reports elapsed failures.
+B11's three argv elements are one shell-quoted checkpoint word, with a documented
+unquoted-placeholder contract. B12's zero-step false success becomes an early
+positive/finite argument refusal.
+
+The demo’s B13/B14 correction shares one ID traversal across show/export/census
+and write outcomes; missing, unmatched and ambiguous results remain evidence.
+Export v2 preserves attempted content, reports succeeded/failed/unknown from the
+result, and never equates call arguments or acceptance with task success. Old
+archives and legacy concatenated decision hit objects remain readable. B15 names
+the malformed file, expected root/envelope and recovery action. Synthetic fixtures
+are labelled. **Historical proof is partial:** three byte-frozen CP-81 stranger
+captures and CP-82’s fresh capture pass; fabricated `dec:GREV000082013:rn:7`
+remains ungrounded, the other three remain silent with five hits available.
+CP-81’s rehearsal bodies `dd62726f…` and `c2aeed8a…` were not found locally;
+their historical reported silence is not represented as a corrected-reader run.
+F-82 retains that observable recovery/proof obligation; both registers retain
+next fresh **F-83**.
+
+**B17 deferred to the booked 5 September 23:00 Cairo window:** no box or GPU
+was touched, and all four living backend assignments remain unchanged. The
+preferred correction is removal to preserve observed automatic selection,
+subject to re-verifying pinned vLLM 0.26.0, restart/effective-backend inspection
+and unchanged replay. The predecessor assignment is frozen. First on the box
+must confirm the CP-82 192-row collected archive, artifacts and rollout.yaml;
+this checkpoint makes no archive-state claim. F-81 names those events. Phase 5
+inherits fresh-run refusal, honest unsupported controls and full sync timing,
+with B18 entirely undiagnosed here. Phase 6 inherits observational export v2 and
+fixtures, with the two-body proof gap explicit; no citation reward or policy
+choice. The two masks, dormant stitch, literal task_id filename, frozen CP-21
+and retired Slime, dynamic batching and 32,768-token budget stay unchanged.
+Root/corpus/MCP suites passed 176/291/164; examples 53 passed against the
+installed 0.1.8 wheel and pinned verl, demo 28 passed. Final regressions run
+against original sources fail (22 examples tests and the reader defect tests);
+a 64-row existing-archive dry-run remains usable without GPU allocation.
+Per-repository push outcomes are recorded with the final CP-86 verification.
+`waiting-on: recover both original CP-81 rehearsal archives and record their
+corrected readings; at the booked GPU window record B17’s pinned-runtime
+restart/backend/replay and frozen-archive census before phase 5 work`.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
