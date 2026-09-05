@@ -218,7 +218,31 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 | `health` | `/health`, `/v1/models`, one full tool round trip |
 | `status` | compose ps × 2 + the engine probe |
 
-One command instead of the sequence below: `estate/estate.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#estatepy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. Since CP-73 the interactive prompts say which answers bind (the owner, the run name, the embedding identity once a store is built) and which do not (the engine URL and model land in `rollout.yaml` and change by editing it or re-running), the retrieval config is printed for review **before** the index is built under it (each setting priced by what a later change costs; `--mcp-config <yaml>` is the scripted form), and **`estate.py update --name <run>`** syncs corpus edits into the standing estate — diff against the run's lock, report, then push only the changed repos, rebuild the bank, one if-stale reindex, verify. The verbs, by hand (steps 3 and 5 are the corpus pipeline, not verbs):
+One command instead of the sequence below: `estate/estate.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#estatepy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. Since CP-73 the interactive prompts say which answers bind (the owner, the run name, the embedding identity once a store is built) and which do not (the engine URL and model land in `rollout.yaml` and change by editing it or re-running), the retrieval config is printed for review **before** the index is built under it (each setting priced by what a later change costs; `--mcp-config <yaml>` is the scripted form), and **`estate.py update --name <run>`** syncs corpus edits into the standing estate — diff against the run's lock, report, then push only the changed repos, rebuild the bank, one if-stale reindex, verify.
+
+**CP-84 checkout contract; public delivery pending.** The following early config and credential refusals are source changes. Public PyPI 0.1.7 does not contain them; the audit's phase 3 must publish the library changes and prove the installed consumer before a pip-installed estate can rely on them.
+
+`--mcp-config <yaml>` accepts only `embedding`, `chunking`, `search` and `decisions` mappings. Unknown keys refuse with their name and cure. Use actual YAML integers and booleans: a quoted `"32"`, integer `1` in place of `true`, or boolean `true` in place of an integer is refused even where the service's parser would coerce it. The file overrides the generated template; a plain rerun retains recorded residual settings, and an explicitly empty overrides file clears those residuals.
+
+The merged effective config is validated before containers are created:
+
+| Setting | Supported value |
+| --- | --- |
+| `embedding.model` / `.revision` | model id (`name` or `owner/name`) / full 40-character lowercase hexadecimal commit SHA |
+| `embedding.batch_size` | integer at least 1 |
+| `embedding.normalize` / `chunking.respect_page_boundaries` | `true` |
+| `chunking.max_tokens` / `.overlap` | integers: window at least 16; `0 <= overlap < max_tokens` |
+| `search.default_k` / `.max_k` | integers at least 1 |
+| `search.method` | `chroma` |
+| `decisions.corpus_size` | integer at least 1 |
+
+Use `--decisions-dir <host directory>` for a drop; `decisions.path` in the overrides file is refused because the estate owns that mount. The review still prices each setting's consequence. Default store identity is unchanged, including the absent-when-32 batch-size fingerprint convention.
+
+Adopted passwords and token secrets must be nonempty printable ASCII (U+0020–U+007E), without apostrophes or an odd number of backslashes at the end. Controls, DEL, non-ASCII characters and every newline form are refused; internal backslashes and an even terminal run are supported. Leading and trailing spaces remain literal. An incompatible credential must be **rotated, or replaced with a token without the named character class**; the refusal says this before adoption or minting can proceed.
+
+Secret files may contain one optional terminal LF as file framing; CRLF, multiple LFs and embedded line separators are refused, and no spaces are trimmed. `printf '%s'` writes an exact value without file framing. The estate validates legacy env files before loading values so a separator cannot silently shorten a credential. Submit's existing environment-first, adjacent-`.env` reader stays unchanged.
+
+The verbs, by hand (steps 3 and 5 are the corpus pipeline, not verbs):
 
 ```bash
 cd estate

@@ -346,11 +346,16 @@ class Answers:
                fallback: str | None = None) -> str | None:
         if os.environ.get(env):
             say("secrets", f"{question}: taken from ${env} (the environment)")
-            return os.environ[env]
+            return credential(os.environ[env], env)
         path = getattr(self.args, file_key, None) or self.file.get(file_key)
         if path:
             try:
-                value = Path(path).read_text().strip()
+                value = Path(path).read_bytes().decode("utf-8").removesuffix("\n")
+            except UnicodeError:
+                die(f"{env}: the credential file is not UTF-8 text.", "a non-ASCII byte sequence",
+                    "a printable ASCII credential",
+                    "rotate the credential at its service, or use a token without non-ASCII "
+                    "bytes; supply that exact value in the credential file and re-run")
             except OSError as exc:
                 die(f"{question}: the file is unreadable.", str(exc), None,
                     f"--{file_key.replace('_', '-')} names a readable file "
@@ -361,13 +366,13 @@ class Answers:
                 warn("secrets", f"{path} is group/world-readable "
                                 f"({oct(os.stat(path).st_mode & 0o777)}) — chmod 600 it")
             say("secrets", f"{question}: read from {path}")
-            return value
+            return credential(value, env)
         if fallback:
-            return fallback
+            return credential(fallback, env)
         if self.interactive:
-            value = getpass.getpass(f"{_c('36', '?')} {question} (not echoed): ").strip()
+            value = getpass.getpass(f"{_c('36', '?')} {question} (not echoed): ")
             if value:
-                return value
+                return credential(value, env)
         return None
 
 
@@ -436,13 +441,32 @@ def pins_g1_check(corpus) -> dict:
 
 # ------------------------------------------------------------ the run dir
 
+def credential(value: str, name: str) -> str:
+    """CP-84: one literal value across shell, Compose and the package reader."""
+    problem = ("a non-string credential" if not isinstance(value, str) else
+               "an empty credential" if not value else
+               "an apostrophe (single quote)" if "'" in value else
+               "an ASCII control character (including newline, tab or DEL)"
+               if any(ord(c) < 32 or ord(c) == 127 for c in value) else
+               "a non-ASCII character (including Unicode line separators)"
+               if not value.isascii() else
+               "an odd run of trailing backslashes"
+               if (len(value) - len(value.rstrip("\\"))) % 2 else None)
+    if problem:
+        die(f"{name} has an unsupported credential value.", problem,
+            "nonempty printable ASCII without apostrophes or an odd run of trailing "
+            "backslashes; spaces, internal backslashes and even trailing runs are literal",
+            f"rotate the credential at its service, or use a token without that character "
+            f"class/ending; supply the replacement through {name} or its credential file. "
+            "Credential files hold the exact value, optionally followed by one LF "
+            "(no CRLF or other newline); "
+            "then re-run; do not trim or escape the credential")
+    return value
+
+
 def _env_quote(value: str) -> str:
-    """Single-quoted, `'` as `'\\''` — read back identically by POSIX `.`, by
-    `_env_unquote` and by config.py's reader (CP-75); no metacharacter is live.
-    NOT by compose's dotenv parser: it refuses the whole --env-file on that form
-    (measured at CP-75, v2.40.2), so a typed adopt-side secret holding `'` breaks
-    every compose call of a created service — wishlist 64; the minted values
-    (hex, urlsafe, Forgejo tokens) never carry one."""
+    """CP-75's shell encoding; write_env validates CP-84's shared grammar first.
+    Keep its legacy apostrophe representation readable for a precise refusal."""
     return "'" + value.replace("'", "'\\''") + "'"
 
 
@@ -589,10 +613,23 @@ class Run:
                     f"over: `{PROG} down --name "
                     f"{self.name} --wipe` then `up`")
         if envf.is_file():
-            for line in envf.read_text().splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, _, v = line.partition("=")
-                    self.env[k.strip()] = _env_unquote(v.strip())
+            loaded = {}
+            # splitlines treats VT/U+2028 as record delimiters and silently
+            # shortened old credentials. Only the writer's LF ends a record.
+            for number, line in enumerate(envf.read_text().split("\n"), 1):
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                k, eq, raw = (part.strip() for part in line.partition("="))
+                if not eq or not k.isidentifier() or (raw and not (
+                        len(raw) >= 2 and raw[0] == raw[-1] == "'")):
+                    die(f"{envf} line {number} is not a complete KEY='value' record.",
+                        "a malformed or multi-line credential record", "one quoted value per line",
+                        "restore the .env from backup, or rotate the credential at its service "
+                        "and use a token without newline/control characters; re-run with its "
+                        "exact value through the named variable or credential file")
+                value = _env_unquote(raw)
+                loaded[k] = credential(value, f"{envf} line {number} ({k})") if value else value
+            self.env.update(loaded)
 
     def write_env(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -607,9 +644,8 @@ class Run:
                 "# Never commit; never paste values on a command line.\n"
                 % (envf, self.name, envf))
         for k, v in sorted(self.env.items()):
-            if "\n" in v or "\r" in v:
-                die(f"the value of {k} contains a newline.", "a multi-line secret",
-                    "one line — .env is KEY='value' per line", f"give {k} a one-line value")
+            if v != "":
+                credential(v, k)
             body += f"{k}={_env_quote(v)}\n"
         fd = os.open(envf, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # 0600 from birth
         with os.fdopen(fd, "w") as handle:
@@ -977,7 +1013,7 @@ class Forgejo:
                 f"POST /users/{owner}/tokens -> {status} {body}", "201 with sha1",
                 "the admin must authenticate with its PASSWORD (basic auth); "
                 "Forgejo refuses token-for-others under token auth")
-        return body["sha1"]
+        return credential(body["sha1"], f"Forgejo {label} token")
 
 
 def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
@@ -1053,7 +1089,7 @@ def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
             die(f"could not create the admin {ADMIN_USER!r}.",
                 (made.stderr or made.stdout).strip(), "a random password printed",
                 f"docker logs {container}")
-        run.env[ADMIN_PASSWORD_ENV] = m.group(1)
+        run.env[ADMIN_PASSWORD_ENV] = credential(m.group(1), ADMIN_PASSWORD_ENV)
         run.write_env()
         say("forgejo", f"admin {ADMIN_USER!r} created; its password is in .env "
                        f"as {ADMIN_PASSWORD_ENV}")
@@ -1158,26 +1194,59 @@ server:
 # server are the run's wiring (URLs, token variable names, the store
 # path, the --rebuild posture) and a file that sets them is refused.
 
-MCP_OPERATOR_SECTIONS = ("embedding", "chunking", "search", "decisions")
-MCP_ESTATE_SECTIONS = ("source", "auth", "index", "server")
-# the service's own schema (estate/mcp-service/gsj_mcp_service/config.py,
-# extra keys refused at ITS startup) — validated here so a typo is a
-# refusal at the review, not a container that never comes ready
-MCP_SECTION_KEYS = {
-    "embedding": ("model", "revision", "device", "batch_size", "normalize"),
-    "chunking": ("max_tokens", "overlap", "respect_page_boundaries"),
-    "search": ("default_k", "max_k", "method"),
-    "decisions": ("seed", "corpus_size", "path"),
+# One host description of each operator setting. Contract tests execute the
+# actual ServiceConfig, including validators that JSON Schema cannot express.
+# Types stay the estate's strict YAML subset (no Pydantic coercion at this seam).
+MCP_FIELDS = {
+    "embedding": {
+        "model": {"type": str, "answer": "embedding_model", "pattern": r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?",
+                  "consequence": "model re-pin", "review": "HF model id; use name or owner/name", "fingerprint": True},
+        "revision": {"type": str, "answer": "embedding_revision", "pattern": r"[0-9a-f]{40}", "consequence": "model re-pin",
+                     "review": "full 40-character lowercase hexadecimal commit SHA; resolve a branch/tag to its commit", "fingerprint": True},
+        "device": {"type": str, "consequence": "speed only, not identity",
+                   "review": "embedding device", "fingerprint": False},
+        "batch_size": {"type": int, "minimum": 1, "consequence": "whole-corpus re-embed",
+                       "review": "encode composition is identity, not only speed; 32 preserves the pre-CP-79 fingerprint bytes (absent when 32)", "fingerprint": True},
+        "normalize": {"type": bool, "literal": True, "consequence": "model re-pin",
+                      "review": "cosine-space embeddings require true; false is retired", "fingerprint": True},
+    },
+    "chunking": {
+        "max_tokens": {"type": int, "answer": "chunk_max_tokens", "minimum": 16, "consequence": "whole-corpus re-embed",
+                       "review": "token window", "fingerprint": True},
+        "overlap": {"type": int, "answer": "chunk_overlap", "minimum": 0, "consequence": "whole-corpus re-embed",
+                    "less_than": "max_tokens", "review": "overlap must be smaller than max_tokens", "fingerprint": True},
+        "respect_page_boundaries": {"type": bool, "literal": True, "consequence": "whole-corpus re-embed",
+                                    "review": "page boundaries require true", "fingerprint": True},
+    },
+    "search": {
+        "default_k": {"type": int, "minimum": 1, "consequence": "serving-only",
+                      "review": "default number of hits", "fingerprint": False},
+        "max_k": {"type": int, "minimum": 1, "consequence": "serving-only",
+                  "review": "maximum number of hits", "fingerprint": False},
+        "method": {"type": str, "literal": "chroma", "consequence": "serving-only",
+                   "review": "use chroma; exact search is retired", "fingerprint": False},
+    },
+    "decisions": {
+        "seed": {"type": int, "consequence": "decisions collection alone",
+                 "review": "synthetic generator seed", "fingerprint": True},
+        "corpus_size": {"type": int, "minimum": 1, "consequence": "decisions collection alone",
+                        "review": "synthetic decision count", "fingerprint": True},
+        "path": {"type": str, "nullable": True, "flag_only": True,
+                 "consequence": "decisions collection alone", "review": "use --decisions-dir <host directory>; the estate writes its read-only container mount", "fingerprint": True},
+    },
 }
-# what enters the store's fingerprint (index.py corpus_fingerprint) — a
-# change to any of these re-embeds; everything else serves or paces
-MCP_FINGERPRINT_KEYS = (("embedding", "model"), ("embedding", "revision"),
-                        ("embedding", "normalize"),
-                        ("chunking", "max_tokens"), ("chunking", "overlap"),
-                        ("chunking", "respect_page_boundaries"),
-                        ("decisions", "seed"), ("decisions", "corpus_size"),
-                        ("decisions", "path"),   # CP-79: the drop (its content sha, service-side)
-                        ("embedding", "batch_size"))  # CP-79 (wishlist 69 (c)): identity above 32
+MCP_OPERATOR_SECTIONS = tuple(MCP_FIELDS)
+MCP_ESTATE_SECTIONS = ("source", "auth", "index", "server")
+MCP_SECTION_KEYS = {section: tuple(fields) for section, fields in MCP_FIELDS.items()}
+MCP_FINGERPRINT_KEYS = tuple((section, key) for section, fields in MCP_FIELDS.items()
+                             for key, spec in fields.items() if spec["fingerprint"])
+MCP_CONSEQUENCES = {
+    "model re-pin": "REFUSED against the built store until --rebuild re-embeds it (CP-57: a model change is a re-pin, not staleness)",
+    "whole-corpus re-embed": "a re-embed of the WHOLE corpus (fingerprint components — the next start rebuilds the index)",
+    "decisions collection alone": "the decisions collection alone re-embeds; the case-page collections reuse",
+    "serving-only": "nothing re-embeds — edit {cfg_path} and restart the container (serving-only)",
+    "speed only, not identity": "speed only, not identity",
+}
 
 
 def mcp_fingerprint_components(doc: dict) -> dict:
@@ -1185,73 +1254,94 @@ def mcp_fingerprint_components(doc: dict) -> dict:
             for sec, key in MCP_FINGERPRINT_KEYS}
 
 
-def mcp_override_problems(doc) -> list[str]:
-    """Why a --mcp-config document is refused; [] when it is fine."""
+def _mcp_problems(doc, *, overrides: bool) -> list[str]:
     if not isinstance(doc, dict):
-        return ["the file is not a YAML mapping"]
+        return ["the file is not a YAML mapping — use section: {key: value}"]
     problems = []
-    for key in sorted(doc):
-        if key in MCP_ESTATE_SECTIONS:
-            problems.append(f"{key}: is the estate's (the run's wiring)")
-        elif key not in MCP_OPERATOR_SECTIONS:
-            problems.append(f"{key}: not a retrieval section")
-        elif not isinstance(doc[key], dict):
-            problems.append(f"{key}: must be a mapping of that section's keys")
-        else:
-            for sub in sorted(set(doc[key]) - set(MCP_SECTION_KEYS[key])):
-                problems.append(f"{key}.{sub}: not a key of that section "
-                                f"(the service refuses unknown keys at its "
-                                f"start — this refusal is the same one, early)")
-            if key == "decisions" and "path" in doc[key]:
-                # the path is a CONTAINER path the service reads; the host
-                # directory behind it is this run's mount — one flag sets
-                # both, so a file naming only the half the service sees
-                # would start a container that finds nothing there
-                problems.append(f"decisions.path: is set by --decisions-dir "
-                                f"<host directory> (mounted read-only at "
-                                f"{MCP_DECISIONS_MOUNT} and written into the "
-                                f"config for you) — not by this file")
-            for sub, want in (("batch_size", int), ("max_tokens", int),
-                              ("overlap", int), ("default_k", int),
-                              ("max_k", int), ("seed", int),
-                              ("corpus_size", int), ("normalize", bool),
-                              ("respect_page_boundaries", bool),
-                              ("path", str)):
-                if sub in doc[key] and not isinstance(doc[key][sub], want) \
-                        or (want is int and isinstance(doc[key].get(sub), bool)):
-                    problems.append(f"{key}.{sub}: must be {want.__name__} "
-                                    f"(got {doc[key][sub]!r}) — the service "
-                                    "would refuse it at its start")
+    for section in sorted(doc, key=str):
+        if section in MCP_ESTATE_SECTIONS:
+            if overrides:
+                problems.append(f"{section}: is the estate's (the run's wiring) — remove this section")
+            continue
+        if section not in MCP_FIELDS:
+            problems.append(f"{section}: not a retrieval section — use {', '.join(MCP_FIELDS)}")
+            continue
+        values = doc[section]
+        if not isinstance(values, dict):
+            problems.append(f"{section}: must be a mapping of that section's keys — use key: value")
+            continue
+        for key in sorted(values, key=str):
+            name, value = f"{section}.{key}", values[key]
+            spec = MCP_FIELDS[section].get(key)
+            if spec is None:
+                problems.append(f"{name}: not a key of that section — remove it or use {', '.join(MCP_FIELDS[section])}")
+                continue
+            if overrides and spec.get("flag_only"):
+                problems.append(f"{name}: cannot be set in this file — {spec['review']}")
+                continue
+            if value is None and spec.get("nullable"):
+                continue
+            if type(value) is not spec["type"]:
+                problems.append(f"{name}: got {value!r}; must be {spec['type'].__name__} — use that YAML type (the estate does not coerce values)")
+                continue
+            if "minimum" in spec and value < spec["minimum"]:
+                problems.append(f"{name}: got {value!r}; expected >= {spec['minimum']} — set {name} to at least {spec['minimum']}")
+            if "literal" in spec and value != spec["literal"]:
+                problems.append(f"{name}: got {value!r}; expected {spec['literal']!r} — {spec['review']}")
+            if "pattern" in spec and re.fullmatch(spec["pattern"], value) is None:
+                problems.append(f"{name}: got {value!r}; expected {spec['review']} — replace {name} with that value")
+            other = spec.get("less_than")
+            if not overrides and other and type(values.get(other)) is int and value >= values[other]:
+                problems.append(f"{name}: got {value!r}; expected < {section}.{other} ({values[other]}) — lower {name} or increase {section}.{other}")
     return problems
 
 
+def mcp_override_problems(doc) -> list[str]:
+    """Validate a partial operator file; wiring stays owned by the estate."""
+    return _mcp_problems(doc, overrides=True)
+
+
+def mcp_config_problems(doc) -> list[str]:
+    """Validate effective operator settings after template/record/flag merging."""
+    return _mcp_problems(doc, overrides=False)
+
+
 def load_mcp_overrides(path: str | None) -> dict | None:
-    """None = no --mcp-config given; {} = an explicitly empty file (clears
-    any recorded overrides); else the validated overrides mapping."""
+    """None = no flag; {} = empty YAML (clears recorded residuals)."""
     if not path:
         return None
     try:
-        doc = yaml.safe_load(Path(path).read_text()) or {}
+        doc = yaml.safe_load(Path(path).read_text())
     except (OSError, yaml.YAMLError) as exc:
         die(f"--mcp-config {path} is unreadable.", str(exc),
             "a YAML mapping of retrieval sections "
             f"({', '.join(MCP_OPERATOR_SECTIONS)})", "fix the file")
+    if doc is None:
+        doc = {}
     problems = mcp_override_problems(doc)
     if problems:
         die(f"--mcp-config {path} is not a retrieval-config overrides file.",
             "; ".join(problems),
             f"only the operator sections: {', '.join(MCP_OPERATOR_SECTIONS)} "
-            "(schema: estate/mcp-service/config.yaml)",
-            "source, auth, index and server are wired by this run (its URLs, "
-            "token variable names, store path and --rebuild posture) — "
-            "remove those keys and re-run")
+            "with the keyed types and constraints above",
+            "correct each named key as advised above and re-run; source, auth, "
+            "index and server are wired by this run and must be removed if present")
     return doc
 
 
+def render_mcp_template(**values) -> str:
+    # HF ids such as "on" and all-digit SHAs are valid strings, but bare
+    # YAML would reinterpret them. Quote only those scalars; default bytes
+    # and MCP_CONFIG's public placeholder set stay unchanged.
+    for key in ("model", "revision"):
+        value = values[key]
+        if type(value) is str and type(yaml.safe_load(value)) is not str:
+            values[key] = json.dumps(value)
+    return MCP_CONFIG.format(**values)
+
+
 def render_mcp_config(base_text: str, overrides: dict) -> str:
-    """The generated config with the operator's overrides merged. Without
-    overrides the template bytes pass through verbatim, so an untouched
-    re-run stays byte-identical (the recreate check hashes this file)."""
+    """Keep default template bytes exact; an override updates only named keys."""
     if not overrides:
         return base_text
     doc = yaml.safe_load(base_text)
@@ -1267,49 +1357,102 @@ def render_mcp_config(base_text: str, overrides: dict) -> str:
 
 def mcp_config_review(doc: dict, cfg_path: Path,
                       decisions_dir: str | None = None) -> str:
-    """What the corpus is about to be chunked and embedded under, with what
-    each setting costs to change AFTERWARDS — said while the operator can
-    still act on it (the asymmetry is the point: some of these are a config
-    edit, some are a corpus-wide re-embed, one is a refusal). Since CP-79
-    the decisions line says which SOURCE the decisions tool will serve —
-    a real drop (the host directory, its file count, level 2 of
-    docs/decisions-surface.md) or the synthetic 30 — a drop that appeared
-    silently would defeat the review."""
-    e, c = doc.get("embedding", {}), doc.get("chunking", {})
-    s, d = doc.get("search", {}), doc.get("decisions", {})
+    lines = ["effective retrieval config (written to " + str(cfg_path) + "):"]
+    for section, fields in MCP_FIELDS.items():
+        for key, spec in fields.items():
+            value = (doc.get(section) or {}).get(key)
+            lines.append(f"      {section}.{key} {value!r} — {spec['review']}")
+            consequence = MCP_CONSEQUENCES[spec["consequence"]].format(cfg_path=cfg_path)
+            lines.append(f"          to change later: {consequence}")
+    d = doc.get("decisions") or {}
     if d.get("path"):
-        n = len([f for f in os.listdir(decisions_dir) if f.endswith(".xml")]) \
-            if decisions_dir and os.path.isdir(decisions_dir) else "?"
-        decisions_line = (
-            f"decisions           path {d.get('path')} — a rii-dok v1 drop: "
-            f"{decisions_dir} ({n} .xml files, read-only mount; the tool serves "
-            f"Randnummern, docs/decisions-surface.md level 2)\n"
-            f"          to change later: the decisions collection re-embeds alone "
-            f"(its own fingerprint — a changed drop never re-embeds the cases; "
-            f"a drop above ~5,000 units takes minutes per thousand decisions)")
+        count = (len([f for f in os.listdir(decisions_dir) if f.endswith(".xml")])
+                 if decisions_dir and os.path.isdir(decisions_dir) else "?")
+        lines.append(f"      decisions           rii-dok v1 drop — {count} .xml file(s) in {decisions_dir} (read-only), not the synthetic generator\n"
+                     "          Randnummern chunks from the drop; above ~5,000 units on CPU this can be minutes, not seconds")
     else:
-        decisions_line = (
-            f"decisions           seed {d.get('seed')}, corpus_size {d.get('corpus_size')} "
-            f"— the synthetic 30, no drop (pass --decisions-dir <dir> for real decisions)\n"
-            f"          to change later: the decisions collection re-embeds alone "
-            f"(fingerprint components; the cases stay)")
-    return (f"""the retrieval config, before the index is spent under it:
-      embedding.model     {e.get('model')}
-      embedding.revision  {e.get('revision')}   (normalize {str(e.get('normalize', True)).lower()})
-          to change later: REFUSED against the built store until --rebuild
-          re-embeds it (CP-57: a model change is a re-pin, not staleness)
-      chunking            max_tokens {c.get('max_tokens')}, overlap {c.get('overlap')}, respect_page_boundaries {str(c.get('respect_page_boundaries', True)).lower()}
-          to change later: a re-embed of the WHOLE corpus (fingerprint
-          components — the next start rebuilds the index)
-      {decisions_line}
-      search              default_k {s.get('default_k')}, max_k {s.get('max_k')}
-          to change later: nothing re-embeds — edit {cfg_path} and restart
-          the container (serving-only)
-      embedding.batch_size {e.get('batch_size', 32)} — identity, not only speed (CP-79, wishlist 69):
-          the encode composition shapes a collection's last bits above 32 items;
-          32 is the pinned value every recorded store was built at, another value
-          is a fingerprint component and re-embeds the WHOLE corpus
-      (embedding.device {e.get('device', 'cpu')} — speed only, not identity)""")
+        lines.append(f"      decisions           synthetic (seed {d.get('seed')}, corpus_size {d.get('corpus_size')}) — no real court text; synthetic 30 by default (no drop)")
+    return "\n".join(lines)
+
+
+def mcp_integer_answer(value, key: str) -> int:
+    # Numeric strings were valid answer-file inputs. Floats/bools must not
+    # silently become a different integer before the descriptor sees them.
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value.strip()):
+        return int(value)
+    die(f"{key}: the chunk window answer is not an integer.", repr(value),
+        "an integer, without a fractional part or boolean coercion",
+        f"correct {key} in --answers or its --chunk flag and re-run")
+
+
+def mcp_config_inputs(A: Answers, previous: dict) -> dict:
+    """Resolve once, before creating anything; preserve CP-73 answer precedence."""
+    prior = previous.get("mcp") or {}
+    pm = previous.get("compose", {}).get("mcp") or {}
+    mode = A.get("mcp", "retrieval service (MCP): create, or adopt "
+                 "(recorded: a re-run keeps it; --retarget moves it)",
+                 "adopt" if prior.get("mode") == "adopted" else "create",
+                 choices=("create", "adopt"))
+    overrides = load_mcp_overrides(A.get("mcp_config", None, None))
+    if mode == "adopt" and (overrides is not None or A.get("decisions_dir", None, None)):
+        die("--mcp-config and --decisions-dir configure a service this run would CREATE.",
+            "--mcp adopt with a create-only configuration flag", "--mcp create, or neither flag",
+            "change the adopted service's own config and restart it there; "
+            "its operator owns the file and decisions mount")
+    emb = (overrides or {}).get("embedding") or {}
+    chunk = (overrides or {}).get("chunking") or {}
+    model = A.get("embedding_model", "embedding model (HF id; binding to the "
+                  "index store until --rebuild — CP-57)",
+                  emb.get("model") or prior.get("embedding", {}).get("model") or DEFAULT_EMBEDDING_MODEL)
+    revision = A.get("embedding_revision", "embedding revision (full commit SHA; binding with the model)",
+                     (emb.get("revision") if emb.get("model") in (None, model) else None)
+                     or (prior.get("embedding", {}).get("revision")
+                         if prior.get("embedding", {}).get("model") == model
+                         else DEFAULT_EMBEDDING_REVISION if model == DEFAULT_EMBEDDING_MODEL else None),
+                     required=True)
+    chunk_prev = pm.get("chunking") or {}
+    chunk_max = mcp_integer_answer(A.get("chunk_max_tokens", None,
+                                        chunk.get("max_tokens", chunk_prev.get("max_tokens", 220))),
+                                   "chunking.max_tokens")
+    chunk_overlap = mcp_integer_answer(A.get("chunk_overlap", None,
+                                            chunk.get("overlap", chunk_prev.get("overlap", 40))),
+                                       "chunking.overlap")
+    # Identity/window answers bind above; every other key is a recorded residual.
+    residual = {sec: {k: v for k, v in vals.items() if not MCP_FIELDS[sec][k].get("answer")}
+                for sec, vals in (overrides or {}).items()}
+    residual = {sec: vals for sec, vals in residual.items() if vals}
+    if overrides is None and pm.get("config_overrides"):
+        residual = pm["config_overrides"]
+        say("mcp", f"--mcp-config overrides kept from the record: {sorted(residual)} "
+                   "(pass --mcp-config to replace them; an empty file clears them)")
+    problems = mcp_override_problems(residual)
+    if not problems:
+        for section, fields in residual.items():
+            for key in fields:
+                if MCP_FIELDS[section][key].get("answer"):
+                    problems.append(f"recorded config_overrides.{section}.{key}: is a bound answer, not a residual — "
+                                    f"replace the recorded overrides with --mcp-config and set --{MCP_FIELDS[section][key]['answer'].replace('_', '-')}")
+    problems += mcp_config_problems({"embedding": {"model": model, "revision": revision},
+                                     "chunking": {"max_tokens": chunk_max, "overlap": chunk_overlap}})
+    if not problems:
+        # Wiring is irrelevant to these validators. Use the SAME template and
+        # residual merge as the generated file, so effective cross-field checks
+        # see the chosen flags/record, never guessed defaults from a partial file.
+        base = render_mcp_template(prog=PROG, run="preflight", forgejo_url="http://preflight",
+                                 owner="preflight", repos="preflight", read_env="PREFLIGHT",
+                                 model=model, revision=revision, chunk_max=chunk_max,
+                                 chunk_overlap=chunk_overlap, rebuild="if-stale", secret_env=MCP_SECRET_ENV)
+        doc = yaml.safe_load(render_mcp_config(base, residual))
+        problems = mcp_config_problems(doc)
+    if problems:
+        die("the effective retrieval config is invalid; no service was created.",
+            "; ".join(problems), "the keyed types, bounds and pinned values above",
+            "correct the named --mcp-config key or --embedding/--chunk flag and re-run; "
+            "for recorded residuals pass a corrected --mcp-config (an empty file clears them)")
+    return dict(mode=mode, model=model, revision=revision, chunk_max=chunk_max,
+                chunk_overlap=chunk_overlap, residual=residual)
 
 
 def require_decisions_image(image: str, decisions_dir: str | None) -> None:
@@ -1617,12 +1760,11 @@ def cmd_up(args: argparse.Namespace) -> None:
                  yaml_name, required=True)
     run_ = _command_run(args, name)
     run_.load()
-    # Known incompatible explicit/recorded image+drop answers refuse before
-    # creating files, pulling images or touching Forgejo. Interactive choices
-    # are checked again once the actual image and drop have been selected.
+    mc = mcp_config_inputs(A, run_.record)
+    mmode, model, revision = mc["mode"], mc["model"], mc["revision"]
+    chunk_max, chunk_overlap, residual = mc["chunk_max"], mc["chunk_overlap"], mc["residual"]
     prior_mcp = run_.record.get("compose", {}).get("mcp") or {}
-    prior_mode = "adopt" if run_.record.get("mcp", {}).get("mode") == "adopted" else "create"
-    if A.get("mcp", None, prior_mode) == "create":
+    if mmode == "create":
         require_decisions_image(A.get("mcp_image", None, prior_mcp.get("image", MCP_IMAGE)),
                                 A.get("decisions_dir", None, prior_mcp.get("decisions_dir")))
     rundir = run_.dir
@@ -1813,7 +1955,7 @@ def cmd_up(args: argparse.Namespace) -> None:
             "--owner-mode existing", "create it (--owner-mode auto|create) or "
             "name the account that holds the corpus")
     if not exists:
-        pw = secrets.token_urlsafe(18)
+        pw = credential(secrets.token_urlsafe(18), "Forgejo owner password")
         fj.create_owner(owner, pw)
         run_.env[f"GSJ_FORGEJO_OWNER_PASSWORD_{owner.upper().replace('-', '_')}"] = pw
         say("owner", f"created {owner!r} (its password is in .env)")
@@ -1921,48 +2063,10 @@ def cmd_up(args: argparse.Namespace) -> None:
     PH.done(f"{len(case_ids)} case repo(s) converged under {owner!r}; lock written")
 
     # ---- the retrieval service
-    mmode = A.get("mcp", "retrieval service (MCP): create, or adopt "
-                         "(recorded: a re-run keeps it; --retarget moves it)",
-                  _choice("mcp"), choices=("create", "adopt"))
     if prev.get("mcp", {}).get("mode") in ("created", "adopted") and \
             prev["mcp"]["mode"] != ("created" if mmode == "create" else "adopted"):
         retarget("the retrieval service", prev["mcp"]["mode"],
                  "created" if mmode == "create" else "adopted")
-    mc_over = load_mcp_overrides(A.get("mcp_config", None, None))
-    if mmode == "adopt" and A.get("decisions_dir", None, None):
-        die("--decisions-dir mounts a drop into a service this run would CREATE.",
-            "--mcp adopt (an adopted service's decisions are its operator's)",
-            "--mcp create, or no --decisions-dir",
-            "point the adopted service's own config at its drop (decisions.path, "
-            "mounted read-only) and restart it — this run only checks the "
-            "identity it serves")
-    if mc_over is not None and mmode == "adopt":
-        die("--mcp-config configures a service this run would CREATE.",
-            "--mcp adopt (an adopted service's config is its operator's)",
-            "--mcp create, or no --mcp-config",
-            "to change an adopted service's retrieval config, change it "
-            "there (its operator owns the file) — this run only checks the "
-            "identity it serves")
-    mc_emb = (mc_over or {}).get("embedding") or {}
-    mc_chunk = (mc_over or {}).get("chunking") or {}
-    model = A.get("embedding_model", "embedding model (HF id; binding to the "
-                                     "index store: once built, a different "
-                                     "model is refused until --rebuild "
-                                     "re-embeds — CP-57)",
-                  mc_emb.get("model")
-                  or prev.get("mcp", {}).get("embedding", {}).get("model") or DEFAULT_EMBEDDING_MODEL)
-    revision = A.get("embedding_revision", "embedding revision (full commit "
-                                           "SHA; binding with the model)",
-                     (mc_emb.get("revision")
-                      if mc_emb.get("model") in (None, model) and mc_emb.get("revision") else None)
-                     or (prev.get("mcp", {}).get("embedding", {}).get("revision")
-                         if prev.get("mcp", {}).get("embedding", {}).get("model") == model
-                         else (DEFAULT_EMBEDDING_REVISION if model == DEFAULT_EMBEDDING_MODEL else None)),
-                     required=True)
-    if not HEX40.match(str(revision)):
-        die(f"embedding revision {revision!r} is not a full commit SHA.", repr(revision),
-            "40 hex characters (a branch or tag can move under the index — the "
-            "service refuses it too)", "--embedding-revision <sha>")
     secret = None
     if mmode == "adopt":
         murl = bare_url(A.get("mcp_url", "MCP URL (as this host reaches it; "
@@ -2079,7 +2183,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         if secret:
             reused.append(f"MCP token secret ({MCP_SECRET_ENV})")
         else:
-            secret = secrets.token_hex(32)
+            secret = credential(secrets.token_hex(32), MCP_SECRET_ENV)
             run_.env[MCP_SECRET_ENV] = secret
             say("mcp", f"token secret generated -> .env {MCP_SECRET_ENV}")
         run_.write_env()
@@ -2166,35 +2270,9 @@ def cmd_up(args: argparse.Namespace) -> None:
                         "--rebuild) — waiting for that rebuild, then reverting")
             rebuild = True
         chunk_prev = (pm or {}).get("chunking") or {}
-        try:
-            chunk_max = int(A.get("chunk_max_tokens", None,
-                                  mc_chunk.get("max_tokens", chunk_prev.get("max_tokens", 220))))
-            chunk_overlap = int(A.get("chunk_overlap", None,
-                                      mc_chunk.get("overlap", chunk_prev.get("overlap", 40))))
-        except (TypeError, ValueError) as exc:
-            die("the chunk window is not a pair of integers.", str(exc),
-                "chunking.max_tokens / chunking.overlap as integers",
-                "--chunk-max-tokens/--chunk-overlap, or the --mcp-config "
-                "file's chunking section")
         if chunk_prev and (chunk_max, chunk_overlap) != (chunk_prev["max_tokens"], chunk_prev["overlap"]):
             changed.append(f"chunking: {chunk_prev} -> {{'max_tokens': {chunk_max}, 'overlap': {chunk_overlap}}}")
-        # the identity and window already flowed through the answers above;
-        # what remains of --mcp-config merges verbatim (search, decisions,
-        # device, batch_size, …). A re-run WITHOUT the flag keeps the
-        # record's residual (CP-59: every re-run default comes from the
-        # record — a plain re-run must not silently revert the operator's
-        # config); a new --mcp-config replaces it whole.
-        residual = {sec: {k: v for k, v in vals.items()
-                          if (sec, k) not in (("embedding", "model"), ("embedding", "revision"),
-                                              ("chunking", "max_tokens"), ("chunking", "overlap"))}
-                    for sec, vals in (mc_over or {}).items()}
-        residual = {sec: vals for sec, vals in residual.items() if vals}
-        if mc_over is None and pm and pm.get("config_overrides"):
-            residual = pm["config_overrides"]
-            say("mcp", f"--mcp-config overrides kept from the record: "
-                       f"{sorted(residual)} (pass --mcp-config to replace "
-                       "them; an empty file clears them)")
-        cfg_text = MCP_CONFIG.format(
+        cfg_text = render_mcp_template(
             prog=PROG, run=name, forgejo_url=fj.container_url, owner=owner,
             repos=", ".join(case_ids), read_env=read_env, model=model,
             revision=revision, chunk_max=chunk_max, chunk_overlap=chunk_overlap,
