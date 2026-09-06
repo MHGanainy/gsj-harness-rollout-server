@@ -1,10 +1,11 @@
-# The corpus source-directory contract (v2, CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; manifest slimmed + `scaffold`: CP-71; v1: the predecessor's CP-33 / ADR-0046)
+# The corpus source-directory contract (v3, CP-88 / ADR-0038 — court decisions as corpus data; v2: CP-14 / ADR-0015; taskbank as built: CP-24 / ADR-0022; manifest slimmed + `scaffold`: CP-71; v1: the predecessor's CP-33 / ADR-0046)
 
 **Audience: the data-prep team.** This document is self-contained — you do
 not need to know anything else about this repository. You produce one
 directory tree in the shape below; the ingestion pipeline
 (`estate/corpus/ingest_corpus.py`) turns it into git case repositories, a search
-index, and a task table. You never edit the pipeline, and the pipeline
+index (the case pages and, since v3, the court decisions the corpus may
+carry), and a task table. You never edit the pipeline, and the pipeline
 never edits your tree.
 
 The pipeline is strict on purpose: **everything it can check, it checks
@@ -26,6 +27,9 @@ file it writes says what it is and what to change. Edit, `validate`, `up`.
   corpus.yaml                     # corpus-level configuration (reference below)
   AGENTS.md                       # the agent instructions, corpus-level
   skills/<name>/SKILL.md          # skill cards, corpus-level (copied into every repo)
+  decisions/                      # OPTIONAL (v3): court decisions, one rii-dok v1 XML file each,
+    jb-<doknr>.xml                #   named exactly as rechtsprechung-im-internet.de publishes them
+    README.md                     #   optional (the scaffold's); ignored — "Decisions" below
   train/                          # the training split
     cases/
       <case_id>/                  # e.g. case_0007 — becomes the repo name
@@ -57,7 +61,8 @@ There are exactly two splits, named `train` and `eval`. A third directory
 contract change that needs its own ADR.
 
 Generated files the pipeline writes into `<corpus-root>` (never write these
-yourself): `corpus.lock.json`, `taskbank.parquet`.
+yourself): `corpus.lock.json`, `taskbank.parquet`, and — only when
+`decisions/` holds decisions — `decisions.lock.json`.
 
 ## The five hard invariants
 
@@ -160,6 +165,158 @@ Moving a case between splits is legal at any time *before* upload; after
 an upload it additionally requires re-running `scaffold` so the freeze
 record (`corpus.lock.json`) states the new split — `verify` fails on a
 tree whose splits disagree with the lock.
+
+## Decisions — court decisions as corpus data (v3, CP-88 / ADR-0038)
+
+*In the checkout since CP-88; it reaches the installed wheel at the first
+release after 0.1.8 — a 0.1.8 `validate` refuses a `decisions/` entry as
+"unexpected entry", so a wheel consumer keeps the drop beside the corpus
+and `--decisions-dir` until then.*
+
+A corpus may carry the court decisions its retrieval service serves
+beside the case pages: `<corpus-root>/decisions/`, one file per decision
+in the rii-dok v1 XML that rechtsprechung-im-internet.de publishes, named
+`jb-<doknr>.xml`. The format and every rule are the library's
+`docs/decisions-surface.md` (surface version 1): §2 the file, §3–§4 the
+unit rule (a decision is served by Randnummer — its numbered paragraphs —
+or, for a section without numbering, as one section unit; the service
+calls that "level 2"), §9 the citation grammar your `AGENTS.md` may teach
+(`dec:<doknr>:rn:<N>`, beside `page:N`; the clause is §9.5). The
+directory is OPTIONAL, and the split is not involved: decisions are
+corpus-level, above `train/` and `eval/`, and every episode's retrieval
+service serves them whole — a page cutoff scopes the case, never the
+precedent (the `search_decisions` tool is cutoff-exempt by design).
+
+**What `validate` refuses** — every failure names the file and the rule
+(spec §2.2, plus §2.1's element sequence):
+
+- the file does not parse as XML;
+- the root element is not `dokument`;
+- the root does not carry the DTD's 26 elements, in order (`doknr` …
+  `accessRights`) — stricter than the retrieval service's own parser,
+  which reads a file with a missing or misplaced element; the lock claims
+  the drop is rii-dok v1 as measured, so the tree is held to the measured
+  shape;
+- `doknr` does not match `[A-Z]{4}[0-9]{9}` (`KORE…` / `JURE…`) or is not
+  the filename stem after `jb-` (uniqueness follows: two files cannot
+  share one stem in a flat directory — the validator keeps a duplicate
+  check as defence in depth);
+- `entsch-datum` is not eight ASCII digits;
+- `gertyp` or `doktyp` is empty;
+- anything in `decisions/` that is not a `jb-<doknr>.xml` file or the
+  optional `README.md`: a subdirectory, a misnamed `.xml`, a backup file,
+  a dot-entry such as a Finder's `.DS_Store` — the directory is flat and
+  strict, like everything below the root (dot-entries are ignored at the
+  root only), so clean a folder that was handled in a file manager before
+  moving it in; an unreadable directory, or a file nested deeper than the
+  parser walks, is refused the same way, never a traceback.
+
+One bad file refuses the tree and nothing is uploaded, the way one bad
+page does: a training corpus must be exactly what its lock says. The
+retrieval service's own posture is the other one (spec §2.2: it skips a
+non-conforming file and serves the rest), so on a tree that passes
+`validate` the two keep the same files and compute the same hash.
+
+**What `validate` reports without refusing** — spec §2.3's anomalies,
+one PASS row per occurrence naming the file: a duplicated Randnummer
+number — a restart of the numbering included (two units then share an
+`rn`, and a citation to it is ambiguous); numbering that is not
+contiguous `1..K` without any duplicate (a gap, a start at 2 or 3) — the
+two numbering kinds are exclusive per file and count once per file; an
+anchored paragraph with no text (the unit is not produced); an
+`<a name="rd_">` with no digits (not an anchor); text outside any row
+(not indexed); a reasoning section with text and no anchors (one section
+unit); a title and nothing else — these five count once per occurrence.
+Read those rows: they do not fail the tree, but a duplicated Randnummer
+is a citation your graders cannot ground. The counts per kind go into
+the lock.
+
+**Empty is legal.** A `decisions/` holding no `.xml` file (the scaffold
+writes one, with a README saying what goes in it) means "this corpus
+carries no decisions": no lock is written and the estate serves the
+library's built-in placeholder set of 30 synthetic decisions. A corpus
+with no `decisions/` at all behaves exactly as under v2 (its `verify`
+table gains no row).
+
+**`decisions.lock.json`** — written by the `scaffold` phase beside
+`corpus.lock.json` when the directory holds decisions, removed by
+`scaffold` when they are gone. A corpus without decisions keeps its
+`corpus.lock.json` byte-identical to v2's: no key is added there, and
+the case repos' commit SHAs do not depend on the drop. The file as written (keys sorted, two-space indent), for the demo
+repo's thirty synthetic decisions:
+
+```json
+{
+  "_comment": ["Generated by ingest_corpus.py (corpus-contract v3, CP-88 / ADR-0038) — …"],
+  "anomalies": {},
+  "dates": {"max": "2024-11-19", "min": "2009-05-19"},
+  "ecli": 16,
+  "files": 30,
+  "files_with_anomalies": 0,
+  "randnummer_units": 244,
+  "section_units": 69,
+  "sha256": "b414c6709a5b7d0daf4505d2ed5bdd5fcadf325e5401e0dd34ae9b76d13eaaa4",
+  "surface_version": 1,
+  "units": 313
+}
+```
+
+`_comment` is informational and ignored by `verify`. `sha256` is the
+drop's content hash: for each `jb-<doknr>.xml` in ascending filename
+order, feed the line `<filename>` + newline + `<sha256 of the file's
+bytes, lowercase hex>` + newline into one sha256 — the value the retrieval
+service computes for the same directory and serves as `index_commit` on
+every decisions hit and as `/health.decisions_drop.sha256`; lock and
+service agree by construction. `units` / `randnummer_units` /
+`section_units` are the unit rule's census (spec §3–§4): the pipeline
+carries a port of the service's parser, pinned by its suite to the
+conformance fixture unit for unit and to the service's own module, so
+the number the lock records is the number the service serves. `ecli`
+counts the files carrying an ECLI (absent on decisions before 2016);
+`dates` is the range of `entsch-datum`; `anomalies` maps a §2.3 kind
+(`duplicate_randnummer`, `non_contiguous_randnummer`,
+`randnummer_without_text`, `non_anchor_rd_name`, `text_outside_rows`,
+`anchorless_reasoning_section`, `title_only`) to its occurrences.
+**No per-file rows**: the lock is a fixity record and a census, not an
+index — CP-76 priced per-file rows at about 1 MB for the published drop,
+and nothing downstream reads them. Commit it with the corpus, like
+`corpus.lock.json`.
+
+**What `verify` checks**: the tree against the lock (a decision edited
+since `scaffold` fails, naming the changed hash and the phase to re-run;
+a missing or a stale lock fails naming `scaffold`), and the lock against
+what the service serves (`/health.decisions_drop`'s sha256, file count
+and unit count must equal the lock's; a service serving the synthetic 30
+beside a corpus that carries decisions fails). A corpus without
+decisions skips both and says so; a service serving a drop from outside
+such a corpus (the estate's `--decisions-dir`, below) passes with a row
+saying whose drop it is.
+
+**The estate.** `estate.py up` mounts `<corpus>/decisions` read-only into
+the retrieval service by default when it holds decisions — no flag — and
+the bring-up's retrieval-config review names the source.
+`--decisions-dir <dir>` remains the override for a drop kept outside a
+corpus (the CP-79 route: recorded by the run, kept on a re-run, cleared
+with `--decisions-dir ''`). A corpus `decisions/` AND a `--decisions-dir`
+— given now, or recorded by an earlier `up` of the same run — is a
+refusal that names both, says which wins (the corpus's, under this
+contract) and how to resolve it; never a silent precedence. A drop that
+arrives by the flag is not the corpus's data: it is not locked here and a
+hand-over of the corpus does not carry it — move it inside
+(`mv <corpus>-decisions <corpus>/decisions`, then `validate`) to make it
+corpus data.
+
+**Editing the decisions of a standing estate.** Re-run `estate.py up`:
+its scaffold phase re-locks the changed drop, its ingest phase asks the
+service to re-index and the service — whose fingerprint sees the drop's
+bytes — re-embeds the decisions collection alone, keeping every case
+collection, and `verify` then passes with the new hash (measured at
+CP-88 on the workstation estate: one edited file → `rebuilt
+['decisions']` in 22 s, verify PASS; the file restored → the lock back
+to its old hash, verify PASS). `up --rebuild` re-embeds everything.
+`estate.py update` does not see a drop-only change: it diffs the cases
+against the run's lock and reports "nothing to do" when no case moved
+(row 73's residue, recorded at CP-88) — use `up` for the drop.
 
 ## `corpus.yaml` reference
 
@@ -314,6 +471,9 @@ The pipeline also writes, into `<corpus-root>`:
   the prompt ids; plus the task table's row count and sha256. Commit it
   with the corpus; it is the freeze record downstream consumers pin
   against.
+- `decisions.lock.json` (v3, only when `decisions/` holds decisions) —
+  the drop's content hash and census, no per-file rows ("Decisions"
+  above). Commit it with the corpus.
 - `taskbank.parquet` — the task table (ADR-0022): one row per (case,
   timestep, prompt), flat columns `case_id`, `timestep`, `prompt_id`,
   `split` (`train` | `eval`, taken from the case's directory —
@@ -350,11 +510,11 @@ a deprecation notice; retained in 0.1.8; removal remains eligible from 0.1.8, no
 
 | phase | what it does | what it guarantees |
 |---|---|---|
-| `validate` | checks this contract against your tree | nothing is uploaded unless the whole tree passes |
-| `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` (incl. each case's split) |
+| `validate` | checks this contract against your tree — the cases and, since v3, `decisions/` (refusals named per file; anomalies reported) | nothing is uploaded unless the whole tree passes |
+| `scaffold` | creates/updates the repos, pushes all branches | idempotent; deterministic SHAs; writes `corpus.lock.json` (incl. each case's split) and, since v3, `decisions.lock.json` (the drop's hash and census) |
 | `ingest` | tells the retrieval service to (re)index; waits for ready | search serves exactly the pushed corpus |
 | `taskbank` | writes `taskbank.parquet`; records its sha in the lock | one row per (case, timestep, prompt), split from the directory (via the lock — a case moved between splits must be re-scaffolded first); needs `pyarrow` (`estate/corpus/requirements.txt`) |
-| `verify` | clones everything **back from the git host**, re-reads the parquet **row by row**, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split, and the task table's rows: counts, every triple exactly once and set-equal to your tree, split/text/image columns re-derived from the tree |
+| `verify` | clones everything **back from the git host**, re-reads the parquet **row by row**, queries the service | what is *live* matches your tree and the lock, byte-for-byte — including each case's split, and the task table's rows: counts, every triple exactly once and set-equal to your tree, split/text/image columns re-derived from the tree; since v3 the decisions: the tree against `decisions.lock.json`, and the lock against the drop the service serves |
 
 `validate` checks the input; `verify` checks reality — the second half is
 what tells you an upload actually landed as intended, so never skip it.
@@ -506,6 +666,15 @@ the estate's pins are re-derived and named**:
   the trainer both (law 6: same document, both legs). The reference
   walk for our own estate is `pins/derive_pins.py` in the checkout.
 
+**Your decisions are corpus data too (v3).** A `decisions/` of rii-dok v1
+files travels with the corpus, is locked with it and is what the estate
+serves — see "Decisions" above. Teaching the agent to cite them is your
+`AGENTS.md`'s job (the §9.5 clause of `docs/decisions-surface.md`), and,
+like any `AGENTS.md` edit, it moves G2 — re-derive the pins as described
+above. What no measurement yet shows is a policy USING the citation
+grammar under a reward (the library's wishlist row 70): the clause alone
+produced no citation from the reference model at CP-81.
+
 **Your timesteps must correspond to something real.** A timestep is a
 cutoff of one growing document — the contract checks the *shape* of that
 claim (prefix consistency, absolute numbering) but cannot check that
@@ -557,18 +726,21 @@ and expect the pins step to be where it catches.
 | timestep directory | `timestep-<T>`, T a positive integer, no leading zeros |
 | page file | `page_<NNNN>.md`, 4-digit zero-padded, `.md` |
 | skill name / free slug | letters, digits, `._-`; must start alphanumeric |
+| decision file (v3) | `jb-<doknr>.xml`, doknr `[A-Z]{4}[0-9]{9}` equal to the stem; `decisions/` is flat, plus an optional `README.md` |
 | every text file | UTF-8, no exceptions |
 
 Strictness of the tree: at the corpus root only `corpus.yaml`,
-`AGENTS.md`, `skills/`, `train/`, `eval/` and the two generated files are
-allowed (dot-prefixed entries like `.git` are ignored **at the root
-only** — a corpus source tree may itself be a git repository); under
-`train/` or `eval/` only `cases/`; under `cases/` only case directories;
-under `cases/<case_id>/` only `case.yaml` and `timestep-<T>/` directories;
-under a timestep directory only `pages/` and `prompts.yaml`; under
-`pages/` only page files. Anything else is a validation error — a
-misspelled `timestep_12/` or a stray `test/` split must fail loudly, not
-be silently skipped.
+`AGENTS.md`, `skills/`, `train/`, `eval/`, `decisions/` (v3) and the three
+generated files are allowed (dot-prefixed entries like `.git` are ignored
+**at the root only** — a corpus source tree may itself be a git
+repository); under `train/` or `eval/` only `cases/`; under `cases/` only
+case directories; under `cases/<case_id>/` only `case.yaml` and
+`timestep-<T>/` directories; under a timestep directory only `pages/` and
+`prompts.yaml`; under `pages/` only page files; under `decisions/` only
+`jb-<doknr>.xml` files and an optional `README.md`. Anything else is a
+validation error — a misspelled `timestep_12/`, a stray `test/` split or
+a `decisions/2024/` subdirectory must fail loudly, not be silently
+skipped.
 
 `AGENTS.md` and `skills/` are **required** at the root even for a corpus
 that uses only free prompts (`skills/` may then be empty). Under
@@ -625,4 +797,7 @@ moved.
 - [ ] No estate values in `corpus.yaml` — `forgejo:`, `mcp:` and
       `sandbox_image:` are the estate's (deprecated; a corpus still
       carrying them warns, and `sandbox_image` is ignored outright).
+- [ ] `decisions/`, if present, holds only `jb-<doknr>.xml` files (and
+      the README), every file passes `validate`, and its anomaly rows
+      were read (a duplicated Randnummer makes a citation ambiguous).
 - [ ] No credentials anywhere in the tree.

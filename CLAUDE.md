@@ -56,7 +56,7 @@ next: <advisory>
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
 │   ├── corpus-contract.md       # the corpus tree contract
 │   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — UNTRACKED since CP-48
-│   ├── decisions/               # ADRs (0001–0037), one file per decision, append-only — UNTRACKED since CP-48
+│   ├── decisions/               # ADRs (0001–0038), one file per decision, append-only — UNTRACKED since CP-48
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — fully UNTRACKED since CP-49a (CP-48.md came out too)
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
 │   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
@@ -70,7 +70,7 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 291 + mcp-service 164)
+├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 338 — 337 + 1 skipped on the runner, the demo-thirty pin is local — + mcp-service 164)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 └── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
@@ -82,7 +82,7 @@ next: <advisory>
     ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
     ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
     ├── mcp-service/             #   the retrieval service — own suite (164), venv, Dockerfile, GHCR image
-    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (291) + staging/ (163 frozen fixture files)
+    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (338) + staging/ (163 frozen fixture files)
 ```
 
 `spike/` (the CP-06 evidence) is off the tree since CP-68 — frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) (commit `a769771`, tree `2082a24f`), ADR-0029; restore with `git checkout spike-cp06 -- spike`.

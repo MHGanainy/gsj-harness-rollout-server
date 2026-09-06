@@ -125,7 +125,7 @@ CUTOFF_SCOPED_TOOLS = frozenset({"mcp_gsj_search_case"})
 |---|---|
 | `mcp_gsj_search_case` | **scoped**: pages ≤ T, pre-filtered server-side, audited by G5 |
 | `mcp_gsj_case_status` | reports the token's scope (`case_id`, `timestep`, `pages_visible`, `max_visible_page`); retrieves no pages; G5's last-resort source of `T` |
-| `mcp_gsj_search_decisions`, `mcp_gsj_decision_stats` | **exempt**: a separate corpus with no page structure, never clamped — real BGH decisions by Randnummer when the estate mounts a drop (`estate.py up --decisions-dir`, the surface of [`decisions-surface.md`](../decisions-surface.md); the agent cites them as `dec:<doknr>:rn:<N>`), the synthetic 30 otherwise |
+| `mcp_gsj_search_decisions`, `mcp_gsj_decision_stats` | **exempt**: a separate corpus with no page structure, never clamped — real BGH decisions by Randnummer when the corpus carries `decisions/` (corpus-contract v3, CP-88) or the estate mounts a drop with `estate.py up --decisions-dir`, the surface of [`decisions-surface.md`](../decisions-surface.md); the agent cites them as `dec:<doknr>:rn:<N>`), the synthetic 30 otherwise |
 | built-in `read`, `grep`, `find`, `ls`, `bash` | **not audited**: they act on the checkout wall 1 already truncated. A `bash` leak is invisible to the G5 backstop (it reads MCP tool results, not shell output) — which is why the clone flags are enforced at the source and attested per episode |
 
 The backstop is also a shape contract: every `search_case` hit must carry `page` as an integer and `file` as exactly `md/page_NNNN.md` — a backend that renames either blinds the gate without failing it.

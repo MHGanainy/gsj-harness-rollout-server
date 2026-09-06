@@ -7,7 +7,8 @@ stopping at the first failure:
 
     validate   the source tree against docs/corpus-contract.md (the input;
                contract v2 since CP-14 — the train/eval split is the
-               directory layout, ADR-0015)
+               directory layout, ADR-0015; v3 since CP-88 — decisions/ is
+               corpus data, locked and verified, ADR-0038)
     scaffold   deterministic case repos, pushed to Forgejo under `owner`
     ingest     trigger the MCP service reindex (POST /admin/reindex), wait ready
     taskbank   one row per (case, timestep, prompt) into taskbank.parquet
@@ -59,6 +60,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -219,6 +221,7 @@ class Corpus:
     agents_md: Path
     skills: dict[str, Path]          # skill name -> SKILL.md
     cases: dict[str, CaseTree] = field(default_factory=dict)
+    decisions: DecisionsCensus | None = None   # v3: the drop's census, None = no decisions
 
 
 @dataclass(frozen=True)
@@ -240,6 +243,526 @@ def _read_utf8(path: Path) -> str | None:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# Decisions — court decisions as corpus data (corpus-contract v3, CP-88 /
+# ADR-0038; the surface: docs/decisions-surface.md, version 1)
+#
+# `<corpus-root>/decisions/` holds one rii-dok v1 file per decision,
+# `jb-<doknr>.xml` (spec §2.1), plus an optional README.md (the scaffold's;
+# the service's loader reads *.xml only). `validate` applies spec §2.2 —
+# every file parses, root <dokument>, doknr shape / stem / uniqueness, an
+# eight-digit entsch-datum, non-empty gertyp and doktyp — plus §2.1's 26
+# DTD elements in order, as REFUSALS naming the file and the rule, and
+# reports §2.3's anomalies without refusing (a training corpus is exactly
+# what its lock says; the service's own posture is to skip a bad file, so
+# on a validated tree the two keep the same files). `scaffold` writes
+# decisions.lock.json: the drop's content hash (the value the service
+# serves as index_commit and /health.decisions_drop.sha256 — sha256 over
+# each kept file's name and bytes, ascending filename order), the file
+# count, the unit / Randnummer census, the ECLI count, the date range and
+# the anomaly counts. No per-file rows: CP-76 priced them at ~1 MB and no
+# reader needs them. `verify` re-censuses the tree against the lock and
+# the lock against the served drop.
+#
+# The unit rule below (spec §3–§4) is a PORT of the service's parser
+# (estate/mcp-service/gsj_mcp_service/decisions.py — the level-2
+# implementation CP-79 proved against the conformance fixture). The
+# pipeline ships in the wheel as this one standalone module (force-
+# included; the service is a container image, not a dependency), so it
+# cannot import the service — ADR-0038. The suite pins the port to the
+# fixture unit for unit and byte for byte (docs/decisions-surface/
+# expected.json) and to the service's parser over the same files, so the
+# two implementations cannot drift silently.
+
+DECISIONS_DIR = "decisions"
+DECISIONS_LOCK_NAME = "decisions.lock.json"
+DECISIONS_README = "README.md"          # the scaffold's; ignored by pipeline and service
+DECISION_FILE_RE = re.compile(r"^jb-([A-Z]{4}[0-9]{9})\.xml\Z")
+DECISION_SURFACE_VERSION = 1
+# the root's fixed sequence (spec §2.1; the DTD of 2015-11-19)
+DECISION_DTD_ELEMENTS = (
+    "doknr", "ecli", "gertyp", "gerort", "spruchkoerper", "entsch-datum",
+    "aktenzeichen", "doktyp", "norm", "vorinstanz", "region", "mitwirkung",
+    "titelzeile", "leitsatz", "sonstosatz", "tenor", "tatbestand",
+    "entscheidungsgruende", "gruende", "abwmeinung", "sonstlt", "identifier",
+    "coverage", "language", "publisher", "accessRights")
+# the nine ANY body sections, in DTD order (spec §4.1)
+DECISION_SECTIONS = ("titelzeile", "leitsatz", "sonstosatz", "tenor", "tatbestand",
+                     "entscheidungsgruende", "gruende", "abwmeinung", "sonstlt")
+DECISION_REASONING_SECTIONS = ("tatbestand", "entscheidungsgruende", "gruende")
+_DEC_INLINE = frozenset({"a", "em", "strong", "span", "sub", "sup"})  # §3.1 rule 2
+_DEC_DROPPED = frozenset({"table", "img"})                             # §3.1 rule 1
+_DEC_ANCHOR_RE = re.compile(r"rd_([0-9]+)")                             # fullmatch, §4.1
+_DEC_DOKNR_RE = re.compile(r"[A-Z]{4}[0-9]{9}")                        # §2.2 / §9.1
+_DEC_DATE_RE = re.compile(r"[0-9]{8}")
+
+
+class DecisionRefusal(Exception):
+    """A source file that does not conform (spec §2.2, and §2.1's element
+    sequence) — `validate` refuses it, naming the file and this reason."""
+
+
+@dataclass(frozen=True)
+class DecisionRecord:
+    file: str
+    sha256: str                     # of the file's bytes
+    doknr: str
+    ecli: str | None                # None = the source carries none
+    date: str                       # ISO YYYY-MM-DD
+    units: tuple[tuple[str, int | None, str], ...]   # (section, rn, text), in document order
+    anomalies: tuple[tuple[str, str], ...]           # (kind, message), spec §2.3
+
+
+@dataclass
+class DecisionsCensus:
+    """What decisions.lock.json records — and nothing per file."""
+    sha256: str
+    files: int
+    units: int
+    randnummer_units: int
+    section_units: int
+    ecli: int                       # files carrying an ECLI
+    date_min: str
+    date_max: str
+    anomalies: dict[str, int]       # kind -> occurrences, spec §2.3
+    files_with_anomalies: int
+
+    def as_lock(self) -> dict:
+        return {"surface_version": DECISION_SURFACE_VERSION,
+                "sha256": self.sha256, "files": self.files,
+                "units": self.units, "randnummer_units": self.randnummer_units,
+                "section_units": self.section_units, "ecli": self.ecli,
+                "dates": {"min": self.date_min, "max": self.date_max},
+                "anomalies": dict(sorted(self.anomalies.items())),
+                "files_with_anomalies": self.files_with_anomalies}
+
+
+def _dec_dropped(el) -> bool:
+    return el.tag in _DEC_DROPPED or (el.tag == "a" and el.get("href") is not None)
+
+
+def _dec_flow(el, out: list) -> None:
+    """Every text node under *el* in document order (spec §3.1): a dropped
+    subtree contributes nothing — not its text, not a boundary — while its
+    tail still joins the parent's flow; every element outside INLINE puts
+    one space before and after its content."""
+    if _dec_dropped(el):
+        return
+    block = el.tag not in _DEC_INLINE
+    if block:
+        out.append(" ")
+    if el.text:
+        out.append(el.text)
+    for child in el:
+        _dec_flow(child, out)
+        if child.tail:
+            out.append(child.tail)
+    if block:
+        out.append(" ")
+
+
+def _dec_text(el) -> str:
+    if el is None:
+        return ""
+    out: list = []
+    _dec_flow(el, out)
+    return " ".join("".join(out).split())      # rule 3: White_Space runs → one space
+
+
+def _dec_header(root, name: str) -> str:
+    """A #PCDATA header's text, outer whitespace stripped, inner runs KEPT
+    (the reference extractor's and the service's reading — wishlist 75)."""
+    return (root.findtext(name) or "").strip()
+
+
+def _dec_rows(section) -> list:
+    """The section's rows: its <dl> descendants with no <dl> ancestor inside
+    the section, in document order."""
+    rows: list = []
+    stack = [(child, False) for child in reversed(list(section))]
+    while stack:
+        el, inside = stack.pop()
+        if el.tag == "dl":
+            if not inside:
+                rows.append(el)
+            inside = True
+        stack.extend((child, inside) for child in reversed(list(el)))
+    return rows
+
+
+def _dec_live_paragraphs(el):
+    if _dec_dropped(el):
+        return
+    if el.tag == "p":
+        yield el
+    for child in el:
+        yield from _dec_live_paragraphs(child)
+
+
+def _dec_parse_row(dl) -> tuple[int | None, str, bool]:
+    """(number or None, text, indented) for one row (spec §4.1)."""
+    dt = next((c for c in dl if c.tag == "dt"), None)
+    dd = next((c for c in dl if c.tag == "dd"), None)
+    number = None
+    if dt is not None:
+        for a in dt.iter("a"):
+            match = _DEC_ANCHOR_RE.fullmatch(a.get("name") or "")
+            if match and int(match.group(1)) >= 1:
+                number = int(match.group(1))
+                break
+    text = _dec_text(dd)
+    indented = dd is not None and any(
+        "margin-left" in (p.get("style") or "") and _dec_text(p)
+        for p in _dec_live_paragraphs(dd))
+    return number, text, indented
+
+
+def _dec_units_of_section(name: str, section, anomalies: list,
+                          numbers: list) -> list[tuple[str, int | None, str]]:
+    """Spec §4.2 (anchored rows) and §4.4 (a section without anchors)."""
+    dls = _dec_rows(section)
+    rows = [_dec_parse_row(dl) for dl in dls]
+    for dl in dls:
+        dt = next((c for c in dl if c.tag == "dt"), None)
+        for a in (dt.iter("a") if dt is not None else ()):
+            value = a.get("name") or ""
+            match = _DEC_ANCHOR_RE.fullmatch(value)
+            if value.startswith("rd_") and not (match and int(match.group(1)) >= 1):
+                anomalies.append(("non_anchor_rd_name",
+                                  f"{name}: <a name={value!r}> is not an anchor — "
+                                  f"the row is unanchored"))
+    numbers.extend(number for number, _, _ in rows if number is not None)
+    anchored = [i for i, (number, _, _) in enumerate(rows) if number is not None]
+    if not anchored:
+        texts = [text for _, text, _ in rows if text]
+        return [(name, None, "\n".join(texts))] if texts else []
+    last = anchored[-1]
+    prefix: list[str] = []
+    open_unit: list | None = None        # [rn, parts]
+    walked: list[list] = []
+    for i, (number, text, indented) in enumerate(rows):
+        if number is not None:
+            open_unit = [number, prefix + ([text] if text else [])]
+            prefix = []
+            walked.append(open_unit)
+        elif not text:
+            continue                     # spacer rows, dropped-only rows
+        elif open_unit is None:
+            prefix.append(text)          # before the first anchor: prefixed
+        elif i > last and not indented:
+            continue                     # after the last anchor, plain: dropped
+        else:
+            open_unit[1].append(text)    # between anchors, or an indented tail
+    units: list[tuple[str, int | None, str]] = []
+    for number, parts in walked:
+        text = "\n".join(parts)
+        if text:
+            units.append((name, number, text))
+        else:
+            anomalies.append(("randnummer_without_text",
+                              f"{name}: Randnummer {number} has no text — not produced"))
+    return units
+
+
+def _dec_text_outside_rows(section) -> bool:
+    """Spec §4.6: bare text in a section that no <dl> contains."""
+    def walk(el) -> bool:
+        if el.tag == "dl" or _dec_dropped(el):
+            return False
+        if (el.text or "").strip():
+            return True
+        for child in el:
+            if walk(child) or (child.tail or "").strip():
+                return True
+        return False
+    return walk(section)
+
+
+def _dec_dtd_order_detail(tags: tuple[str, ...]) -> str:
+    want = DECISION_DTD_ELEMENTS
+    missing = [t for t in want if t not in tags]
+    extra = [t for t in tags if t not in want]
+    duplicated = next((t for t in tags if tags.count(t) > 1), None)
+    if missing or extra:
+        what = (f"missing {missing}" if missing else "") \
+            + (" and " if missing and extra else "") \
+            + (f"unexpected {extra}" if extra else "")
+    elif tags[:len(want)] == want:          # the 26 in order, then more
+        what = f"the 26 in order, then unexpected {list(tags[len(want):])}"
+    elif duplicated is not None:
+        what = f"duplicated element {duplicated!r}"
+    else:                                   # a permutation: name the first slip
+        first = next(i for i, (a, b) in enumerate(zip(tags, want)) if a != b)
+        what = f"out of order at position {first + 1}: found {tags[first]!r}, expected {want[first]!r}"
+    return (f"root <dokument> must carry the 26 DTD elements in order "
+            f"(spec §2.1: doknr … accessRights); found {len(tags)} — {what}")
+
+
+def parse_decision_file(path: Path) -> DecisionRecord:
+    """One file → one record; DecisionRefusal names why a file does not
+    conform (spec §2.2, and §2.1's element sequence)."""
+    raw = path.read_bytes()
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as error:
+        raise DecisionRefusal(f"not well-formed XML ({error}) — spec §2.2") from None
+    if root.tag != "dokument":
+        raise DecisionRefusal(f"root element is <{root.tag}>, not <dokument> (spec §2.2)")
+    tags = tuple(child.tag for child in root)
+    if tags != DECISION_DTD_ELEMENTS:
+        raise DecisionRefusal(_dec_dtd_order_detail(tags))
+    doknr = _dec_header(root, "doknr")
+    if not _DEC_DOKNR_RE.fullmatch(doknr):
+        raise DecisionRefusal(f"doknr {doknr!r} is not [A-Z]{{4}}[0-9]{{9}} (spec §2.2)")
+    match = DECISION_FILE_RE.match(path.name)
+    if match is None or match.group(1) != doknr:
+        raise DecisionRefusal(f"filename {path.name!r} is not jb-{doknr}.xml — the doknr "
+                              f"must equal the filename stem after jb- (spec §2.2)")
+    date = _dec_header(root, "entsch-datum")
+    if not _DEC_DATE_RE.fullmatch(date) or not date.isascii():
+        raise DecisionRefusal(f"entsch-datum {date!r} is not eight ASCII digits (spec §2.2)")
+    court = _dec_header(root, "gertyp")
+    doktyp = _dec_header(root, "doktyp")
+    if not court:
+        raise DecisionRefusal("gertyp is empty (spec §2.2)")
+    if not doktyp:
+        raise DecisionRefusal("doktyp is empty (spec §2.2)")
+    anomalies: list[tuple[str, str]] = []
+    numbers: list[int] = []
+    units: list[tuple[str, int | None, str]] = []
+    for name in DECISION_SECTIONS:
+        section = root.find(name)
+        if section is None:          # unreachable after the DTD check; kept for symmetry
+            continue
+        units.extend(_dec_units_of_section(name, section, anomalies, numbers))
+        if _dec_text_outside_rows(section):
+            anomalies.append(("text_outside_rows",
+                              f"{name}: text outside any row (not indexed)"))
+    if numbers:                      # §2.3 row 1, decision-global (§5.4)
+        seen: set[int] = set()
+        duplicates = sorted({n for n in numbers if n in seen or seen.add(n)})
+        if duplicates:
+            anomalies.append(("duplicate_randnummer",
+                              f"duplicate Randnummer numbers {duplicates} (a citation to "
+                              f"one of them is ambiguous)"))
+        elif numbers != list(range(1, len(numbers) + 1)):
+            anomalies.append(("non_contiguous_randnummer",
+                              f"Randnummer numbering not contiguous 1..K: {len(numbers)} "
+                              f"anchors from {numbers[0]} to {max(numbers)}"))
+    for section_name, rn, _ in units:   # §2.3 row 5
+        if rn is None and section_name in DECISION_REASONING_SECTIONS:
+            anomalies.append(("anchorless_reasoning_section",
+                              f"{section_name}: text and no anchors — one section unit, rn null"))
+    if len(units) == 1 and units[0][0] == "titelzeile":   # §2.3 row 6
+        anomalies.append(("title_only", "a title and nothing else — one titelzeile unit"))
+    return DecisionRecord(
+        file=path.name, sha256=hashlib.sha256(raw).hexdigest(), doknr=doknr,
+        ecli=_dec_header(root, "ecli") or None,
+        date=f"{date[0:4]}-{date[4:6]}-{date[6:8]}",
+        units=tuple(units), anomalies=tuple(anomalies))
+
+
+def decisions_census(records: list[DecisionRecord], sha256: str) -> DecisionsCensus:
+    kinds: Counter = Counter(kind for r in records for kind, _ in r.anomalies)
+    return DecisionsCensus(
+        sha256=sha256, files=len(records),
+        units=sum(len(r.units) for r in records),
+        randnummer_units=sum(1 for r in records for _, rn, _ in r.units if rn is not None),
+        section_units=sum(1 for r in records for _, rn, _ in r.units if rn is None),
+        ecli=sum(1 for r in records if r.ecli),
+        date_min=min(r.date for r in records), date_max=max(r.date for r in records),
+        anomalies=dict(kinds),
+        files_with_anomalies=sum(1 for r in records if r.anomalies))
+
+
+def validate_decisions(root: Path, findings: list[Finding]) -> DecisionsCensus | None:
+    """`<root>/decisions/` against the contract: None when the corpus carries
+    no decisions (no directory, or one holding no .xml — the scaffold's
+    README-only directory; the estate then serves the synthetic 30) and
+    when a file is refused (the findings say which and why); the census
+    the lock records otherwise. Anomalies (spec §2.3) are PASS rows."""
+    ddir = root / DECISIONS_DIR
+    if not ddir.is_dir():           # a FILE named decisions is the root loop's refusal
+        return None
+
+    def fail(where: str, detail: str) -> None:
+        findings.append(Finding("(decisions)", where, False, detail))
+
+    records: list[DecisionRecord] = []
+    seen: dict[str, str] = {}
+    digest = hashlib.sha256()
+    ok = True
+    try:
+        entries = sorted(ddir.iterdir())   # ascending filename order: the service's, and the hash's
+    except OSError as error:
+        fail(f"{DECISIONS_DIR}/", f"unreadable ({error})")
+        return None
+    for entry in entries:
+        if entry.name == DECISIONS_README and entry.is_file():
+            continue
+        if entry.is_dir():
+            fail(f"{DECISIONS_DIR}/", f"unexpected directory {entry.name!r} — decisions/ is "
+                 f"flat: jb-<doknr>.xml files and an optional README.md only")
+            ok = False
+            continue
+        if not DECISION_FILE_RE.match(entry.name):
+            fail(f"{DECISIONS_DIR}/", f"unexpected entry {entry.name!r} — only jb-<doknr>.xml "
+                 f"(doknr [A-Z]{{4}}[0-9]{{9}}, spec §2.1) and README.md are allowed "
+                 f"under decisions/")
+            ok = False
+            continue
+        try:
+            record = parse_decision_file(entry)
+        except DecisionRefusal as why:
+            fail(f"{DECISIONS_DIR}/{entry.name}", str(why))
+            ok = False
+            continue
+        except OSError as error:
+            fail(f"{DECISIONS_DIR}/{entry.name}", f"unreadable ({error})")
+            ok = False
+            continue
+        except RecursionError:
+            fail(f"{DECISIONS_DIR}/{entry.name}", "element nesting deeper than the walker "
+                 "supports — spec §2.1 measured no such file in the published drop; "
+                 "refused rather than crashed")
+            ok = False
+            continue
+        # unreachable in a flat directory (the stem rule makes the doknr the
+        # filename), kept as defence in depth — the service checks it too
+        if record.doknr in seen:
+            fail(f"{DECISIONS_DIR}/{entry.name}", f"duplicate doknr {record.doknr} — already "
+                 f"carried by {seen[record.doknr]} (spec §2.2)")
+            ok = False
+            continue
+        seen[record.doknr] = entry.name
+        records.append(record)
+        digest.update(f"{entry.name}\n{record.sha256}\n".encode())
+        for _, message in record.anomalies:
+            findings.append(Finding("(decisions)", f"{DECISIONS_DIR}/{entry.name}", True,
+                                    f"anomaly (reported, not refused — spec §2.3): {message}"))
+    if not ok:
+        return None
+    if not records:
+        findings.append(Finding("(decisions)", f"{DECISIONS_DIR}/", True,
+                                "empty — no decisions; the estate serves the synthetic 30 "
+                                f"(no {DECISIONS_LOCK_NAME})"))
+        return None
+    census = decisions_census(records, digest.hexdigest())
+    findings.append(Finding(
+        "(decisions)", f"{DECISIONS_DIR}/", True,
+        f"{census.files} files, {census.units} units ({census.randnummer_units} Randnummern "
+        f"+ {census.section_units} section units), {census.ecli} with an ECLI, "
+        f"{census.date_min}..{census.date_max}, anomalies "
+        f"{sum(census.anomalies.values())} in {census.files_with_anomalies} file(s); "
+        f"sha256 {census.sha256[:16]}…"))
+    return census
+
+
+def load_decisions_lock(root: Path) -> dict:
+    path = root / DECISIONS_LOCK_NAME
+    if not path.is_file():
+        return {}
+    try:
+        lock = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PipelineError(f"{path} unreadable as JSON ({exc}) — a truncated or "
+                            f"merge-conflicted lock; restore it or re-run scaffold") from exc
+    if not isinstance(lock, dict):
+        raise PipelineError(f"{path} must hold a JSON object — re-run scaffold")
+    return lock
+
+
+def write_decisions_lock(root: Path, census: DecisionsCensus) -> None:
+    doc = {"_comment": [
+        "Generated by ingest_corpus.py (corpus-contract v3, CP-88 / ADR-0038) — the freeze",
+        "record of <corpus-root>/decisions/: the drop's content hash (sha256 over each kept",
+        "file's name and bytes in ascending filename order — the value the retrieval service",
+        "serves as index_commit and /health.decisions_drop.sha256), the file count, the unit",
+        "census under docs/decisions-surface.md §3–§4, the ECLI count, the date range and",
+        "§2.3's anomaly counts. No per-file rows by design. Regenerated by the scaffold phase;",
+        "verified against the tree and the served drop by verify. Deterministic: an unchanged",
+        "drop reproduces this file byte-identically (no timestamps).",
+    ], **census.as_lock()}
+    (root / DECISIONS_LOCK_NAME).write_text(
+        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _decisions_verify_findings(corpus: Corpus, health: dict | None,
+                               mcp_note: str | None) -> list[Finding]:
+    """verify's two decisions comparisons: the tree against the lock, and the
+    lock against what the service serves (`health` is the ready /health
+    body; None with `mcp_note` = the service check was skipped, and why)."""
+    findings: list[Finding] = []
+    lock = load_decisions_lock(corpus.root)
+    tree = corpus.decisions
+    if tree is None and not lock and not (health or {}).get("decisions_drop"):
+        return findings                # the v2 corpus: nothing decisions-related anywhere
+    if tree is None and not lock:
+        findings.append(Finding("(decisions)", "lock", True,
+                                "SKIPPED (no decisions/ in the corpus, no "
+                                f"{DECISIONS_LOCK_NAME})"))
+    elif tree is None:
+        findings.append(Finding("(decisions)", "lock", False,
+                                f"stale {DECISIONS_LOCK_NAME}: the corpus carries no "
+                                f"decisions/ (or an empty one) — run scaffold (it removes "
+                                f"the generated lock)"))
+    elif not lock:
+        findings.append(Finding("(decisions)", "lock", False,
+                                f"{DECISIONS_LOCK_NAME} missing — run the scaffold phase "
+                                f"(it locks the drop)"))
+    else:
+        want = tree.as_lock()
+        got = {k: v for k, v in lock.items() if k != "_comment"}
+        if want != got:
+            keys = [k for k in want if want[k] != got.get(k)] + \
+                   [k for k in got if k not in want]
+            shown = ", ".join(
+                f"{k} {str(got.get(k))[:16]}{'…' if k == 'sha256' else ''} -> "
+                f"{str(want.get(k))[:16]}{'…' if k == 'sha256' else ''}" for k in keys)
+            findings.append(Finding("(decisions)", "lock", False,
+                                    f"the tree's drop differs from the lock: {shown} — a "
+                                    f"decision changed since scaffold; re-run scaffold"))
+        else:
+            findings.append(Finding("(decisions)", "lock", True,
+                                    f"{tree.files} files, {tree.units} units, sha256 "
+                                    f"{tree.sha256[:16]}… match the lock"))
+    # the served drop
+    served = (health or {}).get("decisions_drop") if health else None
+    if health is None:
+        findings.append(Finding("(decisions)", "mcp", True, f"SKIPPED ({mcp_note})"))
+    elif tree is None:
+        if served:
+            findings.append(Finding(
+                "(decisions)", "mcp", True,
+                f"the service serves a drop from outside the corpus (estate.py up "
+                f"--decisions-dir): {served.get('files')} files, sha256 "
+                f"{str(served.get('sha256'))[:16]}… — not this corpus's, not locked here"))
+        else:
+            findings.append(Finding("(decisions)", "mcp", True,
+                                    "the service serves the synthetic decisions (no drop)"))
+    elif not served:
+        findings.append(Finding(
+            "(decisions)", "mcp", False,
+            "the service serves the synthetic decisions, not the corpus's decisions/ "
+            "(estate.py up mounts <corpus>/decisions by default; an adopted service's "
+            "mount is its operator's)"))
+    else:
+        mismatch = [f"{key} served {str(served.get(key))[:16]}{'…' if key == 'sha256' else ''} "
+                    f"!= lock {str(getattr(tree, key))[:16]}{'…' if key == 'sha256' else ''}"
+                    for key in ("sha256", "files", "units")
+                    if served.get(key) != getattr(tree, key)]
+        if mismatch:
+            findings.append(Finding("(decisions)", "mcp", False,
+                                    "served drop != the lock: " + "; ".join(mismatch)
+                                    + " — re-run the ingest phase (or estate.py up)"))
+        else:
+            findings.append(Finding(
+                "(decisions)", "mcp", True,
+                f"served drop matches the lock: {served['files']} files, {served['units']} "
+                f"units, sha256 {served['sha256'][:16]}…"))
+    return findings
 
 
 # --------------------------------------------------------------------------
@@ -623,8 +1146,8 @@ def phase_validate(root: Path, only: list[str] | None = None,
     # git repo); everywhere below, the tree stays strict. Deliberately
     # independent of corpus.yaml parsing, so an unmigrated v1 tree
     # surfaces BOTH migration messages in one run.
-    root_names = {"corpus.yaml", "AGENTS.md", "skills",
-                  LOCK_NAME, TASKBANK_NAME, *SPLITS}
+    root_names = {"corpus.yaml", "AGENTS.md", "skills", DECISIONS_DIR,
+                  LOCK_NAME, TASKBANK_NAME, DECISIONS_LOCK_NAME, *SPLITS}
     for entry in sorted(root.iterdir()):
         if entry.name in root_names or entry.name.startswith("."):
             # A reserved NAME with the wrong TYPE must not fall through:
@@ -635,11 +1158,18 @@ def phase_validate(root: Path, only: list[str] | None = None,
                     "(corpus)", f"{entry.name}", False,
                     f"{entry.name!r} at the corpus root must be a "
                     f"directory (the {entry.name} split), not a file"))
-            elif entry.name in (LOCK_NAME, TASKBANK_NAME) and entry.is_dir():
+            elif entry.name in (LOCK_NAME, TASKBANK_NAME, DECISIONS_LOCK_NAME) \
+                    and entry.is_dir():
                 findings.append(Finding(
                     "(corpus)", entry.name, False,
                     f"{entry.name!r} must be a generated file, not a "
                     f"directory"))
+            elif entry.name == DECISIONS_DIR and not entry.is_dir():
+                findings.append(Finding(
+                    "(corpus)", entry.name, False,
+                    f"{entry.name!r} at the corpus root must be a directory "
+                    f"of jb-<doknr>.xml files (corpus-contract v3), not a "
+                    f"file"))
             continue
         if entry.name == "cases" and entry.is_dir():
             findings.append(Finding("(corpus)", "cases/", False,
@@ -648,9 +1178,14 @@ def phase_validate(root: Path, only: list[str] | None = None,
         findings.append(Finding(
             "(corpus)", "(root)", False,
             f"unexpected entry {entry.name!r} — the corpus root allows "
-            f"only corpus.yaml, AGENTS.md, skills/, train/, eval/ and "
-            f"the generated {LOCK_NAME}/{TASKBANK_NAME}; a third split "
-            f"needs its own ADR (ADR-0015)"))
+            f"only corpus.yaml, AGENTS.md, skills/, train/, eval/, "
+            f"decisions/ and the generated {LOCK_NAME}/{TASKBANK_NAME}/"
+            f"{DECISIONS_LOCK_NAME}; a third split needs its own ADR "
+            f"(ADR-0015)"))
+
+    # v3 (CP-88): decisions/ — validated whether or not corpus.yaml parsed,
+    # so a hand-over shows every failure in one run; attached to the corpus
+    decisions = validate_decisions(root, findings)
 
     if corpus is not None:
         split_dirs = [s for s in SPLITS if (root / s).is_dir()]
@@ -710,6 +1245,7 @@ def phase_validate(root: Path, only: list[str] | None = None,
             case = validate_case(entry, split, corpus.skills, findings)
             if case is not None:
                 corpus.cases[case.case_id] = case
+        corpus.decisions = decisions
 
     failed = [f for f in findings if not f.ok]
     if not quiet or failed:
@@ -1046,6 +1582,19 @@ def phase_scaffold(corpus: Corpus, base_url: str, *, dry_run: bool = False,
     if not dry_run:
         write_lock(corpus.root, lock)
         print(f"lock written: {corpus.root / LOCK_NAME}")
+        # v3 (CP-88): the drop's freeze record beside the corpus lock — a
+        # separate generated file, so a corpus without decisions keeps its
+        # corpus.lock.json byte-identical to v2's
+        if corpus.decisions is not None:
+            write_decisions_lock(corpus.root, corpus.decisions)
+            print(f"decisions lock written: {corpus.root / DECISIONS_LOCK_NAME} "
+                  f"({corpus.decisions.files} files, {corpus.decisions.units} units, "
+                  f"sha256 {corpus.decisions.sha256[:12]}…)")
+        elif (corpus.root / DECISIONS_LOCK_NAME).is_file():
+            (corpus.root / DECISIONS_LOCK_NAME).unlink()
+            print(f"decisions lock removed: {corpus.root / DECISIONS_LOCK_NAME} "
+                  f"(the corpus carries no decisions; the lock is a generated "
+                  f"file, never yours)")
 
 
 # --------------------------------------------------------------------------
@@ -1540,21 +2089,27 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                                         f"source tree: {stray}"))
 
     # MCP census vs the lock.
+    ready_health: dict | None = None     # the ready /health body (the decisions check)
+    mcp_note: str | None = None          # why the service was not consulted
     if skip_mcp:
+        mcp_note = "--skip-ingest"
         findings.append(Finding("(corpus)", "mcp", True,
                                 "SKIPPED (--skip-ingest)"))
     elif mcp_url is None:
+        mcp_note = "no retrieval service named"
         findings.append(Finding("(corpus)", "mcp", True,
                                 "SKIPPED (no retrieval service named — "
                                 "pass --mcp-url to check one)"))
     else:
         health = get_health(mcp_url)
         if health is None or health.get("state") != "ready":
+            mcp_note = f"service at {mcp_url} not ready"
             findings.append(Finding(
                 "(corpus)", "mcp", False,
                 f"service at {mcp_url} not ready: "
                 f"{health.get('state') if health else 'unreachable'}"))
         else:
+            ready_health = health
             served = health.get("cases", {})
             wanted = {cid: corpus.cases[cid] for cid in corpus.cases
                       if not only or cid in only}
@@ -1582,6 +2137,9 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
                         cid, "mcp", True,
                         f"census {got['pages']} pages, "
                         f"timesteps {got['timesteps']}"))
+
+    # v3 (CP-88): decisions.lock.json vs the tree, and vs the served drop.
+    findings.extend(_decisions_verify_findings(corpus, ready_health, mcp_note))
 
     # The parquet vs the lock and the tree: the byte half (sha256) and the
     # row-level half deferred since CP-01 with the phase — landed, ADR-0022.

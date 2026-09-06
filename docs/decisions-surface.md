@@ -3,7 +3,9 @@
 **Status: specified (CP-78); implemented at level 2 by this repository's
 service since CP-79.** `gsj-mcp-service:0.5.0` (`estate/mcp-service/`,
 published as `ghcr.io/mhganainy/gsj-mcp-service:0.5.0`) serves a rii-dok v1
-drop named by `decisions.path` (`estate.py up --decisions-dir`) at level 2
+drop named by `decisions.path` (since CP-88 the corpus's own `decisions/`
+by default — corpus-contract v3, ADR-0038 — or `estate.py up
+--decisions-dir` as the override) at level 2
 — its parser reproduces the conformance fixture byte for byte and its hits
 carry every §7.3 field (`estate/mcp-service/tests/test_decisions.py`, the
 §10.2 test); with no drop it serves the synthetic 30 inside the §7
@@ -982,7 +984,7 @@ Restated from the CP-76 cost table against the settled decisions, with
 
 | surface | change | pin / law |
 |---|---|---|
-| `estate/` (outside the size law) | as CP-76's table: `ingest_corpus.py`'s root entry, `validate` clauses (§2.2 plus the anomaly report of §2.3), `decisions.lock.json` and the verify clause; `estate.py`'s `/app/decisions:ro` mount, `decisions.path` in the config template and its two hand-mirrored key lists, `update` semantics for a replaced folder, `scaffold` writing an empty `decisions/`; corpus-suite tests | corpus-contract v3 → an ADR of the building CP (CP-76 named it ADR-0034; that number is now this specification's, so the contract takes the next) |
+| `estate/` (outside the size law) | as CP-76's table: `ingest_corpus.py`'s root entry, `validate` clauses (§2.2 plus the anomaly report of §2.3), `decisions.lock.json` and the verify clause; `estate.py`'s `/app/decisions:ro` mount, `decisions.path` in the config template and its two hand-mirrored key lists, `update` semantics for a replaced folder, `scaffold` writing an empty `decisions/`; corpus-suite tests — **built at CP-88** (corpus-contract v3, ADR-0038): the root entry, the §2.2 refusals plus the §2.1 element sequence, §2.3 reported not refused, the census-only lock, verify's two comparisons, the default mount with `--decisions-dir` as the override; the unit rule ported into the pipeline and pinned to the fixture and to the service's parser (the full drop: 740,849 units, equal hashes); `update` does not see a drop-only change — a re-run of `up` re-locks it | corpus-contract v3 → ADR-0038 (CP-88) |
 | `estate/mcp-service/` `decisions.py` | rii parser + the unit walk of §3–§4 (the synthetic generator kept as the no-path fallback) | — |
 | `estate/mcp-service/` `index.py`, `state.py`, `config.py` | `decisions.path`; pieces per §6 through the existing token-window chunker and `check_chunks_fit`; best-piece-per-unit aggregation (§8.1) with a **bounded fetch** (§8.4); per-collection identity and fingerprint; `/health.decisions` → `{count, sha}` | image cut (`0.5.0`); ADR-0034/0035 as CP-76 named them |
 | `tools.py` **body** | the wrapper `{query, k, hits, index_commit}` and the level-2 hit; the **name, parameters, defaults and docstring stay byte-identical** — `search_decisions(query: str, k: int = 5)` and its one-line docstring — while the `def` line's return annotation changes `-> list[dict]` → `-> dict`, and must: under mcp 2.0.0 a dict returned from a `-> list[dict]` tool fails the SDK's output validation with a tool error, and `-> dict` yields no output schema and no structured content, the shape `case_status` and `decision_stats` already use. The annotation is outside the roster hash — G3 hashes name + description + pi's rendering of the *input* schema + order; mcp 2.0.0 emits an output schema for `-> list[dict]` and none for `-> dict`, and pi-mcp-extension 1.5.0 reads neither — **re-verified at CP-78 by rendering both declarations through the roster suite's own wire-entry helper: identical bytes, the pinned hash reproduced**; so **G3 does not move and G2 does not move** (G2 carries the docstring's first 120 characters, unchanged). What does change on the wire: the tool result becomes one text block carrying the wrapper instead of N blocks (one per hit) plus structured content — the trace's tool message holds one JSON object. `tools.py`'s own CONTRACT docstring ("signatures (type hints and defaults) … byte-identical") must be amended to exclude the return annotation when the wrapper lands, or the file contradicts itself | none |
@@ -1030,3 +1032,12 @@ decision, as CP-76 priced it.
   `estate/mcp-service/`), proven against the fixture by
   `tests/test_decisions.py`. No field, rule, grammar or fixture output
   changed.
+- **wording — CP-88, 2026-09-06** (version unchanged, §0): the status
+  paragraph names the corpus's own `decisions/` as the drop's default
+  source (corpus-contract v3, ADR-0038) with `--decisions-dir` as the
+  override, and §13.1's `estate/` row records what was built. A second
+  level-2 implementation of §3–§4 now exists — the pipeline's port in
+  `estate/corpus/ingest_corpus.py`, for the lock's census — pinned to the
+  fixture and to the service's parser (the two agree over the full
+  33,979-file drop: 740,849 units, the same hash). No field, rule,
+  grammar or fixture output changed.

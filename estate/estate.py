@@ -906,7 +906,65 @@ COMPOSE_MCP = """\
 {hf_mount}{decisions_mount}    restart: unless-stopped
 """
 
-MCP_DECISIONS_MOUNT = "/app/decisions"     # where --decisions-dir lands, read-only
+MCP_DECISIONS_MOUNT = "/app/decisions"     # where the decisions drop lands, read-only
+
+
+# CP-88 (corpus-contract v3, ADR-0038): the corpus's own `decisions/` is
+# the DEFAULT drop — validated with the tree, locked in decisions.lock.json,
+# verified against the served drop; `--decisions-dir` is the OVERRIDE (the
+# CP-79 route, kept: a drop beside the corpus, recorded, a re-run keeps it,
+# '' removes it). Both named at once is a refusal that says which wins —
+# never a silent precedence.
+
+class DecisionsSourceConflict(Exception):
+    def __init__(self, what: str, found: str, expected: str, fix: str) -> None:
+        super().__init__(f"{what} found: {found} expected: {expected} what to do: {fix}")
+        self.parts = (what, found, expected, fix)
+
+
+def corpus_decisions_dir(corpus_path: Path) -> str | None:
+    """`<corpus>/decisions` when it holds at least one .xml file, else None
+    (absent, or the scaffold's README-only directory — the synthetic 30)."""
+    ddir = Path(corpus_path) / ic.DECISIONS_DIR
+    if ddir.is_dir() and any(n.endswith(".xml") for n in os.listdir(ddir)):
+        return str(ddir.resolve())
+    return None
+
+
+def recorded_decisions_flag(prior_mcp: dict) -> str | None:
+    """The --decisions-dir a previous `up` recorded, if the record's drop came
+    from the flag (a pre-CP-88 record has no `decisions_source`: the flag
+    was the only route then). A recorded corpus-route drop is re-resolved
+    from the corpus, never replayed as an override."""
+    source = prior_mcp.get("decisions_source") or ("flag" if prior_mcp.get("decisions_dir") else "none")
+    return prior_mcp.get("decisions_dir") if source == "flag" else None
+
+
+def resolve_decisions_source(corpus_drop: str | None, override) -> tuple[str | None, str]:
+    """(host directory to mount or None, source in {corpus, flag, none}).
+    `override` is --decisions-dir as answered (flag, answers file, prompt,
+    or the recorded flag): '' or None = no override."""
+    override = str(override) if override not in (None, "") else None
+    if override and corpus_drop and \
+            str(Path(override).expanduser().resolve()) == corpus_drop:
+        return corpus_drop, "corpus"       # the flag named the corpus's own decisions/
+    if override and corpus_drop:
+        n_xml = len([n for n in os.listdir(corpus_drop) if n.endswith(".xml")])
+        raise DecisionsSourceConflict(
+            "two decisions drops for one estate.",
+            f"the corpus's own decisions/ ({corpus_drop}, {n_xml} .xml file(s)) AND "
+            f"--decisions-dir {override} (given now, or recorded by this run's earlier `up`)",
+            "one drop — the corpus's decisions/ WINS under corpus-contract v3 (row 73): it "
+            "is corpus data, locked in decisions.lock.json and verified against the served "
+            "drop; the flag is the override for a drop kept outside a corpus",
+            f"serve the corpus's: omit --decisions-dir (a recorded one: pass --decisions-dir "
+            f"''); or keep the flag's drop: move the corpus's out (mv {corpus_drop} "
+            f"<elsewhere>) and re-run")
+    if override:
+        return str(Path(override).expanduser().resolve()), "flag"
+    if corpus_drop:
+        return corpus_drop, "corpus"
+    return None, "none"
 
 COMPOSE_NET_OWN = """\
 networks:
@@ -1232,7 +1290,7 @@ MCP_FIELDS = {
         "corpus_size": {"type": int, "minimum": 1, "consequence": "decisions collection alone",
                         "review": "synthetic decision count", "fingerprint": True},
         "path": {"type": str, "nullable": True, "flag_only": True,
-                 "consequence": "decisions collection alone", "review": "use --decisions-dir <host directory>; the estate writes its read-only container mount", "fingerprint": True},
+                 "consequence": "decisions collection alone", "review": "the corpus's decisions/ by default (corpus-contract v3), --decisions-dir overrides; the estate writes the read-only container mount", "fingerprint": True},
     },
 }
 MCP_OPERATOR_SECTIONS = tuple(MCP_FIELDS)
@@ -1356,7 +1414,8 @@ def render_mcp_config(base_text: str, overrides: dict) -> str:
 
 
 def mcp_config_review(doc: dict, cfg_path: Path,
-                      decisions_dir: str | None = None) -> str:
+                      decisions_dir: str | None = None,
+                      decisions_source: str = "flag") -> str:
     lines = ["effective retrieval config (written to " + str(cfg_path) + "):"]
     for section, fields in MCP_FIELDS.items():
         for key, spec in fields.items():
@@ -1368,7 +1427,9 @@ def mcp_config_review(doc: dict, cfg_path: Path,
     if d.get("path"):
         count = (len([f for f in os.listdir(decisions_dir) if f.endswith(".xml")])
                  if decisions_dir and os.path.isdir(decisions_dir) else "?")
-        lines.append(f"      decisions           rii-dok v1 drop — {count} .xml file(s) in {decisions_dir} (read-only), not the synthetic generator\n"
+        origin = ("the corpus's own decisions/ (corpus-contract v3, locked in decisions.lock.json)"
+                  if decisions_source == "corpus" else "--decisions-dir, the override")
+        lines.append(f"      decisions           rii-dok v1 drop — {count} .xml file(s) in {decisions_dir} (read-only; {origin}), not the synthetic generator\n"
                      "          Randnummern chunks from the drop; above ~5,000 units on CPU this can be minutes, not seconds")
     else:
         lines.append(f"      decisions           synthetic (seed {d.get('seed')}, corpus_size {d.get('corpus_size')}) — no real court text; synthetic 30 by default (no drop)")
@@ -1455,17 +1516,24 @@ def mcp_config_inputs(A: Answers, previous: dict) -> dict:
                 chunk_overlap=chunk_overlap, residual=residual)
 
 
-def require_decisions_image(image: str, decisions_dir: str | None) -> None:
-    """Only known pre-decisions tags are rejected; custom/offline images stay valid."""
+def require_decisions_image(image: str, decisions_dir: str | None,
+                            source: str = "flag") -> None:
+    """Only known pre-decisions tags are rejected; custom/offline images stay valid.
+    `source` (CP-88) words the refusal for the route the drop came by."""
     known = re.fullmatch(r"(?:ghcr\.io/mhganainy/)?gsj-mcp-service:"
                          r"(\d+)\.(\d+)\.(\d+)(?:-(?:arm64|aarch64|amd64))?", str(image))
     if decisions_dir and known and tuple(map(int, known.groups())) < (0, 5, 0):
+        corpus_route = source == "corpus"
         die("the selected retrieval image does not support a decisions drop.",
-            f"{image} with --decisions-dir (decisions.path)",
+            f"{image} with " + (f"the corpus's own decisions/ ({decisions_dir}) — "
+                                "corpus-contract v3 (decisions.path)" if corpus_route
+                                else "--decisions-dir (decisions.path)"),
             "MCP 0.5.0 or a custom image supporting decisions.path",
             f"pass --mcp-image {MCP_IMAGE_PUBLISHED}; on an offline host, "
-            "load that image out-of-band first (docker save | docker load), "
-            "or omit the drop (--decisions-dir '' removes a recorded one)")
+            "load that image out-of-band first (docker save | docker load); "
+            + ("or move decisions/ out of the corpus (then validate) to serve the synthetic 30"
+               if corpus_route else
+               "or omit the drop (--decisions-dir '' removes a recorded one)"))
 
 
 class Mcp:
@@ -1764,9 +1832,36 @@ def cmd_up(args: argparse.Namespace) -> None:
     mmode, model, revision = mc["mode"], mc["model"], mc["revision"]
     chunk_max, chunk_overlap, residual = mc["chunk_max"], mc["chunk_overlap"], mc["residual"]
     prior_mcp = run_.record.get("compose", {}).get("mcp") or {}
+    # CP-88: the corpus's own decisions/ is the default drop, --decisions-dir
+    # the override; both named (flag, answers file or record) is refused
+    # here, before any estate work — the interactive answer is resolved
+    # again once the corpus has validated
+    corpus_drop = corpus_decisions_dir(corpus_path)
+    recorded_flag = recorded_decisions_flag(prior_mcp)
+    ddir_answer = None
     if mmode == "create":
+        # the one decisions question, here — before the run directory, .env
+        # or any container exists — so every route (flag, answers file,
+        # record, the interactive prompt) refuses two drops before estate work
+        ddir_answer = A.get(
+            "decisions_dir",
+            "decisions drop directory (jb-<doknr>.xml files, rii-dok v1) — an OVERRIDE "
+            "of the corpus's own decisions/; empty = the corpus's decisions/ when it "
+            "holds any, else the synthetic 30 (a recorded override is the default "
+            "shown; to drop one pass --decisions-dir '' on the command line)",
+            recorded_flag)
+        try:
+            early_ddir, early_source = resolve_decisions_source(corpus_drop, ddir_answer)
+        except DecisionsSourceConflict as exc:
+            die(*exc.parts)
         require_decisions_image(A.get("mcp_image", None, prior_mcp.get("image", MCP_IMAGE)),
-                                A.get("decisions_dir", None, prior_mcp.get("decisions_dir")))
+                                early_ddir, early_source)
+    elif corpus_drop:
+        warn("mcp", f"the corpus carries decisions/ ({corpus_drop}) but the adopted "
+                    f"retrieval service's mount is its operator's — this `up` passes "
+                    f"verify only if that service already serves this exact drop "
+                    f"(/health.decisions_drop.sha256 == decisions.lock.json's); otherwise "
+                    f"move decisions/ out of the corpus, or use --mcp create")
     rundir = run_.dir
     run_.prepare()
     rundir.chmod(0o700)   # the whole run is the operator's: .env, and the MCP's
@@ -2228,18 +2323,19 @@ def cmd_up(args: argparse.Namespace) -> None:
                     "(or --hf-cache <dir> naming a cache that holds it)")
             say("mcp", f"{model} is not the image's baked model — mounting the host's "
                        f"snapshot {hf_dir} into the container (offline load)")
-        # CP-79: the decisions drop — a host directory of rii-dok v1
-        # files, mounted read-only into the service; the config names the
-        # mount. Recorded, so a re-run keeps it; a new value replaces it
-        # (the decisions collection alone re-embeds, its own fingerprint)
-        ddir = A.get("decisions_dir", "decisions drop directory (jb-<doknr>.xml "
-                                      "files, rii-dok v1; none = the synthetic 30; "
-                                      "recorded — a re-run keeps it, "
-                                      "--decisions-dir '' removes it)",
-                     (pm or {}).get("decisions_dir"))
-        require_decisions_image(image, ddir)
-        if ddir:
-            ddir = str(Path(str(ddir)).expanduser().resolve())
+        # CP-79/CP-88: the decisions drop — the corpus's own decisions/ by
+        # default (corpus-contract v3: validated with the tree), a host
+        # directory of rii-dok v1 files under --decisions-dir as the
+        # override; both is a refusal. Mounted read-only into the service;
+        # the config names the mount. Recorded, so a re-run keeps it; a new
+        # value replaces it (the decisions collection alone re-embeds, its
+        # own fingerprint)
+        try:
+            ddir, dsource = resolve_decisions_source(corpus_drop, ddir_answer)
+        except DecisionsSourceConflict as exc:
+            die(*exc.parts)
+        require_decisions_image(image, ddir, dsource)
+        if ddir and dsource == "flag":
             if not os.path.isdir(ddir):
                 die(f"--decisions-dir {ddir} is not a directory.", None,
                     "a directory of jb-<doknr>.xml files (docs/decisions-surface.md §2)",
@@ -2250,8 +2346,6 @@ def cmd_up(args: argparse.Namespace) -> None:
                     "at least one jb-<doknr>.xml (the service refuses a drop "
                     "with no conforming decision at its start)",
                     "point --decisions-dir at the drop, or omit it for the synthetic 30")
-        else:
-            ddir = None
         ddir_changed = bool(pm) and (pm.get("decisions_dir") or None) != ddir
         if ddir_changed:
             changed.append(f"the decisions drop: {pm.get('decisions_dir')!r} -> {ddir!r}")
@@ -2284,8 +2378,10 @@ def cmd_up(args: argparse.Namespace) -> None:
             anchor = "  corpus_size: 30\n"
             assert cfg_text.count(anchor) == 1, "MCP_CONFIG's decisions block moved"
             cfg_text = cfg_text.replace(
-                anchor, anchor + f"  path: {MCP_DECISIONS_MOUNT}   # --decisions-dir "
-                                 f"{ddir}, mounted read-only (CP-79)\n", 1)
+                anchor, anchor + f"  path: {MCP_DECISIONS_MOUNT}   # "
+                                 + (f"the corpus's decisions/ {ddir} (corpus-contract v3, CP-88)"
+                                    if dsource == "corpus" else f"--decisions-dir {ddir} (CP-79)")
+                                 + ", mounted read-only\n", 1)
         cfg_text = render_mcp_config(cfg_text, residual)
         # the review (CP-70 item 7): shown before anything is embedded under
         # it — every run, so a -y run still sees what it is spending; the
@@ -2305,7 +2401,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         # cannot see it — the record can (CP-79 review)
         embed_spend = (stored is None or rebuild or ddir_changed
                        or (cfg_before is not None and old_components != new_components))
-        say("mcp-config", mcp_config_review(yaml.safe_load(cfg_text), cfg, ddir)
+        say("mcp-config", mcp_config_review(yaml.safe_load(cfg_text), cfg, ddir, dsource)
             + ("" if embed_spend else
                "\n      (this config matches the store's — an embed happens now "
                "only if the corpus itself moved)"))
@@ -2332,6 +2428,7 @@ def cmd_up(args: argparse.Namespace) -> None:
             "hf_model_dir": str(hf_dir) if hf_dir else None,
             "hf_model_mount": f"/opt/hf-cache/hub/{hf_dir.name}" if hf_dir else None,
             "decisions_dir": ddir,
+            "decisions_source": dsource,          # CP-88: corpus | flag | none
             "chunking": {"max_tokens": chunk_max, "overlap": chunk_overlap},
             "config_overrides": residual,
             "uid": os.getuid() if platform.system() == "Linux" else None,
@@ -2436,8 +2533,16 @@ def cmd_up(args: argparse.Namespace) -> None:
     PH.done("PASS — the live repos, the index census and the bank rows match the tree")
     for src in (ic.TASKBANK_NAME, ic.LOCK_NAME):
         shutil.copyfile(corpus_path / src, rundir / src)
+    # CP-88: the decisions lock rides along when the corpus carries one
+    if (corpus_path / ic.DECISIONS_LOCK_NAME).is_file():
+        shutil.copyfile(corpus_path / ic.DECISIONS_LOCK_NAME, rundir / ic.DECISIONS_LOCK_NAME)
+    else:
+        (rundir / ic.DECISIONS_LOCK_NAME).unlink(missing_ok=True)
     lock = ic.load_lock(corpus_path, required=True)
     rec["corpus"].update({"lock_sha256": sha256_file(rundir / ic.LOCK_NAME),
+                          "decisions_lock_sha256": (sha256_file(rundir / ic.DECISIONS_LOCK_NAME)
+                                                    if (rundir / ic.DECISIONS_LOCK_NAME).is_file()
+                                                    else None),
                           "taskbank_sha256": bank_sha,
                           "taskbank_rows": (lock.get("taskbank") or {}).get("rows"),
                           "repos": {cid: lock["cases"][cid]["refs"] for cid in case_ids}})
@@ -2797,6 +2902,28 @@ both. Downstream, retrieval filters on `page <= T` and citations say
 `page:N` — absolute numbering is what makes the cutoff real.
 """
 
+SCAFFOLD_DECISIONS_README = """\
+# decisions/ — court decisions as corpus data (OPTIONAL; corpus-contract v3)
+
+Put one rii-dok v1 XML file per decision here, named `jb-<doknr>.xml`
+exactly as rechtsprechung-im-internet.de publishes them (the library's
+docs/decisions-surface.md §2: root `<dokument>` with the 26 DTD elements in
+order; `doknr` of the shape KORE123456789 / JURE123456789, equal to the
+filename stem, unique; an eight-digit `entsch-datum`; non-empty `gertyp`
+and `doktyp`). `validate` refuses a non-conforming file naming the file
+and the rule, and reports the tolerated anomalies (§2.3) without refusing.
+`up` locks the drop into `decisions.lock.json` (content hash, file and
+unit census — no per-file rows) and mounts this directory read-only into
+the retrieval service, whose `search_decisions` tool then serves these
+decisions by Randnummer (level 2); `verify` compares the served drop
+against the lock. `--decisions-dir` remains the override for a drop kept
+outside a corpus; a drop here AND that flag is refused.
+
+Leave this directory empty (this README only) and the estate serves the
+library's synthetic 30 decisions instead. This README is ignored by the
+pipeline and the service; nothing but `jb-<doknr>.xml` files may sit here.
+"""
+
 SCAFFOLD_PROMPTS_YAML = """\
 # prompts.yaml — what gets asked at THIS timestep. One file per timestep;
 # empty or absent is legal (the timestep then contributes no task rows).
@@ -2840,6 +2967,9 @@ def cmd_scaffold(args: argparse.Namespace) -> None:
             SCAFFOLD_PAGE, encoding="utf-8")
         (case_dir / "prompts.yaml").write_text(
             SCAFFOLD_PROMPTS_YAML, encoding="utf-8")
+        (out / ic.DECISIONS_DIR).mkdir()
+        (out / ic.DECISIONS_DIR / ic.DECISIONS_README).write_text(
+            SCAFFOLD_DECISIONS_README, encoding="utf-8")
     except OSError as exc:
         die(f"could not write the starting tree under {out}.", str(exc),
             "a writable location for the new directory", "pick another --out")
@@ -2856,6 +2986,7 @@ def cmd_scaffold(args: argparse.Namespace) -> None:
   skills/example/SKILL.md    one example skill card — REPLACE (it explains what a card is)
   train/cases/case_example/  one case, one timestep, one page, both prompt forms
   eval/cases/                the held-out split (empty; move WHOLE cases here to hold them out)
+  decisions/                 court decisions, rii-dok v1 jb-<doknr>.xml — OPTIONAL (empty = the synthetic 30)
 next — make it yours, prove it, stand it up:
   1. edit the files marked REPLACE / CHANGE THIS
   2. {PROG} validate --corpus {rel}
@@ -3489,11 +3620,17 @@ def cmd_update(args: argparse.Namespace) -> None:
     # ---- the record and the run's copies move with the corpus
     for src in (ic.TASKBANK_NAME, ic.LOCK_NAME):
         shutil.copyfile(corpus_path / src, run_.dir / src)
+    if (corpus_path / ic.DECISIONS_LOCK_NAME).is_file():     # CP-88: the drop's lock rides along
+        shutil.copyfile(corpus_path / ic.DECISIONS_LOCK_NAME, run_.dir / ic.DECISIONS_LOCK_NAME)
+    else:
+        (run_.dir / ic.DECISIONS_LOCK_NAME).unlink(missing_ok=True)
     new_lock = ic.load_lock(corpus_path, required=True)
     rec.setdefault("corpus", {}).update({
         "path": str(corpus_path), "name": corpus.name, "owner": owner,
         "case_ids": case_ids,
         "lock_sha256": sha256_file(run_.dir / ic.LOCK_NAME),
+        "decisions_lock_sha256": (sha256_file(run_.dir / ic.DECISIONS_LOCK_NAME)
+                                  if (run_.dir / ic.DECISIONS_LOCK_NAME).is_file() else None),
         "taskbank_sha256": bank_sha,
         "taskbank_rows": (new_lock.get("taskbank") or {}).get("rows"),
         "repos": {cid: new_lock["cases"][cid]["refs"] for cid in case_ids}})
@@ -3757,11 +3894,14 @@ def main() -> None:
     mg.add_argument("--chunk-max-tokens", type=int, help="create: chunking.max_tokens (default 220)")
     mg.add_argument("--chunk-overlap", type=int, help="create: chunking.overlap (default 40)")
     mg.add_argument("--decisions-dir",
-                    help="create: a directory of rii-dok v1 decisions (jb-<doknr>.xml, "
-                         "as published by rechtsprechung-im-internet.de) mounted "
-                         f"read-only at {MCP_DECISIONS_MOUNT} — the decisions tool then "
-                         "serves Randnummern (docs/decisions-surface.md, level 2); "
-                         "absent: the synthetic 30. Recorded; a re-run keeps it")
+                    help="create: OVERRIDE — a directory of rii-dok v1 decisions "
+                         "(jb-<doknr>.xml, as published by rechtsprechung-im-internet.de) "
+                         f"kept outside a corpus, mounted read-only at {MCP_DECISIONS_MOUNT} "
+                         "— the decisions tool then serves Randnummern "
+                         "(docs/decisions-surface.md, level 2). Absent: the corpus's own "
+                         "decisions/ when it holds any (corpus-contract v3, CP-88), else the "
+                         "synthetic 30; a corpus decisions/ AND this flag is refused. "
+                         "Recorded; a re-run keeps it, '' removes it")
     mg.add_argument("--mcp-config",
                     help="create: YAML of retrieval-config overrides merged "
                          "onto the generated config — the operator sections "

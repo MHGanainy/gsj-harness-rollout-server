@@ -2695,9 +2695,15 @@ installed 0.1.8 wheel and pinned verl, demo 28 passed. Final regressions run
 against original sources fail (22 examples tests and the reader defect tests);
 a 64-row existing-archive dry-run remains usable without GPU allocation.
 Per-repository push outcomes are recorded with the final CP-86 verification.
-`waiting-on: recover both original CP-81 rehearsal archives and record their
+~~`waiting-on: recover both original CP-81 rehearsal archives and record their
 corrected readings; at the booked GPU window record B17’s pinned-runtime
-restart/backend/replay and frozen-archive census before phase 5 work`.
+restart/backend/replay and frozen-archive census before phase 5 work`~~
+**[CP-88]** This token fired at CP-87 — B17’s restart/backend/replay and the
+frozen-archive census were recorded there — and its recovery half was
+retired per VERDICT row 70 / R-34 (CP-81’s own wipe destroyed both
+rehearsal bodies; no H200 search). CP-87 struck the equivalents in row 70
+and F-81 but left this one live (the review’s finding 9); struck here,
+kept as history.
 
 **[CP-87] The audit’s phase 5 — B17 closed, B09 closed by refusal, B18 bounded; two-step proof complete, box released.**
 The four living serving assignments were removed to preserve automatic backend
@@ -2811,6 +2817,101 @@ push outcomes.
 The source cause remains open if further diagnosis is pursued:
 `waiting-on: a separately booked H200 diagnosis window producing allocation
 call-site or kernel-stack evidence that attributes the recovered driver wait`.
+
+**[CP-88] The corpus contract’s decisions, and phase 6 deferred — row 73 closed in source (corpus-contract v3, ADR-0038), row 70 re-parked with the operator’s reason; `estate/corpus/`, `estate/estate.py` (the drop’s default path) and `docs/**` lifted; `gsj_rollout/` 2,034/2,034; no H200, no GPU.**
+**The record work first.** `/tmp/cp87` — the instruments behind the "29
+Adam counters 1 → 2" measurement (`record_optimizer_state.py`), the 75-row
+heading-only classification (`compare_collections.py`), the window gate
+and the runs-root write probe — was copied into the untracked
+`docs/reports/CP-87-evidence/scratch-mac/` (97 files, byte-identical,
+minus the two pytest temp dirs and every `__pycache__`) with a manifest,
+before anything else; the review’s stray `__pycache__` was removed from
+the evidence bundle (156 files again).
+**The review’s five corrections, recorded here and in F-81.** (1) The
+driver wait RECURS on a cold worker and is absent on a warm one: CP-87’s
+own two-step monitor shows the step-1 optimizer (1,665 s) spending 818.6 s
+at ≤1% SM with 32 of 40 samples in D state at NVIDIA’s rwlock and memory
+RISING 85,887 → 106,217 MiB, and the step-2 optimizer on the warm pool with
+24 of 24 samples busy, zero D state, memory flat at 135,609 MiB — two cold
+optimizer calls of two waited, zero of one warm. The step-1 waits came
+minutes after their allocator warnings (21:19:15 / 21:20:39 UTC, inside
+replay), during memory GROWTH, so "after an allocator warning, memory
+declining" is not the shape; the ruled-out list is revised: the wait needs
+no immediately preceding allocation failure and occurs during growth as
+well as decline, and roughly half of the [CP-87] paragraph’s 1,665.083 s
+step-1 optimizer cost, which it leaves unexplained, is this same wait. (3) B17
+coverage: the [CP-87] paragraph’s "launch regressions at all four sites"
+is ONE tracked test — the examples’ `test_serving_backend.py` over
+`sync_engine_local.sh`; the three library `estate/serving` stanzas were
+verified once by an untracked Mac fake-vllm capture (4/4 fail original,
+4/4 pass corrected) because `tests/` was not lifted at CP-87 — a legitimate
+reason neither document stated; a library CP that lifts `tests/` ports the
+capture over the three scripts. (6) All 24 unrewarded step-1 artifacts
+were placeholder templates with ZERO page references: the 1 → 75 jump is a
+templating policy adding in-cutoff page numbers to a heading list the
+grader pays 1.0 for, not a substantive policy learning to game. (5) Three
+episodes ended on engine context refusals (HTTP 400, 32,768-token limit) —
+one in step 1, two in step 2 — and trained as COMPLETED `tool_calls` rows
+(reward 0; step 2’s at advantage −0.376): the "TRUNCATED 1 → 0" line is
+correct by ADR-0025’s definition and must not be read as "no episode hit
+the limit" — the upstream-400 terminations were 1 → 2, and counting the one
+TRUNCATED row the limit-driven endings were 2 → 2, as the review states. (9) The [CP-86] token
+fired at CP-87 and was retired without a note; struck and annotated above.
+**Phase 6 — the citation reward — is DEFERRED, not skipped**, the
+operator’s decision, with its reason: the existing page grader awards 1.0
+to a bare list of four rubric headings with in-cutoff page numbers (75 of
+192 second-step episodes; 52 of 76 artifacts in two literal strings) and
+checks nothing about whether those pages were read; the base policy emitted
+placeholders with zero page references, so one update moved a templating
+policy onto the rewarded template. A decision-citation term on top of a
+term that pays for form gives the policy two ways to game; fixing the page
+reward is upstream. Row 70 stays OPEN, re-parked on that event, and records
+what phase 6 inherits — the grader’s formula, the placeholder baseline, the
+concentration numbers, the three context terminations, the audit’s four
+open questions (add-versus-replace, the cost of an ungrounded citation, the
+cost of silence with hits available, the graded object).
+**Phase 7 — row 73, built.** `decisions/` is the corpus contract’s eighth
+root entry (v3): `validate` refuses on spec §2.2 plus §2.1’s 26-element
+sequence naming the file and the rule and reports §2.3’s anomalies without
+refusing; `scaffold` writes `decisions.lock.json` — the drop’s content hash
+(the service’s `index_commit`, computed identically), files, units,
+Randnummer and section units, ECLI count, date range, anomaly counts, no
+per-file rows — as a separate generated file, so `corpus.lock.json` gains
+no key and the sixteen commit SHAs and the bank’s bytes do not move;
+`verify` compares the tree against the lock and the lock against
+`/health.decisions_drop`; the estate scaffold writes an empty `decisions/`
+with a README; `estate.py up` mounts `<corpus>/decisions` by default,
+`--decisions-dir` is the override, both present is a refusal naming which
+wins. The unit rule is a port of the service’s parser (the standalone wheel
+module cannot import a container image’s code — R1, ADR-0038), pinned by
+the corpus suite to the fixture unit for unit and to the service’s module,
+and measured agreeing over the full 33,979-file drop (740,849 units, equal
+hashes). Proved on this workstation: the staging corpus unchanged (lock and
+bank bytes identical); a staging copy carrying the demo’s thirty locked at
+313 units = 244 + 69, sha256 `b414c670…` (CP-82’s served value), stood an
+estate in 65 s that verified 32/32, served the drop to one accepted
+episode (three level-2 hits; the 0.6B policy, told the form and which hit
+to cite, wrote the grounded `dec:GREV000072012:rn:2` once and then repeated
+`:rn:2:aktenzeichen:4 U 140/11` 430 times to `length`), reused its store on
+a re-run (`index_reused=True`), re-embedded the decisions collection alone
+after one decision was edited (`rebuilt ['decisions']`, 22 s, verify PASS
+with the new hash), and refused the both-present case live (the refusal
+saved verbatim); the flag route stood an estate too (`decisions_source:
+flag`, verify PASS with `a drop from outside the corpus`). Corpus suite
+291 → 338 (one of them, the demo-thirty census pin, skips on the CI runner
+where the demo checkout is absent); root 176; MCP 164. Delivery reaches a wheel consumer at the
+next release; the demo is untouched this CP and inherits the move then
+(row 73). One bring-up observation outside the contract: `up` re-measures
+the gateway host on every re-run and refused three times on this Mac
+after verify PASS ("no host address is dialable from a container"),
+including the second estate; both completed under `--gateway-host
+<the value the first bring-up had measured ten minutes earlier>` — the
+measurement, not the contract. Not lifted and now stale: `.github/`'s
+corpus-suite label (291) and `estate/README.md:87`'s flag-only wording. The examples repo (not lifted) received the
+F-81 register amendment only — its working tree carried three uncommitted
+files of the parallel checkpoint (CP-89’s covariates), left untouched and
+uncommitted. Register-token scan and per-repository push outcomes: the
+printed CP-88 report. No new token here; row 73’s lives in VERDICT.
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
