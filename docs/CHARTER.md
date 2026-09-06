@@ -2815,8 +2815,8 @@ with no new reward design here. Both consumer registers still name F-83 as
 the next fresh ID. The final printed CP-87 report records the per-repository
 push outcomes.
 The source cause remains open if further diagnosis is pursued:
-`waiting-on: a separately booked H200 diagnosis window producing allocation
-call-site or kernel-stack evidence that attributes the recovered driver wait`.
+~~`waiting-on: a separately booked H200 diagnosis window producing allocation
+call-site or kernel-stack evidence that attributes the recovered driver wait`~~ **[CP-89]** fired — the diagnosis window ran here (below).
 
 **[CP-88] The corpus contract’s decisions, and phase 6 deferred — row 73 closed in source (corpus-contract v3, ADR-0038), row 70 re-parked with the operator’s reason; `estate/corpus/`, `estate/estate.py` (the drop’s default path) and `docs/**` lifted; `gsj_rollout/` 2,034/2,034; no H200, no GPU.**
 **The record work first.** `/tmp/cp87` — the instruments behind the "29
@@ -2912,6 +2912,66 @@ F-81 register amendment only — its working tree carried three uncommitted
 files of the parallel checkpoint (CP-89’s covariates), left untouched and
 uncommitted. Register-token scan and per-repository push outcomes: the
 printed CP-88 report. No new token here; row 73’s lives in VERDICT.
+
+**[CP-89] B18 diagnosed — the wait is torch's caching allocator cycling the whole pool through the NVIDIA driver after a failed `cudaMalloc`, on a box where every driver memory call costs ≈50–80 ms; cause established, cure not implemented.**
+Reproduced on GPU 7 inside the booked window with CP-87's frozen 192-row
+archive harness (no estate, no engine; cold worker; unchanged dynamic 32,768
+budget), one variable per run. Every stage record now carries torch's
+allocator counters (`num_alloc_retries`, `num_device_alloc`,
+`num_device_free`, `num_ooms`, reserved/allocated bytes), the host-wide GPU
+census (the other tenants' load) and the launch environment/runtime —
+examples `train_loop.py`, five tests, RUNBOOK. R1 (default): replay
+bit-identical to CP-87 (mean |Δ| 0.014296730980, 831/90,677) and the four
+allocation-failure warnings byte-identical; the 21,338,521,600-byte request
+(the LM head's bf16 logits for the 70,220-position microbatch — the
+faulthandler dump inside the wait sits in `Linear.forward`) fails with
+19,280,625,664 free, and the allocator then releases EVERY cached segment:
+**12,374 `cudaFree` calls in 1,012.5 s** with its mutex held (a sampler
+thread's `memory_stats()` blocked exactly that long), the main thread in D at
+`os_acquire_rwlock_write`, reserved 120.58 → 33.20 GiB, **81.8 ms per free**
+— then re-grows the pool one `cudaMalloc` at a time (24,013 calls at ≈47 ms).
+The optimizer stage spent 2,051 of 2,874 s in that state; R3 (same
+configuration, strace windows) repeated it to the call — 12,374 frees in
+992.8 s, optimizer 2,864.7 s — and three 40 s `strace -T` windows inside the
+release show 98% of wall time inside driver ioctls on the main thread alone:
+per freed segment an RM control escape (≈6–20 ms), `UVM_FREE` (≈4–5 ms) and
+the RM free escape at a **median 37–68 ms**. A ctypes micro-benchmark in an
+EMPTY process on an IDLE GPU measures the per-call cost as the box's:
+`cudaFree(2 MiB)` median 41–58 ms, `cudaMalloc(2 MiB)` 5–47 ms, p99 ≈100 ms,
+a 2 GiB free the same ≈80 ms, identical on GPUs 0 and 7 with every other GPU
+at 0% SM (NVIDIA open kernel module 570.211.01 with GSP, persistence mode
+off, `nvidia-persistenced` inactive, ECC on, kernel 6.8.0-94); tenant load is
+not the rate — every CP-89 run had all tenants idle and waited longer than
+CP-87's baseline beside four at 100% SM. R2
+(`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, proved in-process from
+the allocator's own settings and segment table): zero allocation failures,
+zero frees, zero retries, peak reserved 93.4 GiB, optimizer **1,332.3 s
+(−54%)**, pg_loss identical — but 921.6 s of it still in D at the lock,
+mapping 2 MiB pages at the same ≈55 ms each, and worker init/replay slower
+(44.6 vs 29.3 s; 285.2 vs 203.9 s). R4 (training partition fixed to one row,
+a scratch hook; the product default untouched): the failing request shrinks
+to 9,407,823,872 bytes (the largest row's logits) but the cache is full, so
+the release and re-growth follow — 9,445 frees in 708.5 s, 19,589 mallocs,
+optimizer 1,943.0 s, different numerics; the wait follows any failed request
+against a full cache, whatever its size. The reviewers' hypothesis is
+**confirmed in mechanism**, corrected in two places: the slow part is the
+number of driver calls (thousands of 2 MiB small-pool segments), not the
+bytes; and CP-88's rising-memory waits are the same lock on the malloc side,
+so expandable segments halve the wait without removing it. **What follows is
+a decision, not this CP's implementation**: (a) the per-call cost is a
+driver-level property of this box and belongs in an upstream report (RM
+free/alloc escapes at 50–80 ms each under the 570.211.01 open module;
+`drivercall_bench.py` in the CP-89 evidence reproduces it in three minutes);
+(b) on our side `expandable_segments:True` is the measured half-cure (one
+environment line, numerics unchanged) and a batch geometry that never fills
+the pool would be the whole cure — neither adopted as a default here. No
+cure implemented; masks, reward, `MAX_TOKEN_LEN`, the 32,768 budget, the
+dynamic microbatches and the persistent worker untouched. The 4–7 minute exit
+tail per process is the same driver at the same per-call cost tearing the
+mappings down. `waiting-on: the operator's cure decision for B18 — an
+upstream driver report of the 50–80 ms RM free/alloc cost, the
+expandable-segments default, or a pool-fitting batch geometry — each
+measurable against the per-stage counters now in every run record`
 
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
