@@ -89,6 +89,8 @@ next: <advisory>
 
 Commands:
 
+`pytest -q` requires the Docker CLI and Compose plugin for credential parsing checks; no Docker daemon or running estate is needed.
+
 ```
 pip install -e ".[dev]"
 pytest -q                                  # the root suite: 176

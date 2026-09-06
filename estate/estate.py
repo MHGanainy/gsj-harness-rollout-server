@@ -22,6 +22,10 @@ one YAML the rollout server reads, under `estate/runs/<name>/`:
     .env               every secret, KEY='value', mode 0600 — `gsj-rollout submit`
                        reads it beside rollout.yaml (CP-75); compose takes --env-file;
                        serve_gateway's own shell sources it; no value on a command line
+    .estate-run        ownership marker; --wipe requires this or matching legacy evidence
+
+The runs root must already exist and be writable. Its .locks/<name>.lock holds
+the command's kernel lock, survives --wipe, and must not be deleted.
 
 It is the production sibling of gsj-rollout-demo's bootstrap.py: that one
 always CREATES its estate; this one also ADOPTS an existing Forgejo or
@@ -441,7 +445,7 @@ def pins_g1_check(corpus) -> dict:
 
 # ------------------------------------------------------------ the run dir
 
-def credential(value: str, name: str) -> str:
+def credential(value: str, name: str, *, cure: str | None = None) -> str:
     """CP-84: one literal value across shell, Compose and the package reader."""
     problem = ("a non-string credential" if not isinstance(value, str) else
                "an empty credential" if not value else
@@ -456,7 +460,7 @@ def credential(value: str, name: str) -> str:
         die(f"{name} has an unsupported credential value.", problem,
             "nonempty printable ASCII without apostrophes or an odd run of trailing "
             "backslashes; spaces, internal backslashes and even trailing runs are literal",
-            f"rotate the credential at its service, or use a token without that character "
+            cure or f"rotate the credential at its service, or use a token without that character "
             f"class/ending; supply the replacement through {name} or its credential file. "
             "Credential files hold the exact value, optionally followed by one LF "
             "(no CRLF or other newline); "
@@ -507,10 +511,22 @@ class Run:
         if locks.is_symlink() or (locks.exists() and not locks.is_dir()):
             die("the run lock directory is not a real directory.", str(locks),
                 f"a real directory at {locks}", "restore the runs directory's lock directory")
-        locks.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            locks.mkdir(exist_ok=True, mode=0o700)
+        except OSError as exc:
+            die("cannot prepare the run lock directory.", f"{self.root}: {exc}",
+                f"an existing writable runs directory at {self.root}; .locks/ is created on first use",
+                "make the runs directory writable, or pass --runs-dir naming the directory "
+                "that holds the run; create that root directory first for a new estate")
         try:
             fd = os.open(locks / f"{self.name}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         except OSError as exc:
+            if isinstance(exc, PermissionError) and not os.access(locks, os.W_OK | os.X_OK):
+                die("the run lock directory is not writable/searchable by this caller.",
+                    f"{locks}: owner uid {locks.stat().st_uid}; caller uid {os.geteuid()}",
+                    "write and search permission on the lock directory",
+                    f"run as the user that owns {locks}, with directory write/search permissions; "
+                    "do not delete lock files")
             die(f"cannot open the lock for run {self.name!r}.", str(exc),
                 "a regular writable lock file", "restore the lock file and its permissions; then re-run")
         with os.fdopen(fd, "w") as handle:
@@ -616,19 +632,27 @@ class Run:
             loaded = {}
             # splitlines treats VT/U+2028 as record delimiters and silently
             # shortened old credentials. Only the writer's LF ends a record.
-            for number, line in enumerate(envf.read_text().split("\n"), 1):
+            for number, line in enumerate(envf.read_bytes().decode("utf-8").split("\n"), 1):
                 if not line.strip() or line.lstrip().startswith("#"):
                     continue
                 k, eq, raw = (part.strip() for part in line.partition("="))
+                key = k if k.isidentifier() else "KEY"
+                cure = (f"rotate the credential at its service or use a compatible token; edit "
+                        f"{envf} line {number} by hand to {key}='value' form with the exact "
+                        "supported value on one LF-terminated line. After that repair, re-run "
+                        "up to re-adopt from the environment or credential file; or "
+                        f"`{PROG} down --name {self.name} --runs-dir {self.root} --wipe` "
+                        "and start over (deletes this run's data)")
+                # strip() above must not erase CR record framing either.
+                if "\r" in line:
+                    credential("\r", f"{envf} line {number} ({key})", cure=cure)
                 if not eq or not k.isidentifier() or (raw and not (
                         len(raw) >= 2 and raw[0] == raw[-1] == "'")):
                     die(f"{envf} line {number} is not a complete KEY='value' record.",
                         "a malformed or multi-line credential record", "one quoted value per line",
-                        "restore the .env from backup, or rotate the credential at its service "
-                        "and use a token without newline/control characters; re-run with its "
-                        "exact value through the named variable or credential file")
+                        cure)
                 value = _env_unquote(raw)
-                loaded[k] = credential(value, f"{envf} line {number} ({k})") if value else value
+                loaded[k] = credential(value, f"{envf} line {number} ({k})", cure=cure) if value else value
             self.env.update(loaded)
 
     def write_env(self) -> None:
@@ -695,6 +719,8 @@ def record_problem(record, name: str) -> str | None:
         keys = path.split(".")
         for key in keys[:-1]:
             parent = parent.get(key, {})
+        if path in ("mcp.embedding", "mcp.backend") and parent.get(keys[-1]) is None:
+            continue  # /health may omit these optional observations, including explicit null
         if keys[-1] in parent and not isinstance(parent[keys[-1]], dict):
             return f"{path} is not an object"
     for section in ("forgejo", "mcp"):
@@ -730,7 +756,7 @@ def record_problem(record, name: str) -> str | None:
     for section, keys in strings.items():
         values = record
         for part in section.split(".") if section else ():
-            values = values.get(part, {})
+            values = values.get(part) or {}
         for key in keys.split():
             if key in values and not isinstance(values[key], str):
                 return f"{section + '.' if section else ''}{key} is not a string"
@@ -774,6 +800,16 @@ def mutating_command(func):
             args._estate_run = None
             try:
                 if getattr(args, "name", None):
+                    if func.__name__ in ("cmd_down", "cmd_update"):
+                        r = Run(args.name)
+                        required = r.dir if func.__name__ == "cmd_down" else r.dir / "run.json"
+                        exists = required.is_dir() if func.__name__ == "cmd_down" else required.is_file()
+                        if not exists:
+                            die(f"no run named {args.name!r}.",
+                                f"{r.dir} does not exist" if func.__name__ == "cmd_down" else
+                                f"{r.dir} has no run.json", "a run this script created",
+                                f"{PROG} up --name {args.name} (or --runs-dir "
+                                "naming the directory that holds it)")
                     _command_run(args, args.name)
                 return func(args)
             finally:
@@ -1466,11 +1502,11 @@ def mcp_config_inputs(A: Answers, previous: dict) -> dict:
     chunk = (overrides or {}).get("chunking") or {}
     model = A.get("embedding_model", "embedding model (HF id; binding to the "
                   "index store until --rebuild — CP-57)",
-                  emb.get("model") or prior.get("embedding", {}).get("model") or DEFAULT_EMBEDDING_MODEL)
+                  emb.get("model") or (prior.get("embedding") or {}).get("model") or DEFAULT_EMBEDDING_MODEL)
     revision = A.get("embedding_revision", "embedding revision (full commit SHA; binding with the model)",
                      (emb.get("revision") if emb.get("model") in (None, model) else None)
-                     or (prior.get("embedding", {}).get("revision")
-                         if prior.get("embedding", {}).get("model") == model
+                     or ((prior.get("embedding") or {}).get("revision")
+                         if (prior.get("embedding") or {}).get("model") == model
                          else DEFAULT_EMBEDDING_REVISION if model == DEFAULT_EMBEDDING_MODEL else None),
                      required=True)
     chunk_prev = pm.get("chunking") or {}
@@ -3732,6 +3768,16 @@ def cmd_down(args: argparse.Namespace) -> None:
     network = not external and (services or net.get("name") == own or
                                 net.get("created_by_run") is True)
 
+    if not composed and not r.record:
+        cure = ("restore run.json from backup, then re-run down so its network ownership "
+                "can be verified; preserve the run directory and inspect "
+                f"`docker network inspect {own}` with the network's owner")
+        if args.wipe:
+            die(f"run {args.name!r}: network {own} is unverified; refusing --wipe.",
+                "no usable run.json or generated compose.yaml establishes network ownership",
+                "verified teardown before deleting the run directory", cure)
+        warn("down", f"network {own} is unverified; {cure}")
+
     def failed(action: str, detail: str) -> None:
         die(f"run {args.name!r}: Docker cleanup failed or is unverified ({action}).",
             detail, "owned containers and network absent before success or --wipe",
@@ -3781,7 +3827,7 @@ def cmd_down(args: argparse.Namespace) -> None:
                 say("down", f"network {own} removed (this run's own)")
         say("down", f"created services stopped; owned resources absent "
                     f"(data under {r.dir} survives)")
-    else:
+    elif r.record:
         say("down", "this run records no owned Docker resources; nothing to stop")
     if args.wipe:
         r.require_wipe_owned()
@@ -3974,7 +4020,8 @@ def main() -> None:
     dn = sub.add_parser("down", parents=[common],
                         help="stop the services a run created (data survives)")
     dn.add_argument("--name", required=True)
-    dn.add_argument("--wipe", action="store_true", help="also delete <runs-dir>/<name>/")
+    dn.add_argument("--wipe", action="store_true", help="also delete <runs-dir>/<name>/ after "
+                    "verified teardown and matching estate ownership evidence; .locks/ survives")
     dn.set_defaults(func=cmd_down)
     args = ap.parse_args()
     if args.runs_dir:

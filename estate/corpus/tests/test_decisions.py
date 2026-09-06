@@ -689,6 +689,7 @@ def test_up_refuses_a_corpus_drop_and_a_flag_together_before_any_estate_work(
     beside.mkdir()
     (beside / "jb-KORE000000002.xml").write_text(decision_xml("KORE000000002"), encoding="utf-8")
     monkeypatch.setattr(est, "RUNS", tmp_path / "runs")
+    est.RUNS.mkdir()  # CP-90: reach the decisions check through a valid runs root
 
     def spent_work():
         pytest.fail("two drops reached Docker setup")

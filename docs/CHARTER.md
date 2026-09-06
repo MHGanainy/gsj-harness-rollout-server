@@ -2973,6 +2973,60 @@ upstream driver report of the 50–80 ms RM free/alloc cost, the
 expandable-segments default, or a pool-fitting batch geometry — each
 measurable against the per-stage counters now in every run record`
 
+**[CP-90] The two defects in the shipped wheel — repaired in source, no release.**
+At `b1d97a7`, G-01's owned `rory` under a disposable 0500 runs root raised a
+raw traceback before `up`, `update` and `down`, with zero Docker calls;
+`1429326` completed the same `down`. A file as root and a typo beneath a
+0500 parent reproduced the mutating/status asymmetry. The mkdir now refuses
+in found/expected/what-to-do form. G-02 distinguishes inaccessible `.locks`
+from its lock file, naming owner and caller uid. G-03 checks an existing
+run/record before locking and refuses a missing root without creating it.
+R-13 treats optional null MCP health mappings as absent through validation
+and `up` defaults. R-18 reads exact UTF-8 bytes, keeping CR visible to the
+credential refusal. G-07/G-08 document the marker, containment, record
+validation, verified teardown and surviving lock files; never delete locks.
+
+R-01 was reproduced with the CP-75 apostrophe form, exported replacement and
+credential file: zero `Answers.secret` calls, and following the old cure
+repeated the refusal. Both stored-value and malformed-line cures now name
+manual `KEY='value'` repair, then `up` re-adoption, or `down --wipe` and start
+over. **Decision:** retain whole-file validation before publishing loaded
+values; bypassing a refused line with an exported variable would let command
+behavior depend on an incidental environment and leave status/update unable
+to read that same file (`update` does not re-adopt). R-03's **decision** is to
+warn on an unverified network and refuse wipe when both record and Compose
+are unusable/absent: a directory marker cannot establish whether the network
+was created or adopted. This replaces CP-83's declared default of successful
+wipe; restoration of the record permits verified teardown without guessing
+ownership of an external network. No new lock/credential framework or ADR
+allowance is needed beyond ADR-0036/0037's existing boundary.
+
+R-08's canary has a valid escaped record and checks the precise refusal;
+1429326 now fails all ten update/status cases (18 of 20 overall, the two old
+up token refusals legitimately pass). R-16 intercepts subprocess Docker calls
+even when containment regresses. R-20's independent fourteen-key consequence
+map catches all fourteen wrong-class mutations. Twenty-three new seam
+regressions plus the Docker-shim regression grow corpus 338 to 362; old
+fixtures now explicitly create their runs root and the marker-only wipe test
+asserts preserved data. The root suite remains 176 and MCP 164. R-25 was
+reproduced on a disposable Docker-less PATH; the three lifted prerequisite
+notes are corrected, the frozen workflow note remains in wishlist row 80.
+Rows 64/78/80 are annotated; row 82 owns the source closures and observable
+release event. G-01/R-01 remain open for public consumers on 0.1.8.
+
+Workstation proof: disposable `cp90live` up 41.457 s; an adopted `cp90cure`
+refused export/file replacements, then the printed hand edit and real `up`
+re-adopted successfully in 5.341 s. CPU-only Qwen3-0.6B produced accepted
+`sk-polar-1b998ba2-3eb7-4c9d-bf5e-7d8a394af26e` (submit 20.277 s), read in
+full and independently validated to zero findings, no quarantine; no claim
+of answer quality or a tool call. Final-source warm up 8.550 s preserved
+pins/bank/lock bytes; down 3.389 s left no owned container/network and closed
+all proof listeners. Baseline workstation containers were unchanged. No
+H200/GPU, core/vendor/pins/service change, consumer edit, predecessor write,
+release, reward/B18 change or next-checkpoint draft. The core census remains
+2,034; both consumer registers still reserve F-83 as next fresh. Evidence and
+the printed report remain local under the ignored CP-90 record paths.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

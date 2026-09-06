@@ -50,6 +50,7 @@ def run_without_docker(tmp_path, *flags):
     env.update(PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                CP84_DOCKER_CALLS=str(calls), PYTHONDONTWRITEBYTECODE="1")
     runs = tmp_path / "runs"
+    runs.mkdir()  # CP-90: an explicit runs root must exist before taking its lock.
     proc = subprocess.run(
         [sys.executable, str(ESTATE_PY), "up", "-y", "--corpus", str(corpus),
          "--runs-dir", str(runs), "--name", "mcp-boundary", *flags],
@@ -222,15 +223,29 @@ def test_review_names_every_setting_and_its_consequence(tmp_path):
         revision=est.DEFAULT_EMBEDDING_REVISION, chunk_max=220, chunk_overlap=40,
         rebuild="if-stale", secret_env="SECRET"))
     review = est.mcp_config_review(doc, tmp_path / "mcp-config.yaml")
-    for section, fields in est.MCP_FIELDS.items():
-        for key, field in fields.items():
-            assert f"{section}.{key}" in review
-            assert est.MCP_CONSEQUENCES[field["consequence"]].format(
-                cfg_path=tmp_path / "mcp-config.yaml") in review
-    for consequence in ("REFUSED against the built store until --rebuild",
-                        "re-embed of the WHOLE corpus", "serving-only",
-                        "speed only, not identity", "decisions collection alone"):
-        assert consequence in review
+    # Independent of both rendering tables: a wrong class on one key must fail,
+    # even when all five classes still appear elsewhere in the review.
+    expected = {
+        "embedding.model": "REFUSED against the built store until --rebuild",
+        "embedding.revision": "REFUSED against the built store until --rebuild",
+        "embedding.device": "speed only, not identity",
+        "embedding.batch_size": "re-embed of the WHOLE corpus",
+        "embedding.normalize": "REFUSED against the built store until --rebuild",
+        "chunking.max_tokens": "re-embed of the WHOLE corpus",
+        "chunking.overlap": "re-embed of the WHOLE corpus",
+        "chunking.respect_page_boundaries": "re-embed of the WHOLE corpus",
+        "search.default_k": "serving-only",
+        "search.max_k": "serving-only",
+        "search.method": "serving-only",
+        "decisions.seed": "decisions collection alone",
+        "decisions.corpus_size": "decisions collection alone",
+        "decisions.path": "decisions collection alone",
+    }
+    lines = review.splitlines()
+    for key, consequence in expected.items():
+        index = next(i for i, line in enumerate(lines) if line.startswith(f"      {key} "))
+        assert "to change later:" in lines[index + 1]
+        assert consequence in lines[index + 1], (key, lines[index + 1])
     assert "32" in review and "absent when 32" in review
 
 

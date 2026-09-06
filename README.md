@@ -95,6 +95,8 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 | `docs/` · `pins/` | the guide, the four normative documents, and the seven Polar run bodies CI/tests/pins-walk read; the approved sets (reference + `thinking-on/`) with derive scripts — the single source for the wheel copies |
 | `tests/` | the root suite (176 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/` |
 
+`pytest -q` requires the Docker CLI and Compose plugin for credential parsing checks; no Docker daemon or running estate is needed.
+
 The CP-06 feasibility spike (stub backend, spike harness, the stub-side wire captures, `p1_verdict.py`, `wire_diff.py`) left the tree at CP-68 and is frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) — commit `a769771`, tree `2082a24f`; restore with `git checkout spike-cp06 -- spike`.
 
 ## Where the record lives

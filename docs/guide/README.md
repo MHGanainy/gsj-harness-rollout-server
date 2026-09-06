@@ -63,6 +63,8 @@ Four tracked documents are normative; this guide is the consumer view of them.
 > [!NOTE]
 > The per-checkpoint development record — prompts, reports, decision records, the audit, the raw run evidence — is maintained privately by the operator and is not in the repository. The tracked documents cite it (`docs/reports/CP-NN.md`, `ADR-NNNN`); from a clone those citations are footnotes you cannot follow — treat a claim resting only on one as asserted, not checkable. What stays checkable from a clone: `pytest -q`, `bash vendor/apply_patches.sh --verify`, `cat POLAR_SHA`, and the pins walk (`pins/derive_pins.py`) over the tracked evidence bodies.
 
+`pytest -q` requires the Docker CLI and Compose plugin for credential parsing checks; no Docker daemon or running estate is needed.
+
 ## See also
 
 - [Repository README](../../README.md) — the front door: the shape, the cutoff, the two roles, what has been measured, the licence.

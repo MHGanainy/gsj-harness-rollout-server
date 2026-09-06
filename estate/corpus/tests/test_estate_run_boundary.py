@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 
 import pytest
@@ -19,14 +21,44 @@ ESTATE_PY = ESTATE_DIR / "estate.py"
 
 
 def invoke(runs, verb, name, *args):
-    return subprocess.run([sys.executable, str(ESTATE_PY), verb, "--runs-dir", str(runs),
-                           "--name", name, *args], capture_output=True, text=True, timeout=15)
+    # A boundary regression must never reach the host Docker daemon.
+    with tempfile.TemporaryDirectory(prefix="cp90-boundary-docker-canary-") as scratch:
+        fake_bin = Path(scratch)
+        calls = fake_bin / "docker-calls"
+        docker = fake_bin / "docker"
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CP90_DOCKER_CALLS"\nexit 97\n')
+        docker.chmod(0o700)
+        env = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                   CP90_DOCKER_CALLS=str(calls), PYTHONDONTWRITEBYTECODE="1")
+        proc = subprocess.run([sys.executable, str(ESTATE_PY), verb, "--runs-dir", str(runs),
+                               "--name", name, *args], env=env, capture_output=True,
+                              text=True, timeout=15)
+        assert not calls.exists(), "Docker canary intercepted: " + calls.read_text()
+        return proc
 
 
 def record(name="canary"):
     return {"schema": 1, "run": name,
             "forgejo": {"mode": "adopted", "url": "http://127.0.0.1:9"},
             "mcp": {"mode": "adopted", "url": "http://127.0.0.1:9"}}
+
+
+def test_invoke_intercepts_docker_before_host_path(tmp_path, monkeypatch):
+    # The second shim also makes this safety test harmless with invoke's fix removed.
+    host_bin = tmp_path / "disposable-host-bin"
+    host_bin.mkdir()
+    host_call = tmp_path / "disposable-host-docker-call"
+    host_docker = host_bin / "docker"
+    host_docker.write_text('#!/bin/sh\nprintf called > "$CP90_HOST_DOCKER_CALL"\nexit 98\n')
+    host_docker.chmod(0o700)
+    monkeypatch.setenv("PATH", str(host_bin))
+    monkeypatch.setenv("CP90_HOST_DOCKER_CALL", str(host_call))
+    surrogate = tmp_path / "disposable-estate.py"
+    surrogate.write_text("import subprocess, sys\nsys.exit(subprocess.run(['docker', 'info']).returncode)\n")
+    monkeypatch.setitem(invoke.__globals__, "ESTATE_PY", surrogate)
+    with pytest.raises(AssertionError, match="Docker canary intercepted: info"):
+        invoke(tmp_path / "runs", "up", "canary")
+    assert not host_call.exists()
 
 
 @pytest.mark.parametrize("verb", ["up", "update", "status", "down"])
@@ -38,16 +70,26 @@ def test_every_named_verb_refuses_uncontained_names_before_work(tmp_path, verb, 
     canary.mkdir()
     evidence = canary / "disposable.txt"
     evidence.write_text("Made only for this test; never real user data.\n")
+    expected = f"run name {bad_name!r} is not a token."
     if bad_name == "absolute":
         bad_name = str(canary)
+        expected = f"run name {bad_name!r} is not a token."
     elif bad_name == "escape":
+        # Valid outside state makes status/update exercise the containment guard,
+        # rather than accidentally passing on an unrelated missing-record refusal.
+        (canary / "run.json").write_text(json.dumps(record("escape")))
+        (canary / ".env").write_text("")
+        (canary / "compose.yaml").write_text(est.COMPOSE_HEAD.format(
+            prog="estate/estate.py", run="escape", project="gsj-escape"))
         (runs / "escape").symlink_to(canary, target_is_directory=True)
+        expected = "run 'escape' escapes its named directory."
     elif bad_name == "loop":
         (runs / "loop").symlink_to("loop", target_is_directory=True)
+        expected = "run 'loop' escapes its named directory."
     proc = invoke(runs, verb, bad_name, *(["--wipe"] if verb == "down" else []))
     assert proc.returncode == 1
     assert "REFUSED" in proc.stderr and "Traceback" not in proc.stderr
-    assert "run name" in proc.stderr or "escapes its named directory" in proc.stderr
+    assert expected in proc.stderr, proc.stderr
     assert evidence.read_text().startswith("Made only for this test")
     assert not (runs / ".locks").exists()  # rejected before even a lock is created
 
@@ -91,14 +133,18 @@ def test_symlink_loop_refusal_survives_python312_resolution_error(tmp_path, monk
     assert loop.is_symlink()
 
 
-def test_marker_keeps_half_created_run_wipeable_without_record_or_env(tmp_path, monkeypatch):
+def test_marker_proves_ownership_but_unknown_network_blocks_partial_wipe(tmp_path, monkeypatch,
+                                                                      capsys):
     monkeypatch.setattr(est, "RUNS", tmp_path)
     r = est.Run("canary")
     r.prepare()
     (r.dir / "disposable.txt").write_text("owned partial run, no Docker work yet")
+    r.require_wipe_owned()
     monkeypatch.setattr(est.shutil, "which", lambda _: None)
-    est.cmd_down(argparse.Namespace(name=r.name, wipe=True))
-    assert not r.dir.exists()
+    with pytest.raises(SystemExit):
+        est.cmd_down(argparse.Namespace(name=r.name, wipe=True))
+    assert "network gsj-canary-net is unverified; refusing --wipe" in capsys.readouterr().err
+    assert (r.dir / "disposable.txt").read_text() == "owned partial run, no Docker work yet"
 
 
 @pytest.mark.parametrize("legacy", ["record", "compose", "env"])

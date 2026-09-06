@@ -33,6 +33,7 @@ def test_known_incompatible_drop_refuses_before_estate_work(tmp_path, monkeypatc
     drop.mkdir()
     (drop / "jb-fixture.xml").write_text("<fixture/>")
     monkeypatch.setattr(est, "RUNS", tmp_path / "runs")
+    est.RUNS.mkdir()  # CP-90: the caller supplies an existing runs root
 
     def spent_work():
         pytest.fail("incompatible image reached Docker setup")
