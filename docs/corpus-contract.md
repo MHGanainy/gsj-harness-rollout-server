@@ -168,10 +168,11 @@ tree whose splits disagree with the lock.
 
 ## Decisions — court decisions as corpus data (v3, CP-88 / ADR-0038)
 
-*In the checkout since CP-88; it reaches the installed wheel at the first
-release after 0.1.8 — a 0.1.8 `validate` refuses a `decisions/` entry as
-"unexpected entry", so a wheel consumer keeps the drop beside the corpus
-and `--decisions-dir` until then.*
+*Published in library 0.1.9 (CP-91), from CP-88. `scaffold` writes
+`decisions/` and its README; `validate` admits the drop and `up` locks and
+mounts it by default. On historical wheel 0.1.8, `validate` refuses that
+root entry: keep the drop beside the corpus and use `--decisions-dir`, or
+upgrade. A corpus without `decisions/` behaves as before.*
 
 A corpus may carry the court decisions its retrieval service serves
 beside the case pages: `<corpus-root>/decisions/`, one file per decision
@@ -504,7 +505,7 @@ python estate/corpus/ingest_corpus.py all      --corpus <corpus-root>   # the fu
 (`validate` and `ingest` are estate-tool verbs since CP-72 — from a wheel,
 `python -m gsj_rollout.estate validate|ingest`. The other phases keep the
 pipeline's own command line, which still works for every phase but prints
-a deprecation notice; retained in 0.1.8; removal remains eligible from 0.1.8, not scheduled.)
+a deprecation notice; retained in 0.1.9; removal remains eligible from 0.1.8, not scheduled.)
 
 `all` runs the five phases in order and stops at the first failure:
 

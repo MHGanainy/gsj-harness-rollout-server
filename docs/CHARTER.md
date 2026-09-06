@@ -3027,6 +3027,29 @@ release, reward/B18 change or next-checkpoint draft. The core census remains
 2,034; both consumer registers still reserve F-83 as next fresh. Evidence and
 the printed report remain local under the ignored CP-90 record paths.
 
+**[CP-91] Release 0.1.9 — corpus-contract v3 and the shipped refusal repairs.**
+
+This phase-3 release carries CP-88's optional eighth root entry `decisions/`,
+its validation, separate lock, verify clauses and default mount, and CP-90's
+G-01/R-01 repairs with their run-record and credential seam. Version 0.1.9
+is intentional: a corpus without decisions retains its existing behavior;
+the new root entry is additive, and refused legacy credentials gain a usable
+recovery path. R-03's conservative refusal of an unverified wipe supersedes
+the earlier marker-only successful-wipe default to preserve recovery data.
+The restricted credential grammar itself already shipped in 0.1.8.
+
+Collection confirms root 176, corpus 362 and MCP 164. Only the two stale
+corpus labels in CI change; R-25's fourth Docker CLI/Compose prerequisite
+note remains on row 80 under the labels-only workflow lift. The deprecated
+pipeline entry remains available in 0.1.9: “no earlier than 0.1.8” is still
+a truthful eligibility bound, not a scheduled removal. Core census 2,034;
+no core source beyond the version literal, estate, vendor, pins, service or
+examples code is changed. CP-89's allocator counters and tenant census are
+already public in examples `04fc0e8`, including its RUNBOOK and F-81; they
+are not wheel contents and B18's cure remains unimplemented. F-83 remains
+the next fresh id in both consumer registers. Publication, installed proofs,
+A-28's demo recut and per-repository outcomes follow in the release record.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |
