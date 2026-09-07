@@ -2,7 +2,7 @@
 
 ## Project
 
-**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.9** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `estate.py` — `bringup.py` on wheels 0.1.3–0.1.5). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53, F-79 minted there at CP-69 and F-81 recording the CP-82 training findings) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78 plus F-80, the CP-81 decisions/case-content finding, F-82 recording the CP-82 reader findings, and F-83–F-86 minted at CP-92 for what four containerised strangers found in the demo) — one F-series across both, next fresh id F-87 (the examples trailer still says F-83 until its next mint). The normative document is `docs/CHARTER.md`; this file governs process only.
+**gsj-harness-rollout-server** is a **rollout server for our corpus**. Given a task `(case, timestep, prompt)` it runs our agent in an isolated sandbox with temporally-scoped retrieval and emits a training-ready trajectory. It is trainer-agnostic, algorithm-agnostic, and parameterization-agnostic. Episode execution and trajectory reconstruction are built on NVIDIA's Polar, vendored by SHA (`POLAR_SHA`; three carried patches). Published on PyPI as `gsj-harness-rollout-server` **0.1.10** (wheel-only, 18 entries: `gsj_rollout/`, both pins sets + the G2 container capture, `ingest_corpus.py`, `estate.py` — `bringup.py` on wheels 0.1.3–0.1.5). Predecessor: `gsj-envloader` @ v0.8.0 — **archived at CP-45** (2026-08-25, ADR-0026): still the golden reference (the collecting stack for both goldens, readable at v0.8.0), no longer the fallback — that term expired when the verdict converted (CP-17, 2026-08-11). Consumer repos, both public: `gsj-harness-rollout-server-examples` (trainer-side; external register F-01–F-53, F-79 minted there at CP-69 and F-81 recording the CP-82 training findings) and `gsj-rollout-demo` (bring-your-own estate; register F-54–F-78 plus F-80, the CP-81 decisions/case-content finding, F-82 recording the CP-82 reader findings, and F-83–F-86 minted at CP-92 for what four containerised strangers found in the demo) — one F-series across both, next fresh id F-87 (the examples trailer still says F-83 until its next mint). The normative document is `docs/CHARTER.md`; this file governs process only.
 
 ## Scope laws
 
@@ -48,7 +48,7 @@ next: <advisory>
 ├── CLAUDE.md
 ├── README.md                    # the two-role split: server side needs an estate; trainer side is the pip library
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
-├── pyproject.toml               # 0.1.9; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + estate.py
+├── pyproject.toml               # 0.1.10; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + estate.py
 ├── docs/
 │   ├── guide/                   # the user documentation: seven plain Markdown pages (bring-your-own.md since CP-92: a foreign model's values from its endpoint, a foreign corpus's pins from its first quarantine) + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8
@@ -56,7 +56,7 @@ next: <advisory>
 │   ├── checks-spec.md           # the validators' rule reasoning (G1–G7, ADM, logprob discipline)
 │   ├── corpus-contract.md       # the corpus tree contract
 │   ├── AUDIT-2026-08-24.md      # the post-CP-38 three-repo audit — UNTRACKED since CP-48
-│   ├── decisions/               # ADRs (0001–0038), one file per decision, append-only — UNTRACKED since CP-48
+│   ├── decisions/               # ADRs (0001–0040), one file per decision, append-only — UNTRACKED since CP-48
 │   ├── prompts/                 # every CP prompt verbatim: CP-XX.md — fully UNTRACKED since CP-49a (CP-48.md came out too)
 │   ├── reports/                 # one report per checkpoint: CP-XX.md — UNTRACKED since CP-48
 │   ├── golden/                  # golden-pair evidence — fully untracked since CP-49 (the mac fixtures moved to tests/fixtures/golden-mac/)
@@ -70,7 +70,7 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 390 — 389 + 1 skipped on the runner, the demo-thirty pin is local; ci.yml's label still says 362, wishlist 86 — + mcp-service 164)
+├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 390 — 389 + 1 skipped on the runner, the demo-thirty pin is local — + mcp-service 164)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 └── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law

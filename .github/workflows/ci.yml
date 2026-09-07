@@ -2,7 +2,7 @@
 #
 # WHAT THIS COVERS — the fixture-driven half of the repo, and only that:
 #   * the root suite (176)                  — gsj_rollout/, fixtures, no estate
-#   * the corpus suite (362)                — the pipeline over its file:// rail
+#   * the corpus suite (390)                — the pipeline over its file:// rail
 #   * the mcp-service suite (164)           — Chroma + the pinned MiniLM, localhost
 #   * the wheel build + CP-16's packaged-pins install proof (ADR-0017)
 #   Deliberately NOT here: vendor/polar's own suite, including the four
@@ -24,7 +24,7 @@
 # workstation venv is 3.13 — neither is exercised here.
 #
 # Size law (CHARTER §3): this file is CI configuration, not `gsj_rollout/`
-# code — outside the 2,016-line budget, on the same footing as tests and
+# code — outside the 2,034-line budget, on the same footing as tests and
 # vendored Polar. It adds nothing to the surface the budget governs.
 
 name: CI
@@ -48,7 +48,7 @@ jobs:
       - run: pytest -q
 
   corpus:
-    name: corpus suite (362)
+    name: corpus suite (390)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
