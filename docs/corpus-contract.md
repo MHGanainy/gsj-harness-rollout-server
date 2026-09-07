@@ -657,15 +657,21 @@ the estate's pins are re-derived and named**:
 - `estate.py up` already tells you: its pins phase warns with the exact
   cards the in-force approved set lacks. It deliberately does not write
   pins.
-- The library ships no one-command re-derivation for a foreign corpus
-  (stated, not hidden). The worked example is the demo repo's
-  `bootstrap.py` (`derive_pins`): G1 = sha256 of each of your
-  `skills/<name>/SKILL.md` files; G2 = your `AGENTS.md` bytes substituted
-  between pi's `<project_instructions>` markers in the wheel's packaged
-  capture, hashed; both written into a copy of the packaged
-  `pins.gsj.json`, and `GSJ_PINS_PATH` pointed at it for the receiver and
-  the trainer both (law 6: same document, both legs). The reference
-  walk for our own estate is `pins/derive_pins.py` in the checkout.
+- The library owns the walk, as a page a stranger can follow:
+  [`docs/guide/bring-your-own.md#your-pins`](guide/bring-your-own.md#your-pins)
+  — one episode against the reference pins, **inspect** the quarantined
+  body, derive every approved value from what actually ran (G1 = sha256
+  of each of your `skills/<name>/SKILL.md` files' raw bytes; G2 = the
+  wire system prompt as UTF-8 bytes, your `AGENTS.md` found in it exactly
+  once), `GSJ_PINS_PATH` pointed at the file for the receiver and the
+  trainer both (law 6: same document, both legs), restart, one accepted
+  episode. Still no one-command form in the library, deliberately: the
+  inspection step is the point. The demo repo's `bootstrap.py`
+  (`derive_pins`) is the one-command form for the reference-model case
+  (G2 by `AGENTS.md` byte-substitution on the wheel's packaged capture).
+  `pins/derive_pins.py` in the checkout re-**verifies** the reference
+  estate's own set; it does not derive yours and does not ship on the
+  wheel.
 
 **Your decisions are corpus data too (v3).** A `decisions/` of rii-dok v1
 files travels with the corpus, is locked with it and is what the estate
@@ -712,10 +718,16 @@ by force.
 
 **What is proven, and what is not.** Proven (CP-71, a Mac estate): a
 scaffolded corpus validates unmodified, ingests, banks and verifies
-end-to-end through `up`. NOT proven: the full bring-your-own path — a
-foreign corpus's pins re-derived, episodes collected on it, a training
-run consuming them. Nobody has walked it yet; expect to be the first,
-and expect the pins step to be where it catches.
+end-to-end through `up`. Proven since (2026-09-06, a stranger from
+`pip install` alone, no demo, no examples): the bring-your-own path
+end to end — this library's own scaffold as the foreign corpus,
+`qwen3.6-27b` as the foreign model, the pins re-derived from one
+quarantined episode, one accepted episode, findings `[]`, re-verified
+in a separate process; it caught exactly at the pins step, as this
+paragraph predicted, and the walk the stranger assembled is now the
+page above (re-walked at CP-92 on a workstation estate). NOT proven
+still: a training run consuming such episodes. Expect to be the first
+there.
 
 ## Naming rules (reference)
 

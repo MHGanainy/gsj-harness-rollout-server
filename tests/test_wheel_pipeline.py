@@ -53,9 +53,9 @@ def test_the_wheel_ships_the_g2_capture_and_the_estate_tool_by_config():
     """CP-60: the two later force-includes, both legs each (wishlist 36/48).
     `release.yml`'s required tuple (seven entries since CP-60) asserts both on
     the built artifact; this is the CI-side half (the tag path re-runs no test).
-    CP-72: the estate tool's pair is the renamed one — the frozen release.yml
-    still names `gsj_rollout/bringup.py` and must move at its next lift
-    (wishlist 57) or the tag build fails."""
+    CP-72: the estate tool's pair is the renamed one; release.yml named
+    `gsj_rollout/bringup.py` until its CP-74 lift moved it (wishlist 57,
+    closed there) — history, recorded as such at CP-92 (wishlist 58)."""
     config = tomllib.loads((REPO / "pyproject.toml").read_text())
     include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     sdist = config["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
@@ -151,4 +151,6 @@ def test_packaged_estate_tool_imports_from_the_wheel_layout(tmp_path):
         [sys.executable, "-m", "gsj_rollout.estate", "--help"],
         capture_output=True, text=True, cwd=tmp_path, env=env)
     assert helped.returncode == 0, helped.stderr
-    assert "{scaffold,validate,up,ingest,status,down}" in helped.stdout
+    # CP-92 (wishlist 60): the seven-verb summary argparse renders itself —
+    # the six-verb metavar pin CP-73 carried for this assertion is retired
+    assert "{scaffold,validate,up,ingest,update,status,down}" in helped.stdout

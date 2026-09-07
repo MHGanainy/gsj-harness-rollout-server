@@ -23,6 +23,7 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 **Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.9) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2 — deprecated from 0.1.6 in favour of the estate tool's `validate`/`ingest` verbs — and the estate tool as `python -m gsj_rollout.estate` since 0.1.6, CP-72's rename of the `gsj_rollout.bringup` that wheels 0.1.3–0.1.5 carry): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
+python3 -m venv .venv && . .venv/bin/activate   # stock Ubuntu >= 23.04 refuses a bare pip install (PEP 668, `externally-managed-environment`)
 pip install gsj-harness-rollout-server
 ```
 
@@ -30,8 +31,12 @@ pip install gsj-harness-rollout-server
 
 ```bash
 git clone https://github.com/MHGanainy/gsj-harness-rollout-server && cd gsj-harness-rollout-server
-pip install -e ".[dev]" && gsj-rollout serve --config <yaml>
+python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]" uv   # uv: a fresh Ubuntu has none (exit 127 at `uv venv`)
+cd vendor/polar && uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e . && uv pip install -p .venv/bin/python -e ../.. && cd ../..
+gsj-rollout serve --config <yaml>
 ```
+
+A foreign model or corpus — from an endpoint URL to the values `up` needs, and from a first quarantined episode to your own pins — is [bring-your-own.md](bring-your-own.md).
 
 > [!WARNING]
 > The wheel ships the pins of the estate it was built for; on any other estate every hash gate fails `*_not_approved`, by design. Point `GSJ_PINS_PATH` at your own pins file before the first import of `gsj_rollout.checks` — see [validation-and-pins.md](validation-and-pins.md).
@@ -45,6 +50,7 @@ pip install -e ".[dev]" && gsj-rollout serve --config <yaml>
 | [validation-and-pins.md](validation-and-pins.md) | The checks, the gates, pins and approved sets, and the complete finding vocabulary. |
 | [server-guide.md](server-guide.md) | `serve`, the one YAML, the CLI, the receiver, the estate, the corpus, the retrieval service. |
 | [trainer-guide.md](trainer-guide.md) | Install, the first collect, the Python API, the wire formats, running a training loop. |
+| [bring-your-own.md](bring-your-own.md) | A foreign model (served name, end-of-turn id, the G6 tail — and what an endpoint cannot give) and a foreign corpus's pins, walked to an accepted episode. |
 | [troubleshooting.md](troubleshooting.md) | Symptom → cause → fix, with the exact messages. |
 
 ## The record behind this

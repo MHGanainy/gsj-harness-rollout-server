@@ -225,12 +225,13 @@ def test_config_review_prices_every_class_of_change():
 
 # ------------------------------------------------ the verb, hermetically
 
-def test_help_keeps_the_pinned_metavar_and_lists_update():
+def test_help_summary_lists_all_seven_verbs_and_update():
     proc = run_estate("--help")
     assert proc.returncode == 0
-    # the frozen root test (test_wheel_pipeline.py:154) asserts this exact
-    # brace line; the pin retires at the first tests/ lift (wishlist 60)
-    assert "{scaffold,validate,up,ingest,status,down}" in proc.stdout
+    # CP-92 (wishlist 60, a stranger hit): the summary is argparse's own,
+    # rendered from the parsers — the root test asserts the same brace
+    assert "{scaffold,validate,up,ingest,update,status,down}" in proc.stdout
+    assert "{scaffold,validate,up,ingest,status,down}" not in proc.stdout
     assert re.search(r"^\s+update\s", proc.stdout, re.M)
     assert "update --name RUN" in proc.stdout            # the docstring line
 

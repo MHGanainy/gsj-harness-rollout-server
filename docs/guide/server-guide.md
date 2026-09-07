@@ -14,8 +14,9 @@ The server role needs a repository checkout (the PyPI wheel ships no `vendor/`) 
 | Forgejo with one repo per case, one `timestep-T` branch per timestep, reachable from **inside** episode containers | `curl -fsS http://172.28.9.10:3000/api/healthz` |
 | The retrieval service with `GSJ_MCP_TOKEN_SECRET` in its environment | `curl -s localhost:8790/health` until `"state": "ready"` |
 | The corpus ingested | `estate/estate.py validate --corpus estate/corpus/staging` |
-| Docker with the harness image | `docker image ls ghcr.io/mhganainy/gsj-pi-harness` |
-| Polar's venv, with `gsj_rollout` importable in it | `vendor/polar/.venv/bin/polar --help`; recipe in [vendor/REVENDOR.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/vendor/REVENDOR.md) — its `uv pip install -p .venv/bin/python -e ../..` step is not optional |
+| A Docker daemon that can **run** a container — `docker info` and a single-layer pull both succeed on a daemon that cannot start anything (measured on a nested daemon whose data root sat on overlayfs, 2026-09-06) | `docker run --rm alpine true` exits 0 |
+| Docker with the harness image | `docker image ls ghcr.io/mhganainy/gsj-pi-harness` — absent, a plain `docker pull ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (a two-platform index since CP-64; native on arm64) |
+| Polar's venv, with `gsj_rollout` importable in it | `vendor/polar/.venv/bin/polar --help`. First install, from the checkout root, `uv` required (a fresh Ubuntu has none — `pip install uv` in the checkout's venv, or `curl -LsSf https://astral.sh/uv/install.sh \| sh`): `cd vendor/polar && uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e . && uv pip install -p .venv/bin/python -e ../.. && cd ../..` — the `-e ../..` step is not optional. [vendor/REVENDOR.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/vendor/REVENDOR.md) is the recipe for **moving the Polar pin** (its first steps delete `vendor/polar`); only its step 5 is this install, and the whole page applies only when the pin moves |
 
 ```bash
 gsj-rollout serve --config estate/rollout.h200.yaml
@@ -57,7 +58,7 @@ gsj-rollout submit --config estate/rollout.h200.yaml \
   --case case_0001 --timestep 12 --prompt "Summarise the case so far." --out ./first-run
 ```
 
-Accepted traces land in `<traces_dir>/`, rejected ones in `<traces_dir>/quarantine/` with their findings. On a foreign estate every hash gate fails `*_not_approved` until `GSJ_PINS_PATH` points both the receiver and the trainer at your own pins — see [validation-and-pins.md](validation-and-pins.md). Ctrl-C the `serve` shell to stop: it prints `receiver stopped: accepted=<n> rejected=<m>`.
+Accepted traces land in `<traces_dir>/`, rejected ones in `<traces_dir>/quarantine/` with their findings. On a foreign estate every hash gate fails `*_not_approved` until `GSJ_PINS_PATH` points both the receiver and the trainer at your own pins — the format is [validation-and-pins.md](validation-and-pins.md); the walk from that first quarantined episode to an accepted one is [bring-your-own.md#your-pins](bring-your-own.md#your-pins), and a non-reference model's served name, end-of-turn id and tail come from [bring-your-own.md#your-model](bring-your-own.md#your-model). Ctrl-C the `serve` shell to stop: it prints `receiver stopped: accepted=<n> rejected=<m>`.
 
 ## The one YAML
 
@@ -107,7 +108,7 @@ Full reference — every key, type, default (unknown keys are rejected everywher
 | `harness.pi_entry`, `.pi_mcp_extension` | str \| None | `None` | in-image overrides; rendered only when set |
 | `harness.mcp_token_ttl_s` | int | `3600` | per-episode retrieval-token lifetime |
 | `builder.strategy` | str | `"gsj_rollout.builder:ValidatingPrefixMergingBuilder"` | builder class, loaded by import-path string |
-| `builder.end_of_turn_token_id` | int | `151645` | `<\|im_end\|>` under the served Qwen3 tokenizer; re-derive when `estate.model` changes |
+| `builder.end_of_turn_token_id` | int | `151645` | `<\|im_end\|>` under the served Qwen3 tokenizer; re-derive when `estate.model` changes — [bring-your-own.md#your-model](bring-your-own.md#your-model) (`up --end-of-turn-token-id`) |
 | `builder.generation_prompt_glue_ids` | list \| None | `None` | stitch glue for asymmetric chat templates only |
 | `checks.sentinel_threshold` | float | `-9000.0` | at/below on a trainable position → `LP3` |
 | `checks.zero_at_mask1_max_rate` | float | `0.25` | max exact-`0.0` fraction at `loss_mask==1` → `LP6` |
@@ -218,7 +219,9 @@ The estate is what the agent needs and the operator runs: inference engine, git 
 | `health` | `/health`, `/v1/models`, one full tool round trip |
 | `status` | compose ps × 2 + the engine probe |
 
-One command instead of the sequence below: `estate/estate.py up` (or `./estate.sh bringup up`) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#estatepy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. Since CP-73 the interactive prompts say which answers bind (the owner, the run name, the embedding identity once a store is built) and which do not (the engine URL and model land in `rollout.yaml` and change by editing it or re-running), the retrieval config is printed for review **before** the index is built under it (each setting priced by what a later change costs; `--mcp-config <yaml>` is the scripted form), and **`estate.py update --name <run>`** syncs corpus edits into the standing estate — diff against the run's lock, report, then push only the changed repos, rebuild the bank, one if-stale reindex, verify.
+One command instead of the sequence below: `estate/estate.py up` (or `./estate.sh bringup up`; from the wheel, no clone: `pip install gsj-harness-rollout-server pyarrow` then `python -m gsj_rollout.estate up --corpus <root>` — pyarrow is the taskbank's writer and `up` refuses without it) validates the corpus, creates **or adopts** Forgejo and the retrieval service, runs the five pipeline phases, probes the engine and writes a validated `estate/runs/<name>/rollout.yaml` with every secret in a `0600` `.env` — [estate/README.md](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md#estatepy--corpus-to-estate-in-one-command) has the prompts, the adopt paths and the re-run posture. Since CP-73 the interactive prompts say which answers bind (the owner, the run name, the embedding identity once a store is built) and which do not (the engine URL and model land in `rollout.yaml` and change by editing it or re-running), the retrieval config is printed for review **before** the index is built under it (each setting priced by what a later change costs; `--mcp-config <yaml>` is the scripted form), and **`estate.py update --name <run>`** syncs corpus edits into the standing estate — diff against the run's lock, report, then push only the changed repos, rebuild the bank, one if-stale reindex, verify.
+
+**A run whose `up` died mid-phase** (a failed image pull after Forgejo stood, say) keeps what its phases created — `.estate-run`, `.env`, `compose.yaml`, the lock, the containers and the network so far. Since CP-92 `status --name <run>` on such a run first reports the phases that completed and the services that stand (Forgejo's health, the tokens, the pushed repos), then the cure: re-run `up --name <run> --corpus <the run's corpus root>` to resume (`reused:` lines; the corpus is asked before the record is read, and the printed cure carries the recorded path), or `down` to stop what it created.
 
 **Library 0.1.9 contract (CP-91).** The early config and credential refusals below ship from 0.1.8; 0.1.9 adds corpus-contract v3 and the run-boundary repairs. An unwritable runs root now refuses cleanly, naming the root, before any Docker call. Use an existing writable `--runs-dir`; lock ownership and permissions must permit the invoking user to mutate it. The [refusal table](troubleshooting.md#at-estateestatepy--refused) gives the recovery paths.
 
@@ -331,5 +334,6 @@ Rule reasoning: [docs/checks-spec.md](https://github.com/MHGanainy/gsj-harness-r
 ## See also
 
 - [validation-and-pins.md](validation-and-pins.md) — the checks the receiver runs, the gates, and re-pinning on your own estate.
+- [bring-your-own.md](bring-your-own.md) — a foreign model from its endpoint URL, and a foreign corpus's pins from its first quarantined episode, walked to an accepted one.
 - [trainer-guide.md](trainer-guide.md) — the Python API, wire formats, and a training loop against this server.
 - [troubleshooting.md](troubleshooting.md) — symptom → cause → fix for everything above.

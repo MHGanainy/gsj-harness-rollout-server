@@ -9,6 +9,9 @@
     estate/estate.py status --name RUN                           # what stands
     estate/estate.py down   --name RUN [--wipe]                  # stop what it created
 
+`up` needs pyarrow in the same interpreter (`pip install pyarrow` — the
+taskbank's parquet writer; the wheel does not install it, ADR-0022 §5).
+
 Given a corpus in the contract's shape (docs/corpus-contract.md) this
 script leaves behind a running estate — a git host holding one repository
 per case, a retrieval service indexing them — plus the task table and the
@@ -121,6 +124,11 @@ MCP_IMAGE = "gsj-mcp-service:0.5.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
+# CP-92: the library-owned bring-your-own page — a foreign model's values
+# (#your-model) and a foreign corpus's pins walk (#your-pins). Named by the
+# warnings below because a wheel reader has no demo repo and no pins/ dir.
+BRING_YOUR_OWN_URL = ("https://github.com/MHGanainy/gsj-harness-rollout-server/"
+                      "blob/main/docs/guide/bring-your-own.md")
 DEFAULT_ENGINE_URL = "http://127.0.0.1:8000"
 ADMIN_USER = "gsj-admin"
 ADMIN_PASSWORD_ENV = "GSJ_FORGEJO_ADMIN_PASSWORD"
@@ -869,6 +877,85 @@ def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
     return run(["docker", "pull", image], capture_output=True)
 
 
+# CP-92 (the stranger runs of 2026-09-06): a pull can fail AFTER the
+# registry answered — every layer downloaded, then the daemon's storage
+# could not extract or mount one (a nested dockerd whose data root sits on
+# overlayfs; a full or read-only data root). The old advice named only
+# download-side causes and a save/load that fails on the same layers.
+_EXTRACT_STRONG = ("failed to extract", "failed to mount", "whiteout",
+                   "failed to register layer", "no space left", "read-only file system")
+# the bare errno words only count beside a storage word: `dial tcp …: connect:
+# operation not permitted` is a firewalled daemon, not a broken data root
+_EXTRACT_ERRNO = ("operation not permitted", "invalid argument")
+_STORAGE_WORDS = ("layer", "extract", "mount", "overlay", "snapshotter", "unpack",
+                  "whiteout", "rootfs")
+_TRANSPORT_MARKS = ("dial tcp", "lookup ", "tls handshake", "unexpected eof",
+                    "connection refused", "no such host", "i/o timeout", "manifest unknown")
+
+
+def pull_failure_kind(stderr: str) -> str:
+    """`extract` when the daemon's error text says the bytes arrived and the
+    storage refused them; `download` for everything else (unreachable
+    registry, a dropped manifest, a TLS or EOF failure, a firewalled
+    daemon's errno). A transport marker with no strong extract sign is a
+    download failure whatever errno rides with it."""
+    text = (stderr or "").lower()
+    if any(sign in text for sign in _EXTRACT_STRONG):
+        return "extract"
+    if any(mark in text for mark in _TRANSPORT_MARKS):
+        return "download"
+    if any(err in text for err in _EXTRACT_ERRNO) and any(w in text for w in _STORAGE_WORDS):
+        return "extract"
+    return "download"
+
+
+def pull_failure_fix(kind: str, image: str, download_fix: str) -> str:
+    """The `what to do` for a failed pull or a compose up that could not
+    mount: a download failure keeps the registry-side advice it was given;
+    an extraction/mount failure names the daemon's storage and the one
+    check that detects it — a RUN, because a plain pull passes on such a
+    daemon (measured 2026-09-06: `docker pull debian:stable-slim` succeeded
+    on a stranger's daemon where no container could start)."""
+    if kind != "extract":
+        return download_fix
+    return (f"the registry answered and every layer downloaded, but THIS daemon's "
+            f"storage could not extract or mount {image} — a nested daemon whose data "
+            "root sits on overlayfs, or a full or read-only data root. Prove it with "
+            "`docker run --rm alpine true` (exit 0 means the daemon can run a container): "
+            "a plain `docker pull` PASSES on such a daemon and only a run detects it "
+            "(measured 2026-09-06 on a stranger's daemon — `docker pull debian:stable-slim` "
+            "succeeded where no container could start). The cure is the daemon's storage "
+            "— `-v /var/lib/docker` on a nested daemon, or `--storage-driver vfs` — not "
+            "the registry; `docker save | docker load` fails on the same layers")
+
+
+def sandbox_image_fix(image: str) -> str:
+    """The cure for an absent sandbox image: a PLAIN pull first. The
+    published tag is a two-platform index since CP-64, so a plain pull
+    resolves this daemon's native platform (a stranger's arm64 daemon got
+    native arm64 and ran Node, 2026-09-06); the amd64 override is for one
+    measured condition only, never a default on ARM."""
+    return (f"docker pull {image}   (a plain pull: the published tag is a two-platform "
+            "index since CP-64 and resolves this daemon's native platform; if — and only "
+            "if — that pull answers `no matching manifest for linux/<arch>`, pull again "
+            "with --platform linux/amd64 and the sandbox runs under emulation) — or load "
+            "it out-of-band (docker save | docker load); --skip-sandbox-image records the "
+            "absence and continues")
+
+
+def compose_up(rundir: Path, *args: str) -> subprocess.CompletedProcess:
+    """`docker compose up` with its output captured so a failure can be
+    classified (pull_failure_kind), then re-emitted so the live
+    `Container … Started` lines still reach the terminal."""
+    proc = compose(rundir, "up", *args, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout, end="" if proc.stdout.endswith("\n") else "\n", flush=True)
+    if proc.stderr:
+        print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n",
+              file=sys.stderr, flush=True)
+    return proc
+
+
 def image_identity(image: str) -> dict:
     """What the daemon holds under this reference: the image id and the
     registry digests it was pulled by (a `docker load`ed image has none)."""
@@ -1130,21 +1217,34 @@ def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
         pull = image_pull(image, "forgejo")
         if pull.returncode != 0:
             tag = image_tag(image)
-            die(f"the Forgejo image {image} could not be pulled.",
+            kind = pull_failure_kind(pull.stderr)
+            die(f"the Forgejo image {image} could not be pulled"
+                + (" — downloaded, then not extractable." if kind == "extract" else "."),
                 (pull.stderr.strip().splitlines() or ["no error text"])[-1],
                 "a pullable image (both platform manifests served — a registry "
                 "cleanup can drop them while the tag's index still lists them: "
-                "16.0.2 on codeberg, measured 2026-08-30)",
-                f"pass --forgejo-image <ref> naming a live one — another tag "
-                f"(the pin {FORGEJO_IMAGE} was measured pullable 2026-08-30), the "
-                f"mirror {FORGEJO_IMAGE_MIRROR}:{tag} (measured then to serve the "
-                f"16.0.x tags at codeberg's own digests), or name@sha256:<digest> to "
-                f"pin bytes — or, on a host that cannot reach registries, load "
-                f"{image} out-of-band (docker save | docker load) and re-run")
-    if compose(rundir, "up", "-d", "forgejo").returncode != 0:
-        die("`docker compose up forgejo` failed.", "the compose error above",
-            None, "the compose error is authoritative (the image is present: "
-                  f"{image}); `docker logs {container}` if the container started")
+                "16.0.2 on codeberg, measured 2026-08-30)" if kind != "extract"
+                else "a daemon whose storage can extract and mount OCI layers",
+                pull_failure_fix(
+                    kind, image,
+                    f"pass --forgejo-image <ref> naming a live one — another tag "
+                    f"(the pin {FORGEJO_IMAGE} was measured pullable 2026-08-30), the "
+                    f"mirror {FORGEJO_IMAGE_MIRROR}:{tag} (measured then to serve the "
+                    f"16.0.x tags at codeberg's own digests), or name@sha256:<digest> to "
+                    f"pin bytes — or, on a host that cannot reach registries, load "
+                    f"{image} out-of-band (docker save | docker load) and re-run"))
+    up = compose_up(rundir, "-d", "forgejo")
+    if up.returncode != 0:
+        kind = pull_failure_kind(up.stderr)
+        die("`docker compose up forgejo` failed"
+            + (" — the daemon could not extract or mount the image." if kind == "extract"
+               else "."),
+            (up.stderr.strip().splitlines() or ["the compose error above"])[-1],
+            "a daemon whose storage can extract and mount OCI layers" if kind == "extract"
+            else None,
+            pull_failure_fix(kind, image,
+                             "the compose error is authoritative (the image is present: "
+                             f"{image}); `docker logs {container}` if the container started"))
     ident = image_identity(image)
     run.record["compose"]["forgejo"].update(
         {"image_id": ident.get("id"), "image_repo_digests": ident.get("repo_digests"),
@@ -2288,13 +2388,16 @@ def cmd_up(args: argparse.Namespace) -> None:
             pull = image_pull(image, "mcp") if image_has_registry(image) else None
             if pull is None or pull.returncode != 0:
                 native_arch = 'arm64' if arch in ('arm64', 'aarch64') else 'amd64'
+                kind = pull_failure_kind(pull.stderr) if pull is not None else "download"
                 if pull is not None:        # a registry reference that did not come
-                    fix = (f"the registry refused or is unreachable from this host: on a "
-                           f"host that cannot reach registries, load {image} out-of-band "
-                           f"(docker save | docker load); otherwise --mcp-image names another "
-                           f"reference"
-                           + ("" if image == MCP_IMAGE_PUBLISHED else
-                              f" (the published two-platform index is {MCP_IMAGE_PUBLISHED})"))
+                    fix = pull_failure_fix(
+                        kind, image,
+                        f"the registry refused or is unreachable from this host: on a "
+                        f"host that cannot reach registries, load {image} out-of-band "
+                        f"(docker save | docker load); otherwise --mcp-image names another "
+                        f"reference"
+                        + ("" if image == MCP_IMAGE_PUBLISHED else
+                           f" (the published two-platform index is {MCP_IMAGE_PUBLISHED})"))
                 else:                       # a bare build tag
                     fix = (f"--mcp-image {MCP_IMAGE_PUBLISHED} (the published two-platform "
                            "index, pulled when absent)"
@@ -2303,11 +2406,13 @@ def cmd_up(args: argparse.Namespace) -> None:
                               "or `docker load` the tarball the estate ships" if CHECKOUT
                               else ", or `docker load` an image so tagged"))
                 die(f"the retrieval service image {image} is not present on this daemon"
-                    + (" and could not be pulled." if pull is not None else
-                       " (a local build tag — nothing to pull)."),
+                    + (" and could not be pulled — downloaded, then not extractable."
+                       if kind == "extract" else " and could not be pulled."
+                       if pull is not None else " (a local build tag — nothing to pull)."),
                     (pull.stderr.strip().splitlines() or ["no error text"])[-1]
                     if pull is not None else "docker image inspect failed",
-                    "the image present, or pullable", fix
+                    "a daemon whose storage can extract and mount OCI layers"
+                    if kind == "extract" else "the image present, or pullable", fix
                     + (" (this daemon is arm64: an amd64 image dies under qemu at the "
                        "embed step — wishlist 49)" if arch in ("arm64", "aarch64") else ""))
         secret = run_.env.get(MCP_SECRET_ENV)
@@ -2481,11 +2586,19 @@ def cmd_up(args: argparse.Namespace) -> None:
         # ports) by itself; a changed MOUNTED config or --rebuild is read only
         # at start, so those force the recreate — an untouched run is a no-op
         recreate = rebuild or (cfg_before is not None and cfg_before != sha256_file(cfg))
-        up = compose(rundir, "up", "-d", *(["--force-recreate"] if recreate else []), "mcp")
+        up = compose_up(rundir, "-d", *(["--force-recreate"] if recreate else []), "mcp")
         if up.returncode != 0:
-            die("`docker compose up mcp` failed.", "the compose error above", None,
-                "the error is authoritative; the container keeps its creation-time "
-                "env, so a rotated token needs this recreate (done here)")
+            kind = pull_failure_kind(up.stderr)
+            die("`docker compose up mcp` failed"
+                + (" — the daemon could not extract or mount the image." if kind == "extract"
+                   else "."),
+                (up.stderr.strip().splitlines() or ["the compose error above"])[-1],
+                "a daemon whose storage can extract and mount OCI layers" if kind == "extract"
+                else None,
+                pull_failure_fix(kind, image,
+                                 "the error is authoritative; the container keeps its "
+                                 "creation-time env, so a rotated token needs this recreate "
+                                 "(done here)"))
         mcp = Mcp(f"http://127.0.0.1:{mport}", f"http://{container}:8790", secret, "created")
         h = None
         try:
@@ -2621,8 +2734,9 @@ def cmd_up(args: argparse.Namespace) -> None:
     if emodel != REFERENCE_MODEL and eot is None:
         warn("engine", f"{emodel!r} is not the reference model: builder.end_of_turn_token_id "
              "stays the Qwen3 default (151645) unless --end-of-turn-token-id says "
-             "otherwise — derive it from the served tokenizer (docs/MODEL-SURFACE.md "
-             "in the demo repo owns the recipe)")
+             "otherwise — derive it from the served tokenizer: the recipe is "
+             f"{BRING_YOUR_OWN_URL}#your-model (from an endpoint URL to the values "
+             "this tool needs, and what an endpoint alone cannot give)")
 
     # ---- the sandbox image, present or named
     if not A.get("skip_sandbox_image", None, False):
@@ -2630,14 +2744,14 @@ def cmd_up(args: argparse.Namespace) -> None:
             say("sandbox", f"{corpus.sandbox_image} present — episodes run in it")
             rec["sandbox_image_present"] = True
         else:
-            hint = (" --platform linux/amd64" if shutil.which("docker")
-                    and daemon_arch() in ("arm64", "aarch64") else "")
+            # CP-92: a plain pull — the published tag resolves natively on
+            # arm64 since CP-64; the amd64 override was a stranger's near
+            # miss when it was the default cure on every ARM daemon
             die(f"the sandbox image {corpus.sandbox_image} is not present on this daemon.",
                 "docker image inspect failed (or no docker here)",
                 "the image every task row names (the estate's --sandbox-image "
                 "answer; corpus.yaml's own key is ignored since CP-71)",
-                f"docker pull{hint} {corpus.sandbox_image}   — or load it out-of-band; "
-                "--skip-sandbox-image records the absence and continues")
+                sandbox_image_fix(corpus.sandbox_image))
     else:
         rec["sandbox_image_present"] = (shutil.which("docker") is not None
                                         and image_present(corpus.sandbox_image))
@@ -2650,7 +2764,9 @@ def cmd_up(args: argparse.Namespace) -> None:
              f"in the approved set the library validates against (G1: {g1['pins_path']}, "
              f"{'the packaged REFERENCE set — set GSJ_PINS_PATH to your own' if g1['pins_source'] == 'packaged' else 'via ' + g1['pins_source']}): "
              f"{g1['not_in_approved_set']} — episodes on them quarantine until the pins "
-             "walk re-derives (pins/derive_pins.py); this script does not write pins")
+             f"walk re-derives — {BRING_YOUR_OWN_URL}#your-pins (pins/derive_pins.py "
+             "re-verifies the REFERENCE set only and does not ship on the wheel); this "
+             "script does not write pins")
     elif g1.get("checked"):
         say("pins", f"every skill card ({g1['cards']}) is in the approved set at "
                     f"{g1['pins_path']} ({g1['pins_source']})")
@@ -3489,9 +3605,10 @@ def cmd_update(args: argparse.Namespace) -> None:
     if pins_move:
         warn("update", "G1/G2 move with this update: every episode on the "
              "affected cards QUARANTINES at trace validation until the "
-             "approved pins are re-derived (pins/derive_pins.py; "
-             "GSJ_PINS_PATH names the set in force) — this tool does not "
-             "write pins")
+             f"approved pins are re-derived — {BRING_YOUR_OWN_URL}#your-pins "
+             "(pins/derive_pins.py re-verifies the REFERENCE set only and does "
+             "not ship on the wheel; GSJ_PINS_PATH names the set in force) — "
+             "this tool does not write pins")
 
     # drift: update pushes ONLY over branches the estate's record accounts
     # for; anything else diverged out-of-band and is up --overwrite-repos's
@@ -3633,9 +3750,16 @@ def cmd_update(args: argparse.Namespace) -> None:
         PH.start("mcp", f"source gains {plan['new']} — mcp-config.yaml rewritten; "
                         "the container restarts to read it (source.repos is "
                         "start-time only)")
-        if compose(run_.dir, "up", "-d", "--force-recreate", "mcp").returncode != 0:
-            die("`docker compose up --force-recreate mcp` failed.",
-                "the compose error above", None, "the error is authoritative")
+        up = compose_up(run_.dir, "-d", "--force-recreate", "mcp")
+        if up.returncode != 0:
+            kind = pull_failure_kind(up.stderr)
+            die("`docker compose up --force-recreate mcp` failed"
+                + (" — the daemon could not extract or mount the image." if kind == "extract"
+                   else "."),
+                (up.stderr.strip().splitlines() or ["the compose error above"])[-1],
+                "a daemon whose storage can extract and mount OCI layers" if kind == "extract"
+                else None,
+                pull_failure_fix(kind, str(cm.get("image")), "the error is authoritative"))
         mcp = Mcp(mcp_url, mcp_rec.get("container_url") or "",
                   run_.env.get(MCP_SECRET_ENV, ""), "created")
         h0 = mcp.wait_ready(args.ingest_timeout, "restart with the new case set",
@@ -3687,7 +3811,9 @@ def cmd_update(args: argparse.Namespace) -> None:
         warn("update", f"{len(g1['not_in_approved_set'])}/{g1['cards']} skill "
              f"card(s) are not in the approved set at {g1['pins_path']}: "
              f"{g1['not_in_approved_set']} — episodes on them quarantine "
-             "until the pins walk re-derives (pins/derive_pins.py)")
+             f"until the pins walk re-derives — {BRING_YOUR_OWN_URL}#your-pins "
+             "(pins/derive_pins.py re-verifies the REFERENCE set only and does "
+             "not ship on the wheel)")
     say("update", f"complete in {round(time.monotonic() - _T0, 1)}s — synced "
                   f"{sorted(plan['push'])}; verify PASS; the run's lock and "
                   f"bank copies are current")
@@ -3705,24 +3831,118 @@ def _load_run(name: str, r: Run | None = None) -> Run:
     return r
 
 
+def _forgejo_status_line(fj: dict) -> str:
+    status, _ = http("GET", f"{fj.get('url')}/api/healthz", timeout=3)
+    vstat, _ = http("GET", f"{fj.get('url')}/api/v1/version", timeout=3)
+    return (f"forgejo  {fj.get('mode'):8} {fj.get('url')}  healthz={status}  "
+            f"sign-in={'ON' if vstat == 403 else 'OFF' if vstat == 200 else '?'}  "
+            f"owner {fj.get('owner')!r}")
+
+
+def status_partial(name: str, r: Run, rec: dict) -> None:
+    """CP-92 (a stranger's finding): an `up` that died mid-phase leaves a
+    record that names what stands — report it, phase by phase in `up`'s
+    order, THEN refuse with the resume cure. Docker is consulted only when
+    this run's compose.yaml exists (nothing else could have created a
+    container)."""
+    print(f"== run {name} == {r.dir}  (incomplete — up did not finish)")
+    rows: list[tuple[str, str]] = []
+    c = rec.get("corpus") or {}
+    rows.append(("corpus", f"{c.get('name')}: {len(c.get('case_ids') or [])} case(s); "
+                           f"owner {c.get('owner')!r}; {c.get('path')}") if c
+                else ("corpus", "not reached"))
+    # what is on disk when `up` dies mid-phase: run.json lands right after
+    # rec["forgejo"] is set (before the owner block), the tokens land in
+    # .env (write_env) and the scaffold writes the corpus tree's lock — so
+    # the owner comes from the corpus phase, the tokens from .env, the
+    # scaffold from the lock, never from record keys a later phase writes
+    owner = (rec.get("forgejo") or {}).get("owner") or c.get("owner")
+    fj = rec.get("forgejo") or {}
+    rows.append(("forgejo", _forgejo_status_line({**fj, "owner": owner})[len("forgejo  "):])
+                if fj else ("forgejo", "not reached"))
+    if owner and all(name in r.env for name in (ic.token_env_name(owner),
+                                                 ic.read_token_env_name(owner))):
+        rows.append(("owner", f"{owner!r}; tokens minted in .env ({ic.token_env_name(owner)}, "
+                              f"{ic.read_token_env_name(owner)})"))
+    else:
+        rows.append(("owner", "not reached"))
+    # the tree's lock records the git host the scaffold pushed to
+    # (`corpus.base_url` — cmd_up passes --base-url fj.url, or corpus.yaml's
+    # own canonical one); a lock from another host is another run's push
+    lock = Path(str(c.get("path"))) / ic.LOCK_NAME if c.get("path") else None
+    lock_doc: dict = {}
+    if lock and lock.is_file():
+        try:
+            lock_doc = json.loads(lock.read_bytes())
+        except (OSError, ValueError):
+            lock_doc = {}
+    lock_doc = lock_doc if isinstance(lock_doc, dict) else {}
+    lock_host = str((lock_doc.get("corpus") or {}).get("base_url") or "").rstrip("/")
+    this_hosts = {str(fj.get(k) or "").rstrip("/") for k in ("url", "container_url")} - {""}
+    try:                                    # a corpus.yaml naming its own canonical host
+        own = (yaml.safe_load((Path(str(c.get("path"))) / "corpus.yaml").read_text())
+               or {}).get("forgejo", {}).get("base_url") if c.get("path") else None
+        if isinstance(own, str) and own:
+            this_hosts.add(own.rstrip("/"))
+    except (OSError, yaml.YAMLError, AttributeError):
+        pass
+    if lock_doc and lock_host and lock_host in this_hosts:
+        cases = len(lock_doc.get("cases") or {})
+        stamp = datetime.fromtimestamp(lock.stat().st_mtime, timezone.utc).replace(
+            microsecond=0).isoformat()
+        rows.append(("scaffold", f"pushed — lock written {stamp} ({cases} case(s)): {lock}"))
+    elif lock_doc:
+        rows.append(("scaffold", f"a lock from another git host ({lock_host or 'none recorded'}) "
+                                 f"— not this run's push: {lock}"))
+    else:
+        rows.append(("scaffold", "not reached"))
+    m = rec.get("mcp") or {}
+    if m:
+        hstat, h = http("GET", f"{m.get('url')}/health", timeout=3)
+        h = h if isinstance(h, dict) else {}
+        rows.append(("mcp", f"{m.get('mode')} {m.get('url')}  state={h.get('state', hstat)}"))
+    else:
+        rows.append(("mcp", "not reached — up died in or before this phase"
+                            + (f" (retrieval service image {rec['compose']['mcp'].get('image')})"
+                               if rec.get("compose", {}).get("mcp") else "")))
+    bank = r.dir / ic.TASKBANK_NAME
+    rows.append(("taskbank", f"{bank} present" if bank.is_file() else "not reached"))
+    rows.append(("verify", f"{r.dir / ic.LOCK_NAME} present (copied after verify PASS)"
+                 if (r.dir / ic.LOCK_NAME).is_file() else "not reached"))
+    e = rec.get("engine") or {}
+    rows.append(("engine", f"{e.get('url')} probed: reachable={e.get('reachable')} "
+                           f"model_served={e.get('model_served')}") if e
+                else ("engine", "not reached"))
+    cfg = r.dir / "rollout.yaml"
+    rows.append(("config", f"{cfg} present" if cfg.is_file() else "not reached"))
+    for phase, text in rows:
+        print(f"  {phase:9} {text}")
+    if (r.dir / "compose.yaml").is_file():
+        ps = compose(r.dir, "ps", "--format", "table {{.Name}}\t{{.Status}}", capture_output=True)
+        print("  created services (compose ps):")
+        print("    " + "\n    ".join((ps.stdout.rstrip() or "(nothing running)").splitlines()))
+    sys.stdout.flush()      # the report lands before the refusal, piped or not
+    # `up` resolves --corpus BEFORE it loads the record (no default on the
+    # wheel; the staging fixture in a checkout), so the cure names the run's own
+    corpus_arg = f"--corpus {c['path']}" if c.get("path") else "--corpus <the run's corpus root>"
+    die(f"run {name!r} is incomplete.", f"{r.dir / 'run.json'} records only part of up "
+        "(the phases above stand)", "a completed Forgejo and MCP record",
+        f"re-run `{PROG} up --name {name} {corpus_arg} --runs-dir {r.root}` to resume "
+        "(it adopts what stands and backfills the rest), or use down to stop its "
+        "created services")
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     r = _load_run(args.name)
     rec = r.record
     if not all(rec.get(service) for service in ("forgejo", "mcp")):
-        die(f"run {args.name!r} is incomplete.", f"{r.dir / 'run.json'} records only part of up",
-            "a completed Forgejo and MCP record",
-            f"re-run `{PROG} up --name {args.name} --runs-dir {r.root}` to resume, "
-            "or use down to stop its created services")
+        status_partial(args.name, r, rec)
     print(f"== run {args.name} == {r.dir}  (last run {rec.get('last_run', {}).get('at')}, "
           f"{rec.get('last_run', {}).get('mode')})")
     if (r.dir / "compose.yaml").is_file():
         ps = compose(r.dir, "ps", "--format", "table {{.Name}}\t{{.Status}}", capture_output=True)
         print(ps.stdout.rstrip() or "(nothing running)")
-    fj = rec.get("forgejo", {})
-    status, _ = http("GET", f"{fj.get('url')}/api/healthz", timeout=3)
-    vstat, _ = http("GET", f"{fj.get('url')}/api/v1/version", timeout=3)
-    print(f"forgejo  {fj.get('mode'):8} {fj.get('url')}  healthz={status}  "
-          f"sign-in={'ON' if vstat == 403 else 'OFF' if vstat == 200 else '?'}  owner {fj.get('owner')!r}")
+    print(_forgejo_status_line(rec.get("forgejo", {})))
     m = rec.get("mcp", {})
     hstat, h = http("GET", f"{m.get('url')}/health", timeout=3)
     h = h if isinstance(h, dict) else {}
@@ -3862,15 +4082,11 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
-    # CP-72 retired CP-71's metavar workaround; CP-73 pins the metavar
-    # again, for the opposite reason: the root suite (frozen this CP)
-    # asserts the six-verb brace line at test_wheel_pipeline.py:154, so the
-    # summary line stays pinned while `update` is fully listed with its own
-    # help line right below it (and in the docstring above). The pin
-    # retires — and the root test's tuple moves to the seven-verb set — at
-    # the first tests/ lift (wishlist row 60).
-    sub = ap.add_subparsers(dest="command", required=True,
-                            metavar="{scaffold,validate,up,ingest,status,down}")
+    # CP-92 retired CP-73's six-verb metavar pin (wishlist row 60): argparse
+    # renders the summary from the parsers below, so `update` cannot drop
+    # out of it again; test_wheel_pipeline.py and the corpus suite both
+    # assert the seven-verb brace.
+    sub = ap.add_subparsers(dest="command", required=True)
     sc = sub.add_parser("scaffold", parents=[common],
                         help="write an annotated starting corpus that "
                              "validates as written (edit -> validate -> up)")

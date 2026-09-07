@@ -13,11 +13,18 @@ Episode execution and trajectory reconstruction are NVIDIA's Polar, vendored by 
 
 ```bash
 # trainer: any Python >= 3.12, anywhere; deps pydantic, httpx, pyyaml; runs no episodes
+# (a venv is yours to bring — stock Ubuntu >= 23.04 refuses a bare pip install with
+#  `externally-managed-environment`, PEP 668: python3 -m venv .venv && . .venv/bin/activate)
 pip install gsj-harness-rollout-server
 
+# an estate from the wheel, no clone: pyarrow is the taskbank's parquet writer, deliberately not a
+# core dependency (ADR-0022 §5; `[server]` stays empty by ADR-0005) — `up` refuses without it
+pip install gsj-harness-rollout-server pyarrow && python -m gsj_rollout.estate up --corpus <root>
+
 # server: a checkout, Polar's venv (it must also host gsj_rollout — Polar loads our harness and builder by import path), and an estate no pip install provides
+# prerequisite: `uv` — a fresh Ubuntu has none (exit 127 at `uv venv`): `pip install uv` in the venv, or `curl -LsSf https://astral.sh/uv/install.sh | sh`
 git clone https://github.com/MHGanainy/gsj-harness-rollout-server && cd gsj-harness-rollout-server
-python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]" uv
 cd vendor/polar && uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e . && uv pip install -p .venv/bin/python -e ../.. && cd ../..
 gsj-rollout serve --config rollout.yaml    # renders topology.rendered.yaml, prints the two Polar commands, runs the receiver
 ```
@@ -43,7 +50,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 | You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.9, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `estate.py`). No `vendor/`, no Polar |
 | You run | `gsj-rollout serve --config <yaml>`, then the two printed Polar commands yourself: `serve_rollout` (rollout API + scheduler — the trainer's `base_url`) and `serve_gateway` (gateway + capture proxy, one sandbox per episode, loading `pi_harness.py` and `builder.py` by import path) | `RolloutClient`: `submit` · `wait` · `collect` — `collect` submits, polls `GET /rollout/task/{id}`, re-runs `checks` on every result, returns the `Trace`s of clean sessions |
 | You validate | every callback: clean → `traces/`, bad → `quarantine/` with its findings — the same `checks.py` on both sides of the wire | `checks.validate_session_result(result)` — the identical validators the receiver ran, because nothing upstream is trusted |
-| Start here | [Server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md); an estate from nothing: [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) | [Trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md); a loop against an existing server: [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) + its `RUNBOOK.md` |
+| Start here | [Server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md); a foreign model or corpus, from an endpoint URL to an accepted episode: [bring your own](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md); an estate from nothing: [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) | [Trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md); a loop against an existing server: [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) + its `RUNBOOK.md` |
 
 **One trap worth naming at the door.** `checks` validates traces against pinned approved sets (tool rosters, system prompts, skill cards, settings), and the wheel ships **this estate's** pins — on any other estate every hash gate fails `*_not_approved`, loudly, by design. Point `GSJ_PINS_PATH` at your own pins file before the first import of `gsj_rollout.checks`; resolution is `GSJ_PINS_PATH` → repo checkout → packaged copy (a `UserWarning` when the packaged copy is what resolved), and an unusable path raises `PinsConfigurationError` rather than falling through. The thinking-on reference set rides at `gsj_rollout/pins/thinking-on/pins.gsj.json` — gate G6 compares against per-mode pins data. Format and reasoning: [`docs/checks-spec.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md).
 
@@ -59,7 +66,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 
 ## Documentation
 
-- The guide, six flat pages under [`docs/guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md): [index](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md) · [how it works](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/how-it-works.md) · [validation and pins](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/validation-and-pins.md) · [server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md) · [trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md) · [troubleshooting](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/troubleshooting.md)
+- The guide, seven flat pages under [`docs/guide/`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md): [index](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/README.md) · [how it works](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/how-it-works.md) · [validation and pins](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/validation-and-pins.md) · [server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md) · [trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md) · [bring your own model and corpus](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md) · [troubleshooting](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/troubleshooting.md)
 - Normative: [Verdict](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) (read first) · [Charter](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) (scope laws; assumptions §4; gap register §7; standing rules §8) · [Checks spec](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/checks-spec.md) · [Corpus contract](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/corpus-contract.md)
 
 ## What has been proven

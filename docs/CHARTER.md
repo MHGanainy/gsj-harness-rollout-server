@@ -3126,6 +3126,92 @@ examples `04fc0e8` is unchanged, push up to date; archived predecessor
 `69defe9` is clean and equal to live main, read-only, no push attempted.
 Prompt/report/evidence stay local and ignored; no next checkpoint drafted.
 
+**[CP-92] What four strangers found — the recipe gaps, the refusal texts, the prerequisite line, the demo's four; row 60 closed; nothing from the harness.**
+
+Five transcripts, two rounds. The first round (2026-09-06, `stranger/a.gpt6.md`,
+`b.gpt6.md`, `c.claude.md`; the operator's 81-agent verification in
+`stranger/STRANGER-COMPARISON.md`) ran on a harness whose nested `dockerd` kept
+`/var/lib/docker` on the outer overlayfs, so no whiteout layer could extract and
+no container could start: gpt6-A (the demo's README only) stopped itself at
+`cp config.yaml.example` — it refused to open the file it was told to fill and
+refused `GET /v1/models` as remembered knowledge, reaching nothing; gpt6-B (the
+library from PyPI) installed, scaffolded, validated, built Polar's venv and died
+at `estate up`'s Forgejo mount; claude-A (the demo) configured in seconds, lost
+`up` 67 s in at the first image pull, diagnosed the daemon in ten minutes and
+then ran every container-free verb. The second round (2026-09-06 UTC — the 7th on the workstation's clock; the harness
+fixed with `-v /var/lib/docker`; `stranger-a.md` and `stranger-b.md` at the
+repository root, gitignored beside `stranger/`) used another tenant's
+`qwen3.6-27b` as the engine: the demo stranger configured with a guessed
+`/v1/models` and a `validate`-rescued `/v1` suffix, then lost `up` after 52 min
+to the retrieval image's `unexpected EOF`; the library stranger went from `pip
+install` to **one accepted episode on a foreign corpus and a foreign model** —
+the bring-your-own path corpus-contract.md had called NOT proven, caught exactly
+where it predicted (the pins), and got through by assembling the derivation from
+four documents and one wheel source file (`estate.py:probe_engine`), measuring
+`<|im_end|>` as 248046 and the tail live, and writing a pins file that records
+`not_measured` rather than copying the reference model's codec hashes.
+
+Taken, by class. **The recipe gaps** (wishlist 83): a library-owned page,
+`docs/guide/bring-your-own.md` — `#your-model` from an endpoint URL to the
+values `up` needs, `#your-pins` from the first quarantined episode to an
+accepted one — in the stranger's shape (assert before derive; every mask-1
+transition checked against the tail; roster and settings kept only if they
+independently match; the anchor reproduced from the trace; what was not measured
+written down); a page and not a shipped script, argued on the page. Linked from
+nine documents and named by `estate.py`'s engine and pins warnings, which no
+longer send a wheel reader to the demo's `MODEL-SURFACE.md` or to
+`pins/derive_pins.py`. Walked here as written: the model recipe on the Mac's
+real endpoint, read-only on the stranger's foreign one (248046 reproduced) and
+thinking-on (the thinking-on set's tail reproduced); the pins walk on the
+library's own scaffold from the 0.1.9 wheel to `collected 1/1`, findings `[]` in
+a separate process — the stranger's exact G2 and G1 hashes came out, same
+scaffold. **The refusal texts** (wishlist 84, 85): the ARM harness-image cure
+prefers a plain pull (proven on this arm64 daemon: image removed, refused, pulled
+native, Node ran, resumed); pull failures split by where they failed, an
+extraction or mount failure naming `docker run --rm alpine true` as the check and
+the daemon's storage as the cure (the download branch live, the extract branch
+on the strangers' captured strings); `status` on a partial run reports the
+phases and services that stand before its cure — the first cut read record keys
+that are not on disk at that point and was caught by the live proof. **The
+prerequisite line**: a daemon that can RUN a container, in the server guide's
+table, `estate/README.md`, troubleshooting, the README and the demo README —
+because `docker pull debian:stable-slim` succeeded on a daemon where no
+container could start; `check_docker()` still runs none (the H200 holds no
+`alpine`). **The smaller library items**: pyarrow on the wheel path beside the
+install line (not an extra — ADR-0005/0022 stand, wishlist 86 (d)), `uv`
+declared with its installer, the PEP 668 venv line, the server guide's Polar row
+carrying the first-install one-liner instead of REVENDOR's pin-moving page,
+`estate/README.md` brought to 0.1.9 (the v3 decisions default, the phase-3 wait
+as history, the corpus-root default split checkout/wheel, the sandbox-image
+phase in the order, what a mid-phase death leaves). **The demo's four** (F-83 to
+F-86 in its register): `read.py quarantine` refuses on zero episodes like its
+siblings and counts accepted bodies when the quarantine is genuinely empty; the
+Run-it block names the directory the venv lands in, one install figure with its
+condition, the Compose definition and the run smoke, `pytest`, the `/v1/models`
+recipe and the no-`/v1` rule, preflight-before-`up`; `make_corpus.py`'s hint
+names `validate`; the compose projects and container names and `--decisions-dir`'s
+owner. **Row 60 CLOSED** — lifted here: the row's own reopen condition fired (a
+stranger read the six-verb summary while `update` worked), the lift is exactly
+the pair the row named plus row 58's docstring, and a fourth park on "the first
+tests/ lift" would have been rule 9 (c)'s rejected wording. **Recorded, not
+fixed** (wishlist 86): REVENDOR.md's own `uv` line (`vendor/` frozen),
+`cli.py:67`'s NOTE, the CI corpus label (390 collected against 362), the
+examples trailer's stale "next fresh F-83", the demo's `bootstrap.py` pull text.
+**Dismissed** as the harness's, so nobody re-litigates them: the overlayfs
+failures, the engine, the strangers' own errors.
+
+Suites: root 176 (one assertion moved, no count), corpus 390 (362 + 28),
+mcp-service 164, the demo's 28. Census 2,034/2,034; the frozen list's diff
+against `03b9a77` empty. Registers: wishlist 83–86 NEW (83 closed, 84/85 done in
+source with a release token, 86 recorded with tokens); 60 CLOSED; 35, 48, 58, 73,
+79, 81 annotated; the demo minted F-83–F-86, next fresh **F-87** (the examples
+trailer still says F-83). Push: every repo the CP touched at this CP's commit —
+the report carries the hashes, the CI run and the per-repo outcome, including the
+two repos not touched (the examples, the archived predecessor). What the next
+release inherits: `estate.py`'s four warning strings, the two refusal texts and
+`status`'s partial report reach wheel consumers only then (rows 83–85's tokens);
+the CI corpus label (362 → 390) moves with that lift.
+
 | # | capability | gsj-envloader | here | status | notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | corpus contract | `docs/corpus-contract.md` — the normative corpus document | moved at CP-01, byte-identical (zero library references, measured); **v2 since CP-14** | PARITY | landed CP-01 (ADR-0002). **[CP-14] The first deliberate divergence from the predecessor's document (ADR-0015)**: contract v2 makes the train/eval split a directory property (`train/cases/`, `eval/cases/`), retires `eval_case_ids` with a validator rejection naming the migration, and adds the one-case-one-split invariant (rule 5) plus root strictness. The predecessor's corpus stays readable by ITS pipeline (law 3); this repo's pipeline reads only v2 trees, and a v1 tree fails validate with the migration spelled out. PARITY stands on the capability — a normative contract with a strict validator — now with this repo as the document's owner rather than its custodian |

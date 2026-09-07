@@ -48,3 +48,5 @@ docs/polar/h200-stitch/*
 !docs/polar/thinking/
 docs/polar/thinking/*
 !docs/polar/thinking/episode-on.quarantined.json
+stranger/*
+stranger-*.md
