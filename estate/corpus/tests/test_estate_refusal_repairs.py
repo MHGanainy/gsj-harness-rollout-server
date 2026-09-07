@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 from unittest.mock import Mock
 
 import pytest
@@ -16,7 +17,15 @@ def est(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "RUNS", tmp_path)
-    monkeypatch.setattr(module, "run", Mock(side_effect=AssertionError("unexpected Docker call")))
+    # CP-94: `up` inspects the sandbox image before any container is pulled or
+    # created — two READ-ONLY Docker calls (the daemon probe, the image
+    # inspection) may precede the credential seam; anything else is still work
+    def docker_canary(cmd, **kw):
+        if cmd[:2] == ["docker", "info"] or cmd[:3] == ["docker", "image", "inspect"]:
+            return subprocess.CompletedProcess(cmd, 0, "29.0.0\n", "")
+        raise AssertionError(f"unexpected Docker call {cmd}")
+
+    monkeypatch.setattr(module, "run", Mock(side_effect=docker_canary))
     return module
 
 
@@ -213,7 +222,9 @@ def test_follow_printed_load_cure_to_working_credential(est, tmp_path, monkeypat
     args.forgejo_url = "http://127.0.0.1:9"
     with pytest.raises(Authenticated):
         est.cmd_up(args)
-    est.run.assert_not_called()
+    # only the CP-94 read-only preflight reached Docker: no pull, compose, run or network
+    assert [c.args[0][:3] for c in est.run.call_args_list] == [
+        ["docker", "info", "--format"], ["docker", "image", "inspect"]], est.run.call_args_list
     loaded = est.Run(r.name)
     loaded.load()
     loaded.env[key] = replacement

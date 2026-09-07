@@ -36,10 +36,10 @@ The published wheel serves the trainer role only — `gsj_rollout/`, both pins s
 
 **Polar's** — NVIDIA's [ProRL-Agent-Server](https://github.com/NVIDIA-NeMo/ProRL-Agent-Server), no releases, vendored by SHA into `vendor/polar/` (`POLAR_SHA`: `f0e8343a…`, branch `stable`): the episode lifecycle (sandbox start/exec/upload/download/stop, gateway workers, heartbeats, timeouts), the capture proxy (rewrites each of pi's model calls to request token ids and per-token logprobs and records both; the traffic itself reaches the wire byte-identical), prefix-merging reconstruction, and the task API (`POST /rollout/task/submit`, `GET /rollout/task/{id}` polling, callback push).
 
-Polar reaches into our code at exactly two import-path strings in every `TaskRequest` — both upstream features, no vendored edit needed:
+Polar reaches into our code at exactly two import-path strings in every `TaskRequest` — both upstream features, no vendored edit needed. In our YAML they sit under `harness:` and `builder:`; `render_task_request` puts the first on the wire as `agent.import_path` (the figure's name, and the trainer guide's wire body) and the second under `builder`:
 
 ```yaml
-harness:
+harness:                                  # -> TaskRequest.agent.import_path on the wire
   import_path: gsj_rollout.pi_harness:PiHarness
 builder:
   strategy: gsj_rollout.builder:ValidatingPrefixMergingBuilder

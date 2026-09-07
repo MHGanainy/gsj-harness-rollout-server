@@ -28,7 +28,9 @@ one YAML the rollout server reads, under `estate/runs/<name>/`:
     .estate-run        ownership marker; --wipe requires this or matching legacy evidence
 
 The runs root must already exist and be writable. Its .locks/<name>.lock holds
-the command's kernel lock, survives --wipe, and must not be deleted.
+the command's kernel lock, survives --wipe, and must not be deleted; `status`
+reads it — a held lock means an `up`, `update` or `down` is still running
+(CP-94), and the sandbox image is checked before anything is pulled or created.
 
 It is the production sibling of gsj-rollout-demo's bootstrap.py: that one
 always CREATES its estate; this one also ADOPTS an existing Forgejo or
@@ -70,6 +72,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -442,13 +445,17 @@ def pins_g1_check(corpus) -> dict:
         pins = checks.PINS_PATH
         source = ("GSJ_PINS_PATH" if os.environ.get("GSJ_PINS_PATH")
                   else "packaged" if pins == checks.PACKAGED_PINS else "checkout")
-        approved = set(json.loads(pins.read_text())["pins"]["skill_card_hash"])
+        sets = json.loads(pins.read_text())["pins"]
+        approved = set(sets["skill_card_hash"])
     except Exception:  # noqa: BLE001 — a probe, not a gate
         return {"checked": False}
     cards = {name: sha256_file(card) for name, card in sorted(corpus.skills.items())}
     missing = sorted(n for n, h in cards.items() if h not in approved)
+    # CP-94: an approved set left EMPTY on purpose (a foreign model's G4
+    # slots) is not a gate that passed — it is a gate nothing checks
+    empty = sorted(k for k, v in sets.items() if isinstance(v, list) and not v)
     return {"checked": True, "cards": len(cards), "pins_path": str(pins),
-            "pins_source": source, "not_in_approved_set": missing}
+            "pins_source": source, "not_in_approved_set": missing, "empty_sets": empty}
 
 
 # ------------------------------------------------------------ the run dir
@@ -827,7 +834,10 @@ def mutating_command(func):
 
 # ---------------------------------------------------------------- docker
 
-def check_docker() -> None:
+def check_daemon() -> None:
+    """`docker` on PATH and a daemon that answers — the half of check_docker()
+    every image inspection needs (CP-94: the sandbox check runs first now,
+    and a stopped daemon must be named as such, not as a missing image)."""
     if shutil.which("docker") is None:
         die("`docker` is not on PATH.", None, "Docker with the compose v2 plugin",
             "install Docker (https://docs.docker.com/engine/install/) or "
@@ -838,6 +848,10 @@ def check_docker() -> None:
         die("the Docker daemon is not reachable.",
             (probe.stderr.strip().splitlines() or ["nothing"])[-1],
             "a running daemon", "start Docker (or fix socket permissions), then re-run")
+
+
+def check_docker() -> None:
+    check_daemon()
     probe = run(["docker", "compose", "version", "--short"], capture_output=True)
     if probe.returncode != 0:
         die("`docker compose` (v2 plugin) is missing.", None, None,
@@ -870,11 +884,88 @@ def image_tag(image: str) -> str:
     return last.split(":", 1)[1] if ":" in last and "@" not in last else "<tag>"
 
 
+# CP-94 (round three, 2026-09-07): `docker pull` prints a line only when a
+# layer changes state, so one large layer on a slow pipe is silent for as
+# long as it takes — 21 minutes measured by one stranger, 39 by another —
+# and a captured child printed nothing at all. Either could not tell a
+# working pull from a hung one without sampling /proc/net/dev by hand.
+PULL_HEARTBEAT_S = float(os.environ.get("GSJ_ESTATE_PULL_HEARTBEAT_S", "60"))
+
+
+def host_rx_bytes() -> int | None:
+    """Bytes THIS host's non-loopback interfaces have received, or None where
+    it cannot be read (the daemon may be remote; the number is a liveness
+    signal for the pipe, never the pull's own byte count)."""
+    try:
+        if platform.system() == "Linux":
+            total = 0
+            for line in Path("/proc/net/dev").read_text().splitlines()[2:]:
+                name, _, rest = line.partition(":")
+                if name.strip() != "lo" and rest.split():
+                    total += int(rest.split()[0])
+            return total
+        if platform.system() == "Darwin":
+            total = 0
+            out = subprocess.run(["netstat", "-ibn"], capture_output=True, text=True).stdout
+            for line in out.splitlines()[1:]:
+                cols = line.split()
+                # one row per interface carries the link-level counters
+                if len(cols) >= 10 and cols[2].startswith("<Link#") and not cols[0].startswith("lo"):
+                    total += int(cols[6])
+            return total
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _human(n: int) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if n < 1024 or unit == "GiB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GiB"
+
+
 def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
-    """One pull, said out loud (compose's own progress is on stderr); the
-    caller decides what a failure means."""
-    say(phase, f"{image} is absent on this daemon — pulling it")
-    return run(["docker", "pull", image], capture_output=True)
+    """One pull, said out loud; the caller decides what a failure means.
+    docker's own stdout passes through live (a TTY draws bytes per layer; a
+    log gets one line per layer state — and a large layer on a slow pipe
+    prints nothing until it lands), stderr is kept for the refusal, and once
+    a minute a heartbeat says how long the pull has run and how many bytes
+    this host received meanwhile — what a reader needs before concluding it
+    hung (docs/guide/troubleshooting.md, the pull row)."""
+    say(phase, f"{image} is absent on this daemon — pulling it (docker's progress follows; a "
+               f"large layer on a slow pipe prints nothing until it lands — a heartbeat every "
+               f"{PULL_HEARTBEAT_S:.0f}s says whether this host's pipe is moving)")
+    result: dict = {}
+
+    def worker() -> None:
+        try:
+            result["proc"] = run(["docker", "pull", image], stderr=subprocess.PIPE)
+        except BaseException as exc:  # noqa: BLE001 — surfaced as a failed pull
+            result["proc"] = subprocess.CompletedProcess(["docker", "pull", image], 1, "",
+                                                         f"{type(exc).__name__}: {exc}")
+
+    puller = threading.Thread(target=worker, daemon=True)
+    puller.start()
+    started, rx0 = time.monotonic(), host_rx_bytes()
+    while True:
+        puller.join(PULL_HEARTBEAT_S)
+        if not puller.is_alive():
+            break
+        rx1 = host_rx_bytes()
+        if rx0 is None or rx1 is None:
+            moved = "this host's byte counters are not readable here"
+        elif rx1 - rx0 > 0:
+            moved = f"this host received {_human(rx1 - rx0)} in the last {PULL_HEARTBEAT_S:.0f}s — the pipe is moving"
+        else:
+            moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — before killing it, "
+                     "the three checks: docs/guide/troubleshooting.md, the pull row")
+        rx0 = rx1
+        elapsed = int(time.monotonic() - started)
+        say(phase, f"still pulling {image} — {elapsed // 60}m{elapsed % 60:02d}s elapsed; {moved} "
+                   "(a liveness signal for the pipe, not the pull's own byte count)")
+    return result["proc"]
 
 
 # CP-92 (the stranger runs of 2026-09-06): a pull can fail AFTER the
@@ -2029,6 +2120,30 @@ def cmd_up(args: argparse.Namespace) -> None:
     push_env, read_env = ic.token_env_name(owner), ic.read_token_env_name(owner)
     say("corpus", f"{corpus.name}: {len(case_ids)} case(s) {case_ids}; owner {owner!r}; "
                   f"sandbox image {corpus.sandbox_image} (the estate's answer)")
+    # ---- the sandbox image, present or named — checked HERE, before any
+    # container is created or pulled (CP-94: a stranger's `up` stood Forgejo
+    # up, minted tokens, pushed repos, pulled 1.28 GiB and built an index
+    # for 41 minutes, then met this refusal for an image whose name it had
+    # printed at +0.0s). The daemon is checked first so a stopped daemon is
+    # named as such, not as a missing image; the refusal text is CP-92's.
+    if not A.get("skip_sandbox_image", None, False):
+        if shutil.which("docker"):
+            check_daemon()
+        if shutil.which("docker") and image_present(corpus.sandbox_image):
+            say("sandbox", f"{corpus.sandbox_image} present — episodes run in it")
+            rec["sandbox_image_present"] = True
+        else:
+            # CP-92: a plain pull — the published tag resolves natively on
+            # arm64 since CP-64; the amd64 override was a stranger's near
+            # miss when it was the default cure on every ARM daemon
+            die(f"the sandbox image {corpus.sandbox_image} is not present on this daemon.",
+                "docker image inspect failed (or no docker here)",
+                "the image every task row names (the estate's --sandbox-image "
+                "answer; corpus.yaml's own key is ignored since CP-71)",
+                sandbox_image_fix(corpus.sandbox_image))
+    else:
+        rec["sandbox_image_present"] = (shutil.which("docker") is not None
+                                        and image_present(corpus.sandbox_image))
     rec.update({"run": name, "run_dir": str(rundir), "version": script_version(),
                 "sandbox_image": simage,
                 "corpus": {"path": str(corpus_path), "name": corpus.name,
@@ -2738,24 +2853,6 @@ def cmd_up(args: argparse.Namespace) -> None:
              f"{BRING_YOUR_OWN_URL}#your-model (from an endpoint URL to the values "
              "this tool needs, and what an endpoint alone cannot give)")
 
-    # ---- the sandbox image, present or named
-    if not A.get("skip_sandbox_image", None, False):
-        if shutil.which("docker") and image_present(corpus.sandbox_image):
-            say("sandbox", f"{corpus.sandbox_image} present — episodes run in it")
-            rec["sandbox_image_present"] = True
-        else:
-            # CP-92: a plain pull — the published tag resolves natively on
-            # arm64 since CP-64; the amd64 override was a stranger's near
-            # miss when it was the default cure on every ARM daemon
-            die(f"the sandbox image {corpus.sandbox_image} is not present on this daemon.",
-                "docker image inspect failed (or no docker here)",
-                "the image every task row names (the estate's --sandbox-image "
-                "answer; corpus.yaml's own key is ignored since CP-71)",
-                sandbox_image_fix(corpus.sandbox_image))
-    else:
-        rec["sandbox_image_present"] = (shutil.which("docker") is not None
-                                        and image_present(corpus.sandbox_image))
-
     # ---- pins: which skill cards the approved set in force already carries
     g1 = pins_g1_check(corpus)
     rec["pins"] = g1
@@ -2770,6 +2867,11 @@ def cmd_up(args: argparse.Namespace) -> None:
     elif g1.get("checked"):
         say("pins", f"every skill card ({g1['cards']}) is in the approved set at "
                     f"{g1['pins_path']} ({g1['pins_source']})")
+    if g1.get("checked") and g1.get("empty_sets"):
+        warn("pins", f"the approved set in force leaves {', '.join(g1['empty_sets'])} EMPTY — "
+             "nothing checks those on this estate (G4's tokenizer/chat-template bytes are "
+             "estate-side and were not measured): an accepted episode says nothing about "
+             f"them — {BRING_YOUR_OWN_URL}#what-an-acceptance-covers")
 
     # ---- rollout.yaml — the config the rollout server needs
     PH.start("config", "rollout.yaml")
@@ -2899,7 +3001,17 @@ def cmd_up(args: argparse.Namespace) -> None:
     rel = os.path.relpath(rundir, Path.cwd())
     # The checkout's Polar venv, with the checkout on PYTHONPATH so Polar's
     # import_path finds gsj_rollout; from the wheel both are the consumer's.
-    polar = f"PYTHONPATH={REPO} {REPO / 'vendor' / 'polar' / '.venv' / 'bin' / 'polar'}" if CHECKOUT else "polar"
+    # CP-94: a bare `polar` is on nobody's PATH from a wheel — the two Polar
+    # processes need a checkout's vendor/polar venv (or the demo's gsj-polar
+    # image), exactly what `gsj-rollout serve` says in its NOTE line
+    polar = (f"PYTHONPATH={REPO} {REPO / 'vendor' / 'polar' / '.venv' / 'bin' / 'polar'}" if CHECKOUT
+             else "PYTHONPATH=<checkout> <checkout>/vendor/polar/.venv/bin/polar")
+    polar_note = ("" if CHECKOUT else
+                  "\n  NOTE: no wheel ships vendor/polar — the two `polar` lines need a checkout "
+                  "(git clone https://github.com/MHGanainy/gsj-harness-rollout-server; build "
+                  "vendor/polar's venv per its README) with the checkout on PYTHONPATH, or the "
+                  "published gsj-polar image (gsj-rollout-demo's shape); `gsj-rollout serve` "
+                  "runs from this wheel as printed")
     gsjr = Path(sys.executable).parent / "gsj-rollout"
     gsjr_cmd = str(gsjr) if gsjr.exists() else f"{sys.executable} -m gsj_rollout.cli"
     if leg == "container":
@@ -2928,7 +3040,7 @@ next — the receiver and Polar's two processes, on this host (three terminals; 
   pi_harness reads {MCP_SECRET_ENV} from that process's environment, so source it there, in a subshell):
   {gsjr_cmd} serve --config {rel}/rollout.yaml
   {polar} serve_rollout -c {rel}/topology.rendered.yaml
-  (set -a; . {rel}/.env; set +a; {polar} serve_gateway -c {rel}/topology.rendered.yaml)
+  (set -a; . {rel}/.env; set +a; {polar} serve_gateway -c {rel}/topology.rendered.yaml){polar_note}
 then one episode (the config's whole claim) — nothing exported: submit reads {rel}/.env beside rollout.yaml
   for an unset named read token (since 0.1.7, CP-75); the environment wins when already set.
   Historical wheels through 0.1.6 need .env sourced in a subshell before submit:
@@ -3839,18 +3951,48 @@ def _forgejo_status_line(fj: dict) -> str:
             f"owner {fj.get('owner')!r}")
 
 
-def status_partial(name: str, r: Run, rec: dict) -> None:
-    """CP-92 (a stranger's finding): an `up` that died mid-phase leaves a
-    record that names what stands — report it, phase by phase in `up`'s
-    order, THEN refuse with the resume cure. Docker is consulted only when
-    this run's compose.yaml exists (nothing else could have created a
-    container)."""
-    print(f"== run {name} == {r.dir}  (incomplete — up did not finish)")
+def lock_held(r: Run) -> bool:
+    """CP-94 (three strangers, three wrong `status` answers on runs that had
+    not died): the run lock is the discriminator between a run in flight and
+    one that stopped — `up`, `update` and `down` hold <runs-dir>/.locks/<name>.lock
+    for their whole command and the kernel drops it with the process. A
+    non-blocking probe: held means active; absent or free means not."""
+    lock = r.root / ".locks" / f"{r.name}.lock"
+    try:
+        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return False          # never locked (a pre-CP-59 run dir): not in flight
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _compose_ps_lines(r: Run) -> list[str]:
+    ps = compose(r.dir, "ps", "--format", "table {{.Name}}\t{{.Status}}", capture_output=True)
+    return (ps.stdout.rstrip() or "(nothing running)").splitlines()
+
+
+def status_rows(r: Run, rec: dict, *, active: bool = False) -> list[tuple[str, str]]:
+    """One row per phase in `up`'s order, read from what is ON DISK and what
+    the daemon says — never only from record keys a later phase writes
+    (CP-92's first cut, and CP-94's `mcp not reached` beside a running
+    container: the record's mcp block lands after ingest, the engine and
+    config blocks with the closing write)."""
     rows: list[tuple[str, str]] = []
+    # an ACTIVE run has not died: what it has not reached, it has not reached YET
+    unreached = "not reached yet" if active else "not reached"
     c = rec.get("corpus") or {}
     rows.append(("corpus", f"{c.get('name')}: {len(c.get('case_ids') or [])} case(s); "
                            f"owner {c.get('owner')!r}; {c.get('path')}") if c
-                else ("corpus", "not reached"))
+                else ("corpus", unreached))
     # what is on disk when `up` dies mid-phase: run.json lands right after
     # rec["forgejo"] is set (before the owner block), the tokens land in
     # .env (write_env) and the scaffold writes the corpus tree's lock — so
@@ -3859,13 +4001,13 @@ def status_partial(name: str, r: Run, rec: dict) -> None:
     owner = (rec.get("forgejo") or {}).get("owner") or c.get("owner")
     fj = rec.get("forgejo") or {}
     rows.append(("forgejo", _forgejo_status_line({**fj, "owner": owner})[len("forgejo  "):])
-                if fj else ("forgejo", "not reached"))
+                if fj else ("forgejo", unreached))
     if owner and all(name in r.env for name in (ic.token_env_name(owner),
                                                  ic.read_token_env_name(owner))):
         rows.append(("owner", f"{owner!r}; tokens minted in .env ({ic.token_env_name(owner)}, "
                               f"{ic.read_token_env_name(owner)})"))
     else:
-        rows.append(("owner", "not reached"))
+        rows.append(("owner", unreached))
     # the tree's lock records the git host the scaffold pushed to
     # (`corpus.base_url` — cmd_up passes --base-url fj.url, or corpus.yaml's
     # own canonical one); a lock from another host is another run's push
@@ -3895,33 +4037,82 @@ def status_partial(name: str, r: Run, rec: dict) -> None:
         rows.append(("scaffold", f"a lock from another git host ({lock_host or 'none recorded'}) "
                                  f"— not this run's push: {lock}"))
     else:
-        rows.append(("scaffold", "not reached"))
+        rows.append(("scaffold", unreached))
     m = rec.get("mcp") or {}
+    cm = (rec.get("compose") or {}).get("mcp") or {}
     if m:
         hstat, h = http("GET", f"{m.get('url')}/health", timeout=3)
         h = h if isinstance(h, dict) else {}
         rows.append(("mcp", f"{m.get('mode')} {m.get('url')}  state={h.get('state', hstat)}"))
+    elif cm and (r.dir / "compose.yaml").is_file():
+        # CP-94: the compose block and the container land BEFORE the embed,
+        # the record's mcp block only after ingest — so ask the daemon, which
+        # is what a reader sees two lines below in compose ps
+        url = f"http://127.0.0.1:{cm.get('port')}"
+        hstat, h = http("GET", f"{url}/health", timeout=3)
+        h = h if isinstance(h, dict) else {}
+        # docker's `table` format pads columns with spaces, never tabs
+        line = next((ln for ln in _compose_ps_lines(r)
+                     if ln.split() and ln.split()[0] == str(cm.get("container"))), "")
+        if line or hstat is not None:
+            rows.append(("mcp", f"created {url}  state={h.get('state', hstat)}  container "
+                                f"{' '.join(line.split()[1:]) if line else 'not running'} "
+                                "— reached (the record's mcp block lands after ingest; a "
+                                "resume adopts what stands)"))
+        else:
+            rows.append(("mcp", f"{unreached} — up {'is' if active else 'died'} in or before this phase "
+                                f"(retrieval service image {cm.get('image')})"))
     else:
-        rows.append(("mcp", "not reached — up died in or before this phase"
-                            + (f" (retrieval service image {rec['compose']['mcp'].get('image')})"
-                               if rec.get("compose", {}).get("mcp") else "")))
+        rows.append(("mcp", f"{unreached} — up {'is' if active else 'died'} in or before this phase"
+                            + (f" (retrieval service image {cm.get('image')})" if cm else "")))
     bank = r.dir / ic.TASKBANK_NAME
-    rows.append(("taskbank", f"{bank} present" if bank.is_file() else "not reached"))
+    rows.append(("taskbank", f"{bank} present" if bank.is_file() else unreached))
     rows.append(("verify", f"{r.dir / ic.LOCK_NAME} present (copied after verify PASS)"
-                 if (r.dir / ic.LOCK_NAME).is_file() else "not reached"))
+                 if (r.dir / ic.LOCK_NAME).is_file() else unreached))
     e = rec.get("engine") or {}
     rows.append(("engine", f"{e.get('url')} probed: reachable={e.get('reachable')} "
                            f"model_served={e.get('model_served')}") if e
-                else ("engine", "not reached"))
+                else ("engine", "not recorded yet — probed after verify" if active else
+                                "not recorded — probed after verify; its record lands with "
+                                "the closing write (a resume re-probes)"))
     cfg = r.dir / "rollout.yaml"
-    rows.append(("config", f"{cfg} present" if cfg.is_file() else "not reached"))
-    for phase, text in rows:
+    rows.append(("config", f"{cfg} present" if cfg.is_file() else
+                 ("not written yet" if active else "not written")))
+    return rows
+
+
+def _print_rows_and_services(r: Run, rec: dict, *, active: bool = False) -> None:
+    for phase, text in status_rows(r, rec, active=active):
         print(f"  {phase:9} {text}")
     if (r.dir / "compose.yaml").is_file():
-        ps = compose(r.dir, "ps", "--format", "table {{.Name}}\t{{.Status}}", capture_output=True)
         print("  created services (compose ps):")
-        print("    " + "\n    ".join((ps.stdout.rstrip() or "(nothing running)").splitlines()))
-    sys.stdout.flush()      # the report lands before the refusal, piped or not
+        print("    " + "\n    ".join(_compose_ps_lines(r)))
+    sys.stdout.flush()      # the report lands before any refusal, piped or not
+
+
+def status_active(name: str, r: Run, rec: dict) -> None:
+    """CP-94: a held lock — the run is in flight; say so, say wait, exit 0.
+    Nothing here recommends a second `up` (it would be refused as busy)."""
+    print(f"== run {name} == {r.dir}  (ACTIVE — a command holds this run's lock: an `up`, "
+          "`update` or `down` is still running)")
+    if rec:
+        _print_rows_and_services(r, rec, active=True)
+    else:
+        print("  (no record yet — `up` is in its first phase; run.json lands once Forgejo stands)")
+    print(f"\nestate: run {name!r} is ACTIVE — wait for the running command (its own output says "
+          f"where it is; a pull prints a heartbeat every {PULL_HEARTBEAT_S:.0f}s), then `status` "
+          "again. Do not start a second `up` (refused as busy) and never delete the lock file.")
+    sys.stdout.flush()
+
+
+def status_partial(name: str, r: Run, rec: dict) -> None:
+    """CP-92 (a stranger's finding): an `up` that stopped mid-phase leaves a
+    record that names what stands — report it, phase by phase in `up`'s
+    order, THEN refuse with the resume cure. The lock says the run is NOT in
+    flight (CP-94: that case is status_active)."""
+    print(f"== run {name} == {r.dir}  (incomplete — up did not finish)")
+    _print_rows_and_services(r, rec)
+    c = rec.get("corpus") or {}
     # `up` resolves --corpus BEFORE it loads the record (no default on the
     # wheel; the staging fixture in a checkout), so the cure names the run's own
     corpus_arg = f"--corpus {c['path']}" if c.get("path") else "--corpus <the run's corpus root>"
@@ -3933,7 +4124,17 @@ def status_partial(name: str, r: Run, rec: dict) -> None:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    r = _load_run(args.name)
+    # CP-94: three states — ACTIVE (the lock is held: say wait), incomplete
+    # (the record stopped short: the phases that stand, then the resume
+    # cure) and complete (the standing report). The lock is read before the
+    # record: during `up`'s first phase there is no run.json yet.
+    r = Run(args.name)
+    if lock_held(r):
+        if (r.dir / "run.json").is_file():
+            r.load()            # the record AND .env: the owner row reads the minted tokens
+        status_active(args.name, r, r.record)
+        return
+    r = _load_run(args.name, r)
     rec = r.record
     if not all(rec.get(service) for service in ("forgejo", "mcp")):
         status_partial(args.name, r, rec)
@@ -4081,7 +4282,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=doc,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--runs-dir", help=f"where runs live (default {RUNS})")
+    common.add_argument("--runs-dir", help=f"where runs live (default {RUNS}) — an EXISTING "
+                                           "writable directory: the tool creates <name>/ "
+                                           "beneath it, never the root itself")
     # CP-92 retired CP-73's six-verb metavar pin (wishlist row 60): argparse
     # renders the summary from the parsers below, so `update` cannot drop
     # out of it again; test_wheel_pipeline.py and the corpus suite both
@@ -4180,11 +4383,20 @@ def main() -> None:
     eg = up.add_argument_group("engine and rollout config")
     eg.add_argument("--engine-url", help=f"the inference endpoint's root (default {DEFAULT_ENGINE_URL})")
     eg.add_argument("--engine-model", help=f"served model name (default {REFERENCE_MODEL})")
-    eg.add_argument("--end-of-turn-token-id", type=int)
-    eg.add_argument("--context-window", type=int)
-    eg.add_argument("--max-tokens", type=int)
+    eg.add_argument("--end-of-turn-token-id", type=int,
+                    help="the served tokenizer's end-of-turn id, builder.end_of_turn_token_id "
+                         "(default 151645, Qwen3's <|im_end|>; a re-run keeps its record's) — "
+                         "for any other model measure it: bring-your-own.md#your-model")
+    eg.add_argument("--context-window", type=int,
+                    help="harness.context_window, the window pi plans against (default 32768; "
+                         "must not exceed the endpoint's max_model_len)")
+    eg.add_argument("--max-tokens", type=int,
+                    help="harness.max_tokens, the per-turn generation budget (default 8192)")
     eg.add_argument("--thinking", help="pi thinking level (default off)")
-    eg.add_argument("--gateway-host", help="the address BOTH the host and sandboxes dial the gateway on")
+    eg.add_argument("--gateway-host",
+                    help="the address BOTH the host and sandboxes dial the gateway on "
+                         "(default: probed from this host's interfaces — explicit skips the "
+                         "probe; required with --polar-leg container)")
     eg.add_argument("--polar-leg", choices=("host", "container"),
                     help="where Polar's two processes and the receiver run (default host: "
                          "loopback binds, ports scanned free here; container: 0.0.0.0 binds, "

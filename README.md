@@ -19,6 +19,7 @@ pip install gsj-harness-rollout-server
 
 # an estate from the wheel, no clone: pyarrow is the taskbank's parquet writer, deliberately not a
 # core dependency (ADR-0022 §5; `[server]` stays empty by ADR-0005) — `up` refuses without it
+docker pull ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3   # the sandbox image: `up` checks for it and never pulls it
 pip install gsj-harness-rollout-server pyarrow && python -m gsj_rollout.estate up --corpus <root>
 
 # server: a checkout, Polar's venv (it must also host gsj_rollout — Polar loads our harness and builder by import path), and an estate no pip install provides
@@ -78,8 +79,8 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 | the cutoff holds under a forged claim | tampered token (timestep 12→18, original signature) rejected HTTP 401 from inside the sandbox; valid token 200; live episode retrieved pages [1, 5, 7, 9, 11], all ≤ 12 | CP-07 |
 | two trainers, two loops, zero server changes | slime: 27 qualifying traces → one optimizer step → weight sync (logprobs moved at 5623/5782 positions) → 8/8 re-collect; verl: 110 qualifying → one step → sync (310/310 tensors, exactly one AdamW step) → 8/8; `gsj_rollout/` untouched both times | CP-17, CP-21 |
 | two model families, no code change | Qwen3-0.6B (both golden pairs); Llama-3.1-8B — 8 completions merged into one full chain, quarantine empty, gates green | CP-04′/CP-09′, CP-38 |
-| a stranger can run it from nothing | fresh machine, demo README the only input: clone → pip → estate up → first episode accepted, ≈ 5 minutes wall plus the model endpoint; two manual image pulls needed (amd64-only images on an ARM host — registered) | CP-36 |
-| the shell stays thin | ours 1,999/2,000 lines vs Polar's ~14,200 driven; the predecessor spent ~1,800 lines on episode execution alone | audit 2026-08-24; VERDICT §1 |
+| a stranger can run it from nothing | fresh machine, demo README the only input: clone → pip → estate up → first episode accepted, ≈ 5 minutes wall with the four images already on the daemon — cold, add ~1.6 GiB of pulls (Forgejo 277 MB, the retrieval service 1.28 GiB, the harness 200 MiB compressed): minutes on a fast pipe, most of an hour at ~155 KB/s (round three, 2026-09-07; a pull prints nothing while a large layer lands — `up` prints a heartbeat since CP-94) — plus the model endpoint; two manual image pulls needed (amd64-only images on an ARM host — registered) | CP-36 |
+| the shell stays thin | ours 2,034/2,034 lines (the size law's equality since CP-75; 1,999/2,000 at the audit) vs Polar's ~14,200 driven; the predecessor spent ~1,800 lines on episode execution alone | audit 2026-08-24; VERDICT §1 |
 | the fixture suites | root 161 + corpus 58 + mcp-service 89, all green by execution | audit 2026-08-24 |
 
 The badge covers none of this — not the golden pairs, fidelity, the loops, or any episode (episodes need an estate and GPU time). Green means the fixtures still pass, not that the harness runs.

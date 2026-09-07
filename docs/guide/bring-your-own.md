@@ -2,9 +2,9 @@
 
 # Bring your own model and corpus
 
-Two procedures the library owns, written after a stranger walked them first (2026-09-06, library 0.1.9 from PyPI, the library's own scaffold as the corpus, a `qwen3.6-27b` endpoint nobody here operates): **[your model](#your-model)** — from an endpoint URL to the values `up` needs, and **[your pins](#your-pins)** — from the first quarantined episode to an accepted one. Each ends with a script you paste and run; each script *asserts* before it *derives*, and neither approves anything you did not inspect. That shape is the stranger's, kept on purpose: the values are cheap, the discipline is the point.
+Two procedures the library owns, written after a stranger walked them first (2026-09-06, library 0.1.9 from PyPI, the library's own scaffold as the corpus, a `qwen3.6-27b` endpoint nobody here operates) and reproduced independently twice the next day at 0.1.10 (round three — [the end of the page](#what-the-walk-proves-and-what-it-does-not)): **[your model](#your-model)** — from an endpoint URL to the values `up` needs, and **[your pins](#your-pins)** — from the first quarantined episode to an accepted one. Each ends with a script you paste and run; each script *asserts* before it *derives*, and neither approves anything you did not inspect. That shape is the stranger's, kept on purpose: the values are cheap, the discipline is the point.
 
-What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container, and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have.
+What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (277 MB), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have.
 
 > [!NOTE]
 > **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
@@ -24,7 +24,7 @@ What this page assumes: a corpus in [the contract's shape](../corpus-contract.md
 
 **The kwargs pi sends.** Every chat completion pi 0.83.0 issues carries `chat_template_kwargs: {"enable_thinking": <level != off>, "preserve_thinking": true}` ([checks-spec.md, the pi wire dialect](../checks-spec.md#the-pi-0830-wire-dialect-cp-06-measured); charter A-12). Measure the tail under exactly those kwargs — a render without them can differ by the whole think block on a Qwen3 template, and G6 compares ids, not intent. On a template that never reads `enable_thinking` (Llama-3.x, measured at CP-38) both modes render the same tail; the kwargs are then a wire no-op and `off` is the honest setting.
 
-**What an endpoint cannot give you — say so, do not copy.** No OpenAI-compatible API exposes the bytes of `tokenizer.json` or of the served chat template (G4's two hashes), the weights revision, or the server's sampling defaults (pi sends no sampling parameters; whatever the server defaults to *is* your policy). The tool-call parser is a serve flag, not an API fact. Your pins file records these as **not measured** rather than carrying the reference model's values across, which would be a lie about your model. The estate-side G4 walk (`pins/derive_pins.py`, a checkout only) is where those are verified when you hold the snapshot; the demo's [`docs/MODEL-SURFACE.md`](https://github.com/MHGanainy/gsj-rollout-demo/blob/main/docs/MODEL-SURFACE.md) walks the whole surface item by item. What you *can* read: vLLM's `/v1/models` reports `max_model_len` — the context window.
+**What an endpoint cannot give you — say so, do not copy.** No OpenAI-compatible API exposes the bytes of `tokenizer.json` or of the served chat template (G4's two hashes), the weights revision, or the server's sampling defaults (pi sends no sampling parameters; whatever the server defaults to *is* your policy). The tool-call parser's *identity* is a serve flag, not an API fact — its *presence* is: one 16-token chat completion with `tool_choice: auto` tells you whether the engine was served with `--enable-auto-tool-choice`/`--tool-call-parser` at all, and the script's step 5 asks, because the alternative is learning it from an ERRORed episode on an endpoint only its operator can fix ([the borrowed endpoint](#the-borrowed-endpoint)). Your pins file records these as **not measured** rather than carrying the reference model's values across, which would be a lie about your model. The estate-side G4 walk (`pins/derive_pins.py`, a checkout only) is where those are verified when you hold the snapshot; the demo's [`docs/MODEL-SURFACE.md`](https://github.com/MHGanainy/gsj-rollout-demo/blob/main/docs/MODEL-SURFACE.md) walks the whole surface item by item. What you *can* read: vLLM's `/v1/models` reports `max_model_len` — the context window.
 
 **No `/tokenize` in its chat form?** The script needs vLLM's `/tokenize` with `messages`, `add_generation_prompt` and `chat_template_kwargs` — a tokenize endpoint that does not render the served template cannot give the delta. Without it the script below cannot run; derive the same two values from a local snapshot with `transformers` (MODEL-SURFACE's recipe) and record that the endpoint itself was not measured.
 
@@ -38,7 +38,7 @@ Paste it as `probe_model.py`. Stdlib only; asserts before it derives; writes `mo
 ENGINE=<engine root, no /v1>   MODEL=<served id> (optional when exactly one is served)
 MARKER=<the template's end-of-turn token> (default <|im_end|>)   THINKING=off, or a pi level (default off; medium is the conventional ON — a bare "on" is not a level)
 Writes ./model-probe.json. Every assert is a stop, not a warning: read it, do not guess past it."""
-import json, os, urllib.request
+import json, os, urllib.error, urllib.request
 
 root = os.environ["ENGINE"].rstrip("/")
 assert not root.endswith("/v1"), "ENGINE is the engine ROOT (no /v1): the gateway appends /v1/chat/completions"
@@ -94,6 +94,28 @@ if closed[:len(full)] != full:
           " (builder.generation_prompt_glue_ids) — see MODEL-SURFACE's prefix-extension section")
 assert eot[0] in closed[len(base):], f"{marker!r} ({eot[0]}) never appears in the closed assistant turn: it is not this template's end-of-turn id"
 
+# 5. can this endpoint actually run an episode? pi always sends tool_choice: auto, and the
+#    capture needs logprobs — one 16-token completion answers both (a round-three stranger
+#    wrote this check itself; it took one second, and the alternative is an ERRORed episode)
+probe = {"model": model, "messages": [{"role": "user", "content": "Say OK."}],
+         "max_tokens": 16, "tool_choice": "auto", "logprobs": True,
+         "tools": [{"type": "function", "function": {"name": "ping", "description": "ping",
+                    "parameters": {"type": "object", "properties": {}}}}],
+         "chat_template_kwargs": kwargs}
+try:
+    body = call("/v1/chat/completions", probe)
+except urllib.error.HTTPError as exc:
+    # HTTP 400 here means the engine was served WITHOUT --enable-auto-tool-choice /
+    # --tool-call-parser: every episode will ERROR, and only the engine's operator can fix
+    # it. The body's message reads: "auto" tool choice requires --enable-auto-tool-choice and
+    # --tool-call-parser to be set (vLLM wraps it as {"object":"error","message":…}, vllm-metal
+    # as {"error":{"message":…}} — measured on both, CP-94)
+    raise SystemExit(f"chat completion with tool_choice=auto -> HTTP {exc.code}: "
+                     f"{exc.read().decode(errors='replace')[:300]}\n"
+                     "this engine cannot run an episode as served; its operator must add the two flags")
+assert body["choices"][0].get("logprobs", {}).get("content"), "no logprobs: the capture has nothing to record"
+results["requests"]["episode_probe"] = {"request": probe, "response": body}
+
 results["derived"] = {
     "served_model": model,
     "end_of_turn_token_id": eot[0],
@@ -102,13 +124,15 @@ results["derived"] = {
     "not_measured": ["tokenizer_hash (G4: the bytes of tokenizer.json; no API exposes them)",
                      "chat_template_hash (G4: the bytes of the served template)",
                      "weights revision", "sampling policy (pi sends none; the server's defaults are it)",
-                     "tool-call parser (a serve flag)"],
+                     "tool-call parser IDENTITY (a serve flag; its presence was probed in step 5)"],
 }
 with open("model-probe.json", "w") as handle:
     json.dump(results, handle, indent=2)
 print(f"served model          {model!r}  (of {served})")
 print(f"end_of_turn_token_id  {eot[0]}  ({marker!r})")
 print(f"g6_expected_tail_ids  {tail}  (thinking {thinking}: {kwargs})")
+print(f"episode probe         tool_choice=auto accepted, logprobs present "
+      f"({len(body['choices'][0]['logprobs']['content'])} tokens) — this endpoint can run an episode")
 print(f"not measured          {', '.join(results['derived']['not_measured'])}")
 print("written               model-probe.json")
 ```
@@ -249,6 +273,18 @@ pins = {
     },
     "not_measured": ["tokenizer_hash (G4: tokenizer.json identity)", "chat_template_hash (G4: the served template's bytes)",
                      "weights revision", "sampling policy"],
+    # what an acceptance under this file covers, per set (bring-your-own.md#what-an-acceptance-covers)
+    "coverage": {
+        "skill_card_hash": "derived here from this corpus's cards (G1); checked on every trace",
+        "system_prompt_hash": "derived here from the inspected body's wire prompt (G2); checked on every trace",
+        "tool_roster_hash": "carried from the reference — asserted equal above; checked on every trace (G3)",
+        "settings_hash": "carried from the reference — asserted equal above; checked on every trace (G7's settings clause)",
+        "g6_expected_tail_ids": ("derived here from the endpoint's own render (G6); checked on every trace" if probe
+                                 else "the packaged reference tail (G6); checked on every trace"),
+        "tokenizer_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
+        "chat_template_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
+        "sampling_policy": "UNKNOWN — pi sends none; the endpoint's defaults are the policy; no gate covers it",
+    },
     "walk_status": {"derive": f"done here, from {source.name}",
                     "re_pin": "re-run this script from a fresh quarantined episode after any corpus, harness, model or mode change",
                     "first_episode_validate": "yours: the next submit under GSJ_PINS_PATH must collect 1/1"},
@@ -280,7 +316,28 @@ PY
 
 ### What the walk proves, and what it does not
 
-Proved by the stranger (2026-09-06: `pip install` → scaffold → `up` → one episode quarantined `G2` + `G6` on `qwen3.6-27b` → inspected → derived → restarted → `collected 1/1`, findings `[]` in a fresh process, the receiver's, the poll's and the trainer's bodies equal) and re-walked at CP-92 on a workstation estate against the reference model (CP-92's `#your-model` script re-measured the stranger's `qwen3.6-27b` endpoint read-only and both reference modes; CP-92's accepted episode is the reference model's). Across the two walks: the library's own scaffold, a model the library never measured, one accepted episode. Not proved: a training run consuming such episodes; the skill row, unless you ran it (its G1 hash is derived from the card's bytes either way); the estate-side G4 walk, which needs the snapshot and a checkout. A re-pin is the same walk from a fresh quarantined episode — after any change to `AGENTS.md`, a skill card, the harness settings, the model, its template, or the thinking mode; `estate.py update` says out loud when a corpus edit moves G1 or G2.
+Proved by the stranger (2026-09-06: `pip install` → scaffold → `up` → one episode quarantined `G2` + `G6` on `qwen3.6-27b` → inspected → derived → restarted → `collected 1/1`, findings `[]` in a fresh process, the receiver's, the poll's and the trainer's bodies equal) and re-walked at CP-92 on a workstation estate against the reference model (CP-92's `#your-model` script re-measured the stranger's `qwen3.6-27b` endpoint read-only and both reference modes; CP-92's accepted episode is the reference model's). Round three (2026-09-07, four containerised strangers on 0.1.10, the same `qwen3.6-27b` endpoint) reproduced both sections independently, twice: one stranger on the library's own scaffold derived `G2: 8b159eb8…` — the value CP-92 measured and round two's stranger measured before it — and `G1: c1ade0f2…`; another wrote its own six-page corpus, got a different G2 (`f1603bea…`) and G1 (`cc6509b3…`) correctly, ran the skill row, and both landed on the identical tail `[248045, 74455, 198, 248068, 271, 248069, 271]` and eot `248046`, with the roster `a7a7956b…` and settings `dae89485…` matched to the reference. Different hosts, corpora, models, agents; same procedure, same answers (one of them also noticed that this page publishes those very answers for that very endpoint, said so before running, and turned the walk into a check that they are still right — they were; the fix for the experiment is a different endpoint, not a page that withholds its measurements). Across the walks: the library's own scaffold and a stranger's corpus, a model the library never measured, five accepted episodes. Not proved: a training run consuming such episodes; the skill row, unless you ran it (its G1 hash is derived from the card's bytes either way); the estate-side G4 walk, which needs the snapshot and a checkout. A re-pin is the same walk from a fresh quarantined episode — after any change to `AGENTS.md`, a skill card, the harness settings, the model, its template, or the thinking mode; `estate.py update` says out loud when a corpus edit moves G1 or G2.
+
+## What an acceptance covers
+
+`collected 1/1` means the receiver's gates found nothing to complain about **under the pins in force** — and on a foreign endpoint not every approved set in that file is yours. The eight slots of a `gsj-pins/1` file, as the walk above leaves them (the demo's `bootstrap.py` writes the same shape, with the two G4 keys present and empty; `up` prints which sets are empty, and the file's `coverage` block says this per set):
+
+| approved set | gate | after the walk on a foreign endpoint | what an acceptance therefore says |
+| --- | --- | --- | --- |
+| `skill_card_hash` | G1 | **derived here** from your corpus's cards | the card the row resolved is one of yours |
+| `system_prompt_hash` | G2 | **derived here** from the inspected body's wire prompt | the system prompt is yours, byte for byte |
+| `tool_roster_hash` | G3 | **carried** from the reference — the script *asserts* the trace's roster equals it, never derives one | the roster on the wire is the reference's eleven tools, checked on every trace |
+| `settings_hash` | G7, settings clause | **carried** from the reference, asserted equal the same way | the harness settings are the reference's (compaction off), checked on every trace |
+| `g6_expected_tail_ids` | G6 | **derived here** from the endpoint's own render, matched at every turn opening | every assistant turn opened with the tail your template renders |
+| `tokenizer_hash` | G4 | **not measured** — no set (the demo: an empty set) | **nothing** — no trace gate reads it; the served tokenizer's bytes were never verified on this estate |
+| `chat_template_hash` | G4 | **not measured** — no set (the demo: an empty set) | **nothing** — the served template's bytes were never verified |
+| — | sampling | **unknown** — pi sends none | **nothing** — the temperature that produced the logprobs is recorded nowhere |
+
+A carried set that *matches* is still a measurement: G3 and G7 prove, on every trace, that the harness is the reference harness. An empty or absent set is not a gate that passed — it is a gate nothing checks. On the reference estate the G4 walk (`pins/derive_pins.py`, a checkout with the snapshot) verified those bytes once, at pin time; on your endpoint nobody has, and the accepted archive cannot tell you: a rejection names its gate, an acceptance names nothing. What does say so: the pins file the receiver validated against (`not_measured`, `coverage`, and in the demo's file `provenance.engine`), which is exactly the file a trainer sets `GSJ_PINS_PATH` to. Where else the warning could live was argued at CP-94 and priced: `up`'s pins line prints the empty sets now (an estate-side line, free); the demo's reader can print it beside `accepted` (parked, demo F-87); a line in `submit` or the receiver would cost the size law and a release for a fact the archive already carries by reference — declined, register row 87.
+
+## The borrowed endpoint
+
+Every sentence above about sampling — "pin them server-side", "the serve argv is yours to write", "treat the argv as provenance" — assumes you serve the model. The other case is the normal one, and the one this page exists for: a platform team hands you a URL you may not restart or re-argv (both round-three doors were in it). Then the tool-call parser's **presence** is testable read-only (step 5 of the script) and its identity, the weights revision and the sampling policy are not; `up` proceeds, the episodes are accepted, and nothing downstream says the policy was unknown — except the pins file, whose `not_measured` and `coverage.sampling_policy` say `unknown`. Read such traces accordingly: they are sound for **provenance work** — the cutoff, the pinned prompt and cards, the roster, the tail, the reconstruction, every claim the validators make — and **not for training-distribution work**, where the temperature that produced the logprobs is the single largest unknown in the artifact. The library's register carries the per-episode engine binding as its open row 22; when you *can* pin, do, and record the argv beside the pins file.
 
 ## See also
 

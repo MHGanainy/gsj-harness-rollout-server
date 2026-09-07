@@ -6,7 +6,7 @@ Everything the trainer side needs: install the wheel, collect a first validated 
 
 ## Install
 
-`pip install gsj-harness-rollout-server` — version **0.1.9**, Python **≥ 3.12**, wheel-only and `py3-none-any`; in a venv of your own (`python3 -m venv .venv && . .venv/bin/activate`) — stock Ubuntu ≥ 23.04 refuses a bare `pip install` with `externally-managed-environment` (PEP 668). Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` needs a checkout.
+`pip install gsj-harness-rollout-server` — version **0.1.10**, Python **≥ 3.12**, wheel-only and `py3-none-any`; in a venv of your own (`python3 -m venv .venv && . .venv/bin/activate`) — stock Ubuntu ≥ 23.04 refuses a bare `pip install` with `externally-managed-environment` (PEP 668). Three dependencies: `pydantic`, `httpx`, `pyyaml`; `import gsj_rollout` never imports `polar` (the server-side modules `pi_harness`, `builder`, `receiver`, `cli` stay off the import surface), and `__all__` is `['RolloutClient', 'Trace', 'checks', 'load_config', 'RunConfig', '__version__']`. The `gsj-rollout` console script installs too: `submit` works from the wheel against a running server; `serve` runs from the wheel too — the receiver starts, and its printout carries a `NOTE:` with `<checkout>` placeholders for Polar's two processes, which need a checkout's `vendor/polar` venv (or the demo's published `gsj-polar` image).
 
 ![Six paths cross from the checkout into the wheel, historical CP-80 rendering at 0.1.7 (18 entries; unchanged layout in 0.1.9) — the gsj_rollout package via hatch packages, then five force-includes: both pins files, the G2 capture, ingest_corpus.py, estate.py — and a red never-ships row (vendor, the rest of estate, spike, tests, docs, .github) crosses nothing](img/wheel-contents.png)
 
@@ -31,6 +31,8 @@ Never in the wheel: `vendor/`, `estate/` (except the two modules above, force-in
 > ```
 >
 > Fix: `export GSJ_PINS_PATH=/srv/my-estate/pins.gsj.json` **before the process starts, on both legs** (receiver and trainer). Resolution is `GSJ_PINS_PATH` → checkout `pins/pins.gsj.json` → packaged copy, fixed once at import; the file is read once per process (change pins ⇒ restart); a wrong path raises `checks.PinsConfigurationError` on first use. Deriving a file for your estate: [bring-your-own.md#your-pins](bring-your-own.md#your-pins) (the walk); the file's format is [validation-and-pins.md](validation-and-pins.md).
+
+> **What the file you name covers.** An accepted trace passed every gate that had an approved set to check against — and on a foreign-model estate not every set is that estate's: G1/G2/G6 derived there, G3 and G7's settings carried from the reference and matched on every trace, G4's two sets **empty or absent** (no API exposes the served tokenizer or template bytes) and the sampling policy pinned nowhere. Read the file's `not_measured` / `coverage` keys before you treat `[]` as "all seven gates passed": [bring-your-own.md#what-an-acceptance-covers](bring-your-own.md#what-an-acceptance-covers) has the per-gate table and the borrowed-endpoint case (sound for provenance work, not for training-distribution work).
 
 ## First collect
 
@@ -75,7 +77,7 @@ It prints `task <id>: <completed>/<total> sessions terminal` when the count chan
 | `--timeout` / `--grace` | `900` / `120` | the request's `timeout_seconds`; extra wait before giving up |
 | `--poll-interval` | `2.0` | seconds between polls |
 | `--prompt-file PATH` | — | read the instruction from a file |
-| `--from-bank PARQUET` / `--row N` | — / `0` | whole triple + prompt + source + split from a taskbank row (needs `pyarrow`, in the `dev` extra) |
+| `--from-bank PARQUET` / `--row N` | — / `0` | whole triple + prompt + source + split from a taskbank row (needs `pyarrow`: `pip install pyarrow` — no extra carries it, ADR-0022 §5) |
 
 ![Five steps across three lanes: the trainer submits and polls Polar's rollout API, sandboxed episodes run, the receiver validates the callback into traces_dir or quarantine, and the trainer re-validates what it collects](img/submit-collect-lifecycle.png)
 

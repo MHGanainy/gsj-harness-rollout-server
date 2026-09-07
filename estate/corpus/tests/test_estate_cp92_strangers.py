@@ -264,8 +264,12 @@ def test_status_reports_the_phases_that_stand_before_refusing_a_partial_run(tmp_
     assert f"scaffold  pushed — lock written " in out and f"(1 case(s)): {corpus / 'corpus.lock.json'}" in out
     assert "mcp       not reached — up died in or before this phase " \
            "(retrieval service image registry.invalid/gsj-mcp-service:9)" in out
-    for phase in ("taskbank", "verify", "engine", "config"):
+    for phase in ("taskbank", "verify"):
         assert f"{phase:9} not reached" in out
+    # CP-94: the engine and config blocks land with the closing write, so a
+    # partial record cannot say whether they were reached — say so
+    assert "engine    not recorded — probed after verify" in out
+    assert "config    not written" in out
     assert "compose ps" not in out                       # no compose.yaml → no docker
     assert "REFUSED" in proc.stderr and "is incomplete" in proc.stderr
     assert "the phases above stand" in proc.stderr
