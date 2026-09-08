@@ -505,7 +505,7 @@ python estate/corpus/ingest_corpus.py all      --corpus <corpus-root>   # the fu
 (`validate` and `ingest` are estate-tool verbs since CP-72 — from a wheel,
 `python -m gsj_rollout.estate validate|ingest`. The other phases keep the
 pipeline's own command line, which still works for every phase but prints
-a deprecation notice; retained through 0.1.11; removal remains eligible from 0.1.8, not scheduled.)
+a deprecation notice; retained through 0.1.12; removal remains eligible from 0.1.8, not scheduled.)
 
 `all` runs the five phases in order and stops at the first failure:
 
@@ -656,7 +656,10 @@ the estate's pins are re-derived and named**:
 
 - `estate.py up` already tells you: its pins phase warns with the exact
   cards the in-force approved set lacks. It deliberately does not write
-  pins.
+  pins — since 0.1.12 (ADR-0042) it writes `pins.skeleton.json` beside
+  `rollout.yaml`: the carried sets, the G6 tail and the end-of-turn id
+  measured from the engine, G1 and G2 empty; refused as pins by the
+  library and by `up`, read by the page's script.
 - The library owns the walk, as a page a stranger can follow:
   [`docs/guide/bring-your-own.md#your-pins`](guide/bring-your-own.md#your-pins)
   — one episode against the reference pins, **inspect** the quarantined

@@ -128,12 +128,33 @@ MCP_IMAGE = "gsj-mcp-service:0.5.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
+PI_THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")   # config.py's; `medium` = the conventional ON
 # CP-92: the library-owned bring-your-own page — a foreign model's values
 # (#your-model) and a foreign corpus's pins walk (#your-pins). Named by the
 # warnings below because a wheel reader has no demo repo and no pins/ dir.
 BRING_YOUR_OWN_URL = ("https://github.com/MHGanainy/gsj-harness-rollout-server/"
                       "blob/main/docs/guide/bring-your-own.md")
 DEFAULT_ENGINE_URL = "http://127.0.0.1:8000"
+# CP-97 (ADR-0042): `up` writes the pins SKELETON beside rollout.yaml — the
+# two carried sets from the pins in force, the tail and the end-of-turn id
+# measured from the endpoint's own render, the two derived sets and G4's
+# EMPTY — never a pins file. The name and the format are the guard: nothing
+# consumes a skeleton by accident (the library refuses an empty approved
+# set; this tool refuses to stand an estate under one), and the page's
+# walk — quarantine, inspect, derive the two, restart — is unchanged; its
+# derive_my_pins.py reads the skeleton instead of transcribing values.
+SKELETON_NAME = "pins.skeleton.json"
+SKELETON_FORMAT = "gsj-pins-skeleton/1"
+PINS_FORMAT = "gsj-pins/1"
+DERIVED_SETS = ("skill_card_hash", "system_prompt_hash")   # G1, G2 — an inspected episode's
+CARRIED_SETS = ("tool_roster_hash", "settings_hash")       # G3, G7 — asserted equal, never derived
+G4_SETS = ("tokenizer_hash", "chat_template_hash")         # estate-side bytes no API exposes
+# bring-your-own.md#your-model's render, verbatim (one user turn, the
+# content-parts form pi sends) and the demo's marker (bootstrap.py
+# derive_endpoint_pins): an assistant content whose ids are located in the
+# closed-turn render so the token that follows it is the turn terminator
+PROBE_MESSAGES = [{"role": "user", "content": [{"type": "text", "text": "Hello."}]}]
+PROBE_MARKER = "GSJPROBEMARKERXYZ"
 ADMIN_USER = "gsj-admin"
 ADMIN_PASSWORD_ENV = "GSJ_FORGEJO_ADMIN_PASSWORD"
 MCP_SECRET_ENV = "GSJ_MCP_TOKEN_SECRET"
@@ -473,6 +494,33 @@ def pins_g1_check(corpus) -> dict:
     empty = sorted(k for k, v in sets.items() if isinstance(v, list) and not v)
     return {"checked": True, "cards": len(cards), "pins_path": str(pins),
             "pins_source": source, "not_in_approved_set": missing, "empty_sets": empty}
+
+
+def refuse_skeleton_pins() -> None:
+    """CP-97 (ADR-0042): a `GSJ_PINS_PATH` that names a pins SKELETON is
+    refused before any estate work — the file `up` writes is not pins, and an
+    estate stood up under it would have the receiver refuse every trace
+    (`PinsConfigurationError` on the first empty set) or, worse, read as
+    validating. Only an explicit override can name one: the checkout's and
+    the wheel's own files are never skeletons."""
+    named = os.environ.get("GSJ_PINS_PATH")
+    if not named:
+        return
+    try:
+        doc = json.loads(Path(named).read_bytes())
+    except (OSError, ValueError):
+        return          # unreadable or not JSON: the library's own refusal names it, on first use
+    if not isinstance(doc, dict) or doc.get("format") != SKELETON_FORMAT:
+        return
+    sets = doc.get("pins") if isinstance(doc.get("pins"), dict) else {}
+    empty = sorted(k for k, v in sets.items() if isinstance(v, list) and not v)
+    die(f"GSJ_PINS_PATH names a pins SKELETON, not pins.",
+        f"{named}: format {SKELETON_FORMAT!r}; empty approved sets: {empty}",
+        f"a {PINS_FORMAT} file whose derived sets an inspected quarantined episode supplied "
+        f"({', '.join(DERIVED_SETS)}), or GSJ_PINS_PATH unset (the reference set)",
+        f"unset GSJ_PINS_PATH for the first episode, inspect its quarantined body, then run "
+        f"{BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py (it reads the skeleton) and "
+        f"point GSJ_PINS_PATH at the pins.gsj.json it writes — never at {SKELETON_NAME}")
 
 
 # ------------------------------------------------------------ the run dir
@@ -2085,6 +2133,8 @@ def probe_engine(url: str, model: str) -> dict:
     out["reachable"] = True
     out["models"] = [m.get("id") for m in body.get("data", [])]
     out["model_served"] = model in out["models"]
+    out["max_model_len"] = next((m.get("max_model_len") for m in body.get("data", [])
+                                 if m.get("id") == model), None)
     status, body = http("POST", f"{url}/tokenize",
                         {"model": model, "prompt": "x", "add_special_tokens": False},
                         timeout=10)
@@ -2092,6 +2142,293 @@ def probe_engine(url: str, model: str) -> dict:
                        and isinstance(body.get("tokens"), list)
                        else f"not available (POST /tokenize -> {status})")
     return out
+
+
+def pi_thinking_level(raw) -> str:
+    """The run's thinking level, refused HERE when it is not one of pi's —
+    before the skeleton is measured under the wrong kwargs (CP-97's review):
+    YAML 1.1 reads a bare `thinking: off` in an --answers file as False, and
+    a bare `on` is not a level (config load refuses it 150 lines later)."""
+    level = ("off" if raw is False else "on") if isinstance(raw, bool) else str(raw)
+    if level not in PI_THINKING_LEVELS:
+        die("--thinking is not a pi level.", repr(raw), "|".join(PI_THINKING_LEVELS),
+            "fix the answer (in an --answers file quote it: thinking: 'off' — YAML 1.1 reads a "
+            "bare off/on as a boolean); `medium` is the conventional ON")
+    return level
+
+
+def pi_chat_template_kwargs(thinking: str) -> dict:
+    """The kwargs every chat completion pi 0.83.0 sends (checks-spec.md, the
+    pi wire dialect; charter A-12) — the tail must be measured under them."""
+    return {"enable_thinking": thinking != "off", "preserve_thinking": True}
+
+
+def measure_tail(url: str, model: str, thinking: str) -> dict:
+    """CP-97 (ADR-0042): G6's tail and the end-of-turn id from the endpoint's
+    OWN render — bring-your-own.md#your-model's measurement, performed by
+    `up` so the skeleton carries measured values and builder.end_of_turn_token_id
+    stops being the reference model's by default on an endpoint that is not
+    it (round four, b2's finding 4). The tail is the ids `add_generation_prompt`
+    adds to the one-turn render under pi's kwargs (the page, step 3); the
+    end-of-turn id is the first non-whitespace token the template emits after
+    assistant content in a closed turn (the demo's derive_endpoint_pins rule —
+    the RENDER-side closer, which is what reconstruction matches against;
+    without /detokenize that rule cannot be applied, so the tail is measured
+    and the id is not, said so — never a guess labelled measured).
+    Returns every request/response pair (the page's model-probe.json shape)
+    and, when a value cannot be measured, `why` — never a default."""
+    kwargs = pi_chat_template_kwargs(thinking)
+    out: dict = {"measured": False, "why": None, "engine": url, "model": model,
+                 "thinking": thinking, "chat_template_kwargs": kwargs,
+                 "g6_expected_tail_ids": None, "g6_expected_tail_text": None,
+                 "end_of_turn_token_id": None, "end_of_turn_text": None,
+                 "history_extends_generation_prompt": None, "detokenize": None,
+                 "requests": {}}
+
+    def tokenize(label: str, **fields):
+        payload = {"model": model, "add_special_tokens": False, **fields}
+        status, body = http("POST", f"{url}/tokenize", payload, timeout=30)
+        out["requests"][label] = {"request": payload, "status": status, "response": body}
+        if status == 200 and isinstance(body, dict) and isinstance(body.get("tokens"), list):
+            return body["tokens"]
+        out["why"] = (f"POST /tokenize ({label}) answered {status}: {str(body)[:200]} — "
+                      "this endpoint does not render its own chat template over the API "
+                      f"(vLLM's messages form with chat_template_kwargs); derive the tail and "
+                      f"the end-of-turn id from a local snapshot instead — "
+                      f"{BRING_YOUR_OWN_URL}#your-model")
+        return None
+
+    def detokenize(ids: list):
+        status, body = http("POST", f"{url}/detokenize", {"model": model, "tokens": ids},
+                            timeout=30)
+        if status == 200 and isinstance(body, dict) and isinstance(body.get("prompt"), str):
+            out["detokenize"] = "available"
+            return body["prompt"]
+        if out["detokenize"] is None:
+            out["detokenize"] = f"not available (POST /detokenize -> {status})"
+        return None
+
+    base = tokenize("history_only", messages=PROBE_MESSAGES, add_generation_prompt=False,
+                    chat_template_kwargs=kwargs)
+    if base is None:
+        return out
+    full = tokenize("with_generation_prompt", messages=PROBE_MESSAGES,
+                    add_generation_prompt=True, chat_template_kwargs=kwargs)
+    if full is None:
+        return out
+    if full[:len(base)] != base or len(full) == len(base):
+        out["why"] = ("no clean, non-empty generation-prompt delta: this template has no G6 "
+                      "tail, and none must be pinned (the page's step 3)")
+        return out
+    tail = full[len(base):]
+    closed = tokenize("assistant_closed",
+                      messages=PROBE_MESSAGES + [{"role": "assistant", "content": PROBE_MARKER}],
+                      add_generation_prompt=False, chat_template_kwargs=kwargs)
+    marker = tokenize("marker", prompt=PROBE_MARKER)
+    if closed is None or marker is None:
+        return out
+    out["history_extends_generation_prompt"] = closed[:len(full)] == full
+    block = closed[len(base):]
+    pos = next((k for k in range(len(block) - len(marker) + 1)
+                if marker and block[k:k + len(marker)] == marker), None)
+    if pos is None:
+        out["why"] = (f"the probe marker's ids {marker} were not found in the closed assistant "
+                      f"render {block} — cannot isolate the turn terminator; measure it by "
+                      f"hand: {BRING_YOUR_OWN_URL}#your-model")
+        return out
+    eot = eot_text = None
+    for tok in block[pos + len(marker):]:
+        text = detokenize([tok])
+        if text is None:            # no /detokenize: the first-non-whitespace rule cannot run
+            out.update(measured=True, g6_expected_tail_ids=tail,
+                       why=(f"POST /detokenize {out['detokenize']} — the first-non-whitespace "
+                            "rule cannot be applied, so the end-of-turn id was NOT measured (the "
+                            f"tail was; the token after the content is {tok}, unverified); measure "
+                            f"it by hand: {BRING_YOUR_OWN_URL}#your-model"))
+            return out
+        if text.strip():
+            eot, eot_text = tok, text
+            break
+    out.update(measured=True, g6_expected_tail_ids=tail, g6_expected_tail_text=detokenize(tail))
+    if eot is None:
+        out["why"] = ("no non-whitespace token follows the assistant content in this template's "
+                      "closed render — the end-of-turn id was NOT measured (the tail was)")
+        return out
+    out.update(end_of_turn_token_id=eot, end_of_turn_text=eot_text)
+    return out
+
+
+def reuse_measurement(prev_engine: dict, measurement: dict, url: str, model: str, thinking: str) -> dict:
+    """A re-run whose engine did not answer keeps the record's measurement of
+    the SAME endpoint, model and thinking level rather than overwriting the
+    skeleton's measured tail with an unmeasured stub — labelled as reused,
+    this run's reason kept beside it."""
+    ptail = (prev_engine or {}).get("tail") or {}
+    if measurement.get("measured") or not ptail.get("measured"):
+        return measurement
+    if (ptail.get("engine"), ptail.get("model"), ptail.get("thinking")) != (url, model, thinking):
+        return measurement
+    return {**ptail, "requests": {}, "reused_from_record": True,
+            "why": f"this run: {measurement.get('why')}; the values are the record's earlier "
+                   f"measurement of the same endpoint, model and thinking level"}
+
+
+def choose_end_of_turn(flag, measurement: dict, recorded, recorded_source) -> tuple:
+    """builder.end_of_turn_token_id in force, and its source: this
+    invocation's --end-of-turn-token-id (flag or answers file); else a value an
+    earlier `up` was TOLD (its record labels it `flag`, or carries no label at
+    all — a record written through 0.1.11 could hold nothing but an explicit
+    answer; an explicit answer persists across re-runs, the Answers rule);
+    else the endpoint's own render (CP-97, ADR-0042); else whatever the record
+    holds (an earlier measurement, when this run's engine did not answer);
+    else nothing, and the builder's default stands — the reference model's,
+    said so."""
+    if flag is not None:
+        return int(flag), "flag"
+    if recorded is not None and recorded_source in ("flag", None):
+        return int(recorded), "flag"
+    if measurement.get("end_of_turn_token_id") is not None:
+        return int(measurement["end_of_turn_token_id"]), "measured"
+    if recorded is not None:
+        return int(recorded), "record"
+    return None, "default"
+
+
+def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
+                  measurement: dict, eot, eot_source: str, thinking: str) -> dict:
+    """The gsj-pins/1 SHAPE under the skeleton format (ADR-0042): the carried
+    sets from the pins in force, the tail measured, the derived and G4 sets
+    empty, `not_measured` and `coverage` in the page's shape (the page's
+    script reads them from here). What only an inspected episode supplies is
+    named, not filled."""
+    pins_path = Path(g1["pins_path"])
+    in_force = json.loads(pins_path.read_bytes())
+    sets = in_force["pins"]
+    cards = {n: sha256_file(card) for n, card in sorted(corpus.skills.items())}
+    measured = bool(measurement.get("measured"))
+    eot_measured = measurement.get("end_of_turn_token_id") is not None
+    reused = bool(measurement.get("reused_from_record"))
+    tail = measurement.get("g6_expected_tail_ids")
+    eurl, emodel = probe["url"], probe["model"]
+    carried = f"carried from the pins in force — {pins_path} ({g1['pins_source']})"
+    # the in-force file's engine block, its own carried_from dropped — a pins.gsj.json the
+    # page's script derived from an earlier skeleton would otherwise nest one level per `up`
+    engine_in_force = (in_force.get("provenance") or {}).get("engine")
+    if isinstance(engine_in_force, dict):
+        engine_in_force = {k: v for k, v in engine_in_force.items() if k != "carried_from"}
+    own = isinstance(engine_in_force, dict) and str(engine_in_force.get("recorded_by", "")).startswith(f"{PROG} up")
+    measured_how = ("measured from" if measured and not reused else
+                    "reused from the record's earlier measurement of" if reused else
+                    "NOT measured — see measured.why — at")
+    doc: dict = {
+        "format": SKELETON_FORMAT,
+        "skeleton": (f"NOT A PINS FILE — the starting point for {BRING_YOUR_OWN_URL}#your-pins "
+                     f"(ADR-0042): the two approved sets only an inspected quarantined episode "
+                     f"supplies ({', '.join(DERIVED_SETS)}) are EMPTY, so GSJ_PINS_PATH must never "
+                     f"name this file — the library refuses an empty approved set on first use "
+                     f"(PinsConfigurationError) and `{PROG} up` refuses to stand an estate under it. "
+                     f"The page's derive_my_pins.py reads it and writes pins.gsj.json beside it."),
+        "derived_at": now_iso(),
+        "host": (f"{rundir}: written by {PROG} up for run {name!r} — the carried sets from "
+                 f"{pins_path} ({g1['pins_source']}); the tail "
+                 f"{'and the end-of-turn id ' if eot_measured or not measured else '(NOT the end-of-turn id — see measured.why) '}"
+                 f"{measured_how} {eurl} for {emodel!r}"),
+        "pins": {
+            "skill_card_hash": [],
+            "system_prompt_hash": [],
+            "tool_roster_hash": list(sets.get("tool_roster_hash") or []),
+            "settings_hash": list(sets.get("settings_hash") or []),
+            "g6_expected_tail_ids": [tail] if measured else [],
+            "tokenizer_hash": [],
+            "chat_template_hash": [],
+        },
+        "supplied_by_an_inspected_episode": {
+            "system_prompt_hash": ("G2 — sha256 of the wire system prompt as UTF-8 bytes, from the "
+                                   "quarantined body, after the check that it embeds this corpus's "
+                                   "AGENTS.md exactly once (the page's step 3)"),
+            "skill_card_hash": (f"G1 — sha256 of each skills/<name>/SKILL.md's raw bytes; this "
+                                f"corpus holds {len(cards)} card(s) ({cards}) — approved only after "
+                                f"the inspected body shows a skill row resolved one of them"),
+        },
+        "measured": {k: v for k, v in measurement.items()},
+        "in_force": {"end_of_turn_token_id": eot, "source": eot_source,
+                     "note": ("builder.end_of_turn_token_id as rollout.yaml carries it — flag: this "
+                              "invocation's or a recorded --end-of-turn-token-id; measured: the "
+                              "endpoint's own render; record: an earlier up's value; default: the "
+                              "library's 151645, the reference model's")},
+        "provenance": {
+            "tool_roster_hash": {"algo": f"{carried}; the walk's script asserts the trace's roster "
+                                         "equals it — never derives one; checked on every trace (G3)",
+                                 "artifacts": [str(pins_path)]},
+            "settings_hash": {"algo": f"{carried}; asserted equal the same way; checked on every "
+                                      "trace (G7's settings clause)",
+                              "artifacts": [str(pins_path)]},
+            "g6_expected_tail_ids": {
+                "algo": (f"the live POST {eurl}/tokenize add_generation_prompt delta under pi's "
+                         f"kwargs {measurement.get('chat_template_kwargs')} (thinking {thinking})"
+                         + (" — reused from the record: this run's engine did not answer"
+                            if reused else " — measured.requests holds every request/response pair")
+                         + "; the walk's script matches it at every turn opening of the inspected body"
+                         if measured else f"NOT MEASURED — {measurement.get('why')}"),
+                "artifacts": [f"{eurl}/tokenize"] if measured else []},
+            "engine": {
+                "recorded_by": f"{PROG} up (ADR-0042) — this endpoint, as probed at {probe.get('probed_at')}",
+                "served_model": {"id": emodel, "served": probe.get("model_served"),
+                                 "listed": probe.get("models"),
+                                 "source": f"GET {eurl}/v1/models"},
+                "max_model_len": probe.get("max_model_len"),
+                "tokenize": probe.get("tokenize"),
+                "detokenize": measurement.get("detokenize"),
+                "carried_from": {
+                    "what": ("this endpoint as an earlier `up` probed it — the pins in force were "
+                             "derived from an earlier skeleton of this run" if own else
+                             "the pins in force's provenance.engine — the estate that derived the "
+                             "carried sets, NOT this endpoint"),
+                    "path": str(pins_path),
+                    "block": engine_in_force},
+            },
+        },
+        "not_measured": [
+            "tokenizer_hash (G4: the bytes of tokenizer.json; no API exposes them)",
+            "chat_template_hash (G4: the bytes of the served template)",
+            "weights revision", "sampling policy (pi sends none; the server's defaults are it)",
+            "tool-call parser IDENTITY (a serve flag) and its PRESENCE — up does not send a chat "
+            "completion; the page's probe_model.py step 5 does",
+        ] + ([] if measured and eot_measured else
+             ["end_of_turn_token_id — see measured.why (the tail was measured)"] if measured else
+             ["g6_expected_tail_ids and end_of_turn_token_id — see measured.why"]),
+        "coverage": {
+            "skill_card_hash": ("NOT DERIVED YET — empty; the inspected episode's skill row supplies "
+                                "it (G1); the page's step 4"),
+            "system_prompt_hash": ("NOT DERIVED YET — empty; the inspected body's wire prompt "
+                                   "supplies it (G2); the page's step 4"),
+            "tool_roster_hash": f"{carried}; checked on every trace (G3)",
+            "settings_hash": f"{carried}; checked on every trace (G7's settings clause)",
+            "g6_expected_tail_ids": ("measured here from the endpoint's own render (G6); checked on "
+                                     "every trace once the walk's script has matched it at every "
+                                     "turn opening of the inspected body" if measured else
+                                     "NOT MEASURED — empty; nothing checks G6 until it is"),
+            "tokenizer_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
+            "chat_template_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
+            "sampling_policy": "UNKNOWN — pi sends none; the endpoint's defaults are the policy; no gate covers it",
+        },
+        "walk_status": {
+            "derive": (f"not done: run one episode with GSJ_PINS_PATH unset, inspect its quarantined "
+                       f"body, then {BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py — it reads "
+                       f"this file (SKELETON=…) and writes pins.gsj.json"),
+            "re_pin": f"re-run `{PROG} up` after any engine, template or thinking-mode change (this file is rewritten), the page's script after any corpus, harness or model change",
+            "first_episode_validate": "yours: the next submit under GSJ_PINS_PATH=<the derived pins.gsj.json> must collect 1/1",
+        },
+    }
+    if thinking != "off":
+        doc["mode"] = "thinking-on"
+    return doc
+
+
+def write_pins_skeleton(rundir: Path, doc: dict) -> Path:
+    path = rundir / SKELETON_NAME
+    path.write_text(json.dumps(doc, indent=2) + "\n")
+    return path
 
 
 def host_ipv4s() -> list[str]:
@@ -2323,6 +2660,7 @@ def cmd_up(args: argparse.Namespace) -> None:
             "run this script with the checkout's python")
     if shutil.which("git") is None:
         die("`git` is not on PATH.", None, None, "install git")
+    refuse_skeleton_pins()   # CP-97: a skeleton in force is refused before anything runs
 
     # ---- the corpus, validated before anything runs
     # the checkout's staging corpus is the default; the wheel has none (--corpus is required there)
@@ -3116,12 +3454,12 @@ def cmd_up(args: argparse.Namespace) -> None:
     # ---- the engine: always the operator's, never created. The answer is
     # NOT binding (CP-70 item 9): it lands in rollout.yaml, the probe below
     # records rather than refuses, and the operator changes it at any time.
-    eurl = A.get("engine_url", "inference endpoint (root URL, no /v1) — not "
+    eurl = bare_url(A.get("engine_url", "inference endpoint (root URL, no /v1) — not "
                                "binding: written to rollout.yaml's "
                                "estate.serving_base_url and only probed (a "
                                "warning, never a refusal); change it later by "
                                "editing that file or re-running up",
-                 prev.get("engine", {}).get("url", DEFAULT_ENGINE_URL)).rstrip("/")
+                 prev.get("engine", {}).get("url", DEFAULT_ENGINE_URL)), "--engine-url")
     if eurl.endswith("/v1"):
         die("the engine URL must not end in /v1.", eurl, "the root — Polar's proxy "
             "appends /v1/chat/completions itself", f"--engine-url {eurl[:-3]}")
@@ -3147,13 +3485,54 @@ def cmd_up(args: argparse.Namespace) -> None:
     else:
         PH.done(f"reachable, {emodel!r} served; /tokenize {probe['tokenize']}")
     hp = prev.get("harness", {})
-    eot = A.get("end_of_turn_token_id", None, hp.get("end_of_turn_token_id"))
-    if emodel != REFERENCE_MODEL and eot is None:
-        warn("engine", f"{emodel!r} is not the reference model: builder.end_of_turn_token_id "
-             "stays the Qwen3 default (151645) unless --end-of-turn-token-id says "
-             "otherwise — derive it from the served tokenizer: the recipe is "
-             f"{BRING_YOUR_OWN_URL}#your-model (from an endpoint URL to the values "
-             "this tool needs, and what an endpoint alone cannot give)")
+    thinking = pi_thinking_level(A.get("thinking", None, hp.get("thinking", "off")))
+    # CP-97 (ADR-0042): the tail and the end-of-turn id from the endpoint's
+    # own render, under the kwargs pi sends for this thinking level
+    if probe["model_served"] and probe["tokenize"] == "available":
+        measurement = measure_tail(eurl, emodel, thinking)
+    else:
+        measurement = {"measured": False,
+                       "why": (f"{emodel!r} is not served at {eurl}" if probe["reachable"]
+                               and not probe["model_served"] else
+                               f"{eurl} is not reachable" if not probe["reachable"] else
+                               f"/tokenize {probe['tokenize']}") + " — nothing was rendered",
+                       "engine": eurl, "model": emodel, "thinking": thinking,
+                       "chat_template_kwargs": pi_chat_template_kwargs(thinking),
+                       "g6_expected_tail_ids": None, "g6_expected_tail_text": None,
+                       "end_of_turn_token_id": None, "end_of_turn_text": None,
+                       "history_extends_generation_prompt": None, "detokenize": None,
+                       "requests": {}}
+    measurement = reuse_measurement(prev.get("engine") or {}, measurement, eurl, emodel, thinking)
+    rec["engine"]["tail"] = {k: v for k, v in measurement.items() if k != "requests"}
+    eot, eot_source = choose_end_of_turn(A.get("end_of_turn_token_id", None, None), measurement,
+                                         hp.get("end_of_turn_token_id"),
+                                         hp.get("end_of_turn_token_id_source"))
+    eot_measured = measurement.get("end_of_turn_token_id")
+    if measurement["measured"]:
+        say("engine", f"{'reused from the record: ' if measurement.get('reused_from_record') else ''}"
+                      f"measured from the endpoint's own render (thinking {thinking}, "
+                      f"{measurement['chat_template_kwargs']}): G6 tail "
+                      f"{measurement['g6_expected_tail_ids']} ({measurement['g6_expected_tail_text']!r})"
+                      + (f"; end_of_turn_token_id {eot_measured} ({measurement['end_of_turn_text']!r})"
+                         if eot_measured is not None else "")
+                      + ("" if measurement["history_extends_generation_prompt"] else
+                         " — WARNING: the closed-turn render does not extend the generation "
+                         "prompt: this template rewrites history; multi-turn episodes "
+                         "reconstruct as disconnected chains (G7) unless the lost span is "
+                         "constant (builder.generation_prompt_glue_ids)"))
+    if eot_measured is None:
+        warn("engine", f"{'the end-of-turn id was' if measurement['measured'] else 'the tail and the end-of-turn id were'} "
+             f"NOT measured: {measurement['why']}"
+             + (f"; builder.end_of_turn_token_id stays the library default (151645, the "
+                f"reference model's <|im_end|>) — for {emodel!r} that is a guess: measure it "
+                f"({BRING_YOUR_OWN_URL}#your-model) and pass --end-of-turn-token-id"
+                if eot is None and emodel != REFERENCE_MODEL else
+                f"; builder.end_of_turn_token_id {eot} ({eot_source})" if eot is not None else ""))
+    elif eot_source == "flag" and eot != eot_measured:
+        warn("engine", f"--end-of-turn-token-id {eot} disagrees with the endpoint's own render "
+             f"({eot_measured}, {measurement['end_of_turn_text']!r}); "
+             "the explicit answer stands in rollout.yaml — drop the flag (and the record's "
+             "value: a fresh --name) to take the measurement")
 
     # ---- pins: which skill cards the approved set in force already carries
     g1 = pins_g1_check(corpus)
@@ -3165,7 +3544,7 @@ def cmd_up(args: argparse.Namespace) -> None:
              f"{g1['not_in_approved_set']} — episodes on them quarantine until the pins "
              f"walk re-derives — {BRING_YOUR_OWN_URL}#your-pins (pins/derive_pins.py "
              "re-verifies the REFERENCE set only and does not ship on the wheel); this "
-             "script does not write pins")
+             f"script writes {SKELETON_NAME} for that walk, never pins")
     elif g1.get("checked"):
         say("pins", f"every skill card ({g1['cards']}) is in the approved set at "
                     f"{g1['pins_path']} ({g1['pins_source']})")
@@ -3174,6 +3553,21 @@ def cmd_up(args: argparse.Namespace) -> None:
              "nothing checks those on this estate (G4's tokenizer/chat-template bytes are "
              "estate-side and were not measured): an accepted episode says nothing about "
              f"them — {BRING_YOUR_OWN_URL}#what-an-acceptance-covers")
+    # CP-97 (ADR-0042): the skeleton — beside rollout.yaml, never pins
+    if g1.get("checked"):
+        skeleton = write_pins_skeleton(
+            rundir, pins_skeleton(rundir, name, corpus, g1, probe, measurement, eot,
+                                  eot_source, thinking))
+        rec["pins"]["skeleton"] = str(skeleton)
+        say("pins", f"skeleton written: {skeleton} — NOT pins (format {SKELETON_FORMAT}): "
+                    f"{', '.join(CARRIED_SETS)} carried from the set in force, the G6 tail "
+                    f"{'measured' if measurement['measured'] else 'NOT measured'}, "
+                    f"{', '.join(DERIVED_SETS)} EMPTY until an inspected quarantined episode "
+                    f"supplies them — {BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py "
+                    "reads this file; never point GSJ_PINS_PATH at it")
+    else:
+        warn("pins", f"no {SKELETON_NAME}: the pins in force could not be read "
+                     "(the library's own refusal names the file on first use)")
 
     # ---- rollout.yaml — the config the rollout server needs
     PH.start("config", "rollout.yaml")
@@ -3231,7 +3625,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         "harness": {"artifacts_dir": str(rundir / "artifacts"),
                     "context_window": int(A.get("context_window", None, hp.get("context_window", 32768))),
                     "max_tokens": int(A.get("max_tokens", None, hp.get("max_tokens", 8192))),
-                    "thinking": str(A.get("thinking", None, hp.get("thinking", "off")))},
+                    "thinking": thinking},
         "polar": {"rollout": {"host": bind, "port": rport},
                   "gateway": {"id": f"gsj-{name}", "host": "0.0.0.0", "port": gport,
                               "public_url": f"http://{ghost}:{gport}", "engine": "vllm"}},
@@ -3239,7 +3633,8 @@ def cmd_up(args: argparse.Namespace) -> None:
     }
     if eot is not None:
         cfg["builder"] = {"end_of_turn_token_id": int(eot)}
-    rec["harness"] = {**cfg["harness"], "end_of_turn_token_id": eot}
+    rec["harness"] = {**cfg["harness"], "end_of_turn_token_id": eot,
+                      "end_of_turn_token_id_source": eot_source}
     for key in ("context_window", "max_tokens", "thinking", "end_of_turn_token_id"):
         if hp and key in hp and hp[key] != rec["harness"].get(key):
             changed.append(f"harness.{key}: {hp[key]!r} -> {rec['harness'].get(key)!r}")
@@ -3353,11 +3748,16 @@ then one episode (the config's whole claim) — nothing exported: submit reads {
   for an unset named read token (since 0.1.7, CP-75); the environment wins when already set.
   Historical wheels through 0.1.6 need .env sourced in a subshell before submit:
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
+    skeleton_row = ((f"  {SKELETON_NAME} NOT pins — the two carried sets, the G6 tail and end-of-turn id "
+                     f"{'measured' if measurement['measured'] else 'NOT measured'} from {eurl};\n"
+                     "                     G1/G2 EMPTY until an inspected quarantined episode supplies them "
+                     "(#your-pins reads it)\n") if rec["pins"].get("skeleton") else
+                    f"  (no {SKELETON_NAME}: the pins in force could not be read — see the pins warning above)\n")
     print(f"""
 == run {name} == {rel}/
   rollout.yaml       the rollout server's config (validated; topology.rendered.yaml beside it)
   taskbank.parquet   {rec['corpus'].get('taskbank_rows')} rows, sha256 {bank_sha[:12]}…; corpus.lock.json beside it
-  run.json           the record — {fj.mode} Forgejo {fj.url}, {mcp.mode} MCP {mcp.url}, owner {owner!r},
+{skeleton_row}  run.json           the record — {fj.mode} Forgejo {fj.url}, {mcp.mode} MCP {mcp.url}, owner {owner!r},
                      embedding {(h.get('embedding') or {}).get('model')}, engine {eurl} ({'ok' if probe['model_served'] else 'NOT OK'})
   .env               {len(run_.env)} secret(s), mode 0600 — the only place a value lives
 {nxt}
@@ -3775,6 +4175,7 @@ def _fj_branches(url: str, token: str, owner: str, cid: str) -> dict[str, str] |
 
 @mutating_command
 def cmd_update(args: argparse.Namespace) -> None:
+    refuse_skeleton_pins()   # CP-97: a skeleton in force is refused before anything runs
     run_ = _load_run(args.name, _command_run(args, args.name))
     rec = run_.record
     fj_rec, mcp_rec = rec.get("forgejo", {}), rec.get("mcp", {})
@@ -4028,7 +4429,7 @@ def cmd_update(args: argparse.Namespace) -> None:
              f"approved pins are re-derived — {BRING_YOUR_OWN_URL}#your-pins "
              "(pins/derive_pins.py re-verifies the REFERENCE set only and does "
              "not ship on the wheel; GSJ_PINS_PATH names the set in force) — "
-             "this tool does not write pins")
+             f"`up` writes {SKELETON_NAME} for that walk, never pins")
 
     # drift: update pushes ONLY over branches the estate's record accounts
     # for; anything else diverged out-of-band and is up --overwrite-repos's
@@ -4696,9 +5097,14 @@ def main() -> None:
     eg.add_argument("--engine-url", help=f"the inference endpoint's root (default {DEFAULT_ENGINE_URL})")
     eg.add_argument("--engine-model", help=f"served model name (default {REFERENCE_MODEL})")
     eg.add_argument("--end-of-turn-token-id", type=int,
-                    help="the served tokenizer's end-of-turn id, builder.end_of_turn_token_id "
-                         "(default 151645, Qwen3's <|im_end|>; a re-run keeps its record's) — "
-                         "for any other model measure it: bring-your-own.md#your-model")
+                    help="the served tokenizer's end-of-turn id, builder.end_of_turn_token_id — "
+                         "since CP-97 `up` MEASURES it from the endpoint's own render (the "
+                         "first non-whitespace token after assistant content in a closed "
+                         "turn; recorded in pins.skeleton.json with the G6 tail) and this flag "
+                         "overrides the measurement (an explicit value persists across "
+                         "re-runs; a disagreement is warned about); the library default "
+                         "151645 (Qwen3's <|im_end|>) stands only when nothing could be "
+                         "measured — bring-your-own.md#your-model")
     eg.add_argument("--context-window", type=int,
                     help="harness.context_window, the window pi plans against (default 32768; "
                          "must not exceed the endpoint's max_model_len)")

@@ -7,7 +7,7 @@ Two procedures the library owns, written after a stranger walked them first (202
 What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (277 MB), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have.
 
 > [!NOTE]
-> **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
+> **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. What it writes since 0.1.12 (CP-97, ADR-0042) is the **skeleton** — `<run>/pins.skeleton.json` beside `rollout.yaml`: the two carried sets from the pins in force, the tail and the end-of-turn id measured from your endpoint's own render, the two derived sets and G4's empty, `not_measured` and `coverage` stated — under a format (`gsj-pins-skeleton/1`) the library refuses on first use and `up` refuses before anything runs, so nothing consumes it as pins by accident. The script in [your pins](#your-pins) reads it; the judgement stays yours. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
 
 ## Your model
 
@@ -113,7 +113,7 @@ except urllib.error.HTTPError as exc:
     raise SystemExit(f"chat completion with tool_choice=auto -> HTTP {exc.code}: "
                      f"{exc.read().decode(errors='replace')[:300]}\n"
                      "this engine cannot run an episode as served; its operator must add the two flags")
-assert body["choices"][0].get("logprobs", {}).get("content"), "no logprobs: the capture has nothing to record"
+assert (body["choices"][0].get("logprobs") or {}).get("content"), "no logprobs: the capture has nothing to record"
 results["requests"]["episode_probe"] = {"request": probe, "response": body}
 
 results["derived"] = {
@@ -145,13 +145,13 @@ $ESTATE up --corpus <root> --engine-url http://127.0.0.1:8100 \
     --engine-model "<served model>" --end-of-turn-token-id <id> -y
 ```
 
-`up` records both in the run's `rollout.yaml` (neither is binding: edit the file or re-run `up`). The tail ids are not `up`'s to write — they go into your pins file, next. What the stranger measured this way, for the record: `qwen3.6-27b`, `<|im_end|>` = **248046** (the reference model's is 151645), tail `[248045, 74455, 198, 248068, 271, 248069, 271]`; `up`'s warning had said the id "stays the Qwen3 default unless told otherwise" — this is how you tell it.
+`up` records both in the run's `rollout.yaml` (neither is binding: edit the file or re-run `up`). **Since 0.1.12 `up` performs this measurement itself** (step 3 under the same kwargs, for the `--thinking` level it is given, and the end-of-turn id taken as the first non-whitespace token the template emits after assistant content in a closed render — the demo's rule, not step 2's known-marker check; without `/detokenize` the tail is measured and the id is not, said so): `builder.end_of_turn_token_id` takes the measured id unless `--end-of-turn-token-id` says otherwise (an explicit value persists across re-runs and a disagreement is warned about), the engine phase prints both values, and both land in `<run>/pins.skeleton.json` with every request/response pair — so on a 0.1.12 wheel this script is the read-only check you run *before* `up`, and step 5 (the tool-choice probe) is the part `up` still does not do. On wheels through 0.1.11 the tail ids are not `up`'s to write — they go into your pins file, next. What the stranger measured this way, for the record: `qwen3.6-27b`, `<|im_end|>` = **248046** (the reference model's is 151645), tail `[248045, 74455, 198, 248068, 271, 248069, 271]`; `up`'s warning through 0.1.11 said the id "stays the Qwen3 default unless told otherwise" — this is how you told it, and since 0.1.12 it is measured.
 
 ## Your pins
 
 The wheel ships the **reference estate's** approved sets. On your corpus every episode quarantines — `G2:system_prompt_hash_not_approved:<hash>` for your `AGENTS.md`, `G1:skill_card_hash_not_approved:<hash>` for your skill cards on a skill row — and on a non-reference model `G6:prompt_suffix_ne_tail_ids` (and `G6:interstitial_ne_tail_ids:…` on later turns) for the tail. That first quarantine is not a failure; it is the evidence the walk reads. The order matters:
 
-1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset). `up`'s pins line already warns which cards the reference set lacks.
+1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use).
 2. **Run one episode against the reference pins**, with a task id you will recognise:
    ```bash
    gsj-rollout submit --config <run>/rollout.yaml --from-bank <run>/taskbank.parquet --row 0 \
@@ -169,8 +169,8 @@ The wheel ships the **reference estate's** approved sets. On your corpus every e
    - `skill_card_hash`: sha256 of each `skills/<name>/SKILL.md` file's **raw bytes** (`read_bytes()`) — never `read_text()`, whose newline translation changes the hash.
    - `tool_roster_hash` and `settings_hash`: canonical-JSON sha256 (`sort_keys`, `(",", ":")` separators, `ensure_ascii=False`, `allow_nan=False`) of `tools` and `metadata.gsj_settings` — kept **only if they independently match the packaged reference**. A different value is a changed roster or changed harness settings: investigate, never approve automatically.
    - the canonicalization anchor: the reference roster hash is `a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56`, the canonical sha256 of `pins/tools.captured.json` in a checkout. Reproducing it from the trace's own `tools` array proves the canonicalization and the roster in one check; if your canonical hash of the same roster differs, every canonical-JSON hash you derive is wrong the same way.
-   - `g6_expected_tail_ids`: the measured delta from [your model](#your-model) (the packaged value on the reference model) — accepted only if turn 1's opening ends with it and **every** later assistant turn's interstitial does too, exactly as G6 checks (`checks.check_thinking_tail`).
-   - **record what was not measured.** The file carries `not_measured: [tokenizer.json identity, served chat-template bytes, weights revision]` instead of the reference model's codec hashes. This is the discipline the whole page exists for: an approved set states what was measured on *this* estate, and names what was not.
+   - `g6_expected_tail_ids`: the measured delta from [your model](#your-model) — since 0.1.12 the skeleton's, measured by `up`; `model-probe.json` when you ran the probe (the two must agree); the packaged value on the reference model — accepted only if turn 1's opening ends with it and **every** later assistant turn's interstitial does too, exactly as G6 checks (`checks.check_thinking_tail`).
+   - **record what was not measured.** The file carries `not_measured` — the skeleton's list when one was read (tokenizer.json identity, the served template's bytes, the weights revision, the sampling policy, the tool-call parser's identity and, unless step 5 ran, its presence), else the fixed four — instead of the reference model's codec hashes. This is the discipline the whole page exists for: an approved set states what was measured on *this* estate, and names what was not.
 5. **Point both legs at the file and restart.** `GSJ_PINS_PATH` is read once per process, at the first import of `gsj_rollout.checks`; set it in the environment of the receiver (`gsj-rollout serve`) and of every trainer process (`gsj-rollout submit`, your `RolloutClient`), then restart the receiver. Polar's two processes read no pins; restarting them is harmless. A wrong path never falls back to the packaged copy — it raises `PinsConfigurationError` on first use.
 6. **Submit again, a new task id**, and expect `collected 1/1 episodes`, exit 0. Then re-verify in a **separate process**: load the accepted body with the same `GSJ_PINS_PATH` and `checks.validate_session_result(body) == []`; the receiver's file, the rollout API's poll result and the trainer's export are the same bytes.
 
@@ -181,9 +181,13 @@ Paste it as `derive_my_pins.py` (the checkout's `pins/derive_pins.py` is a diffe
 ```python
 #!/usr/bin/env python3
 """bring-your-own.md#your-pins: a gsj-pins/1 file from ONE inspected quarantined episode.
-RUN=<run dir>  CORPUS=<corpus root>  PROBE=<model-probe.json from #your-model> (omit only on the reference model in thinking-off;
-for a non-off level pass the probe you ran with that THINKING — the comparison set here is always the thinking-off reference)
-BODY=<the inspected quarantine file> (optional when the quarantine holds exactly one)  MODE=thinking-on (only for a non-off level)
+RUN=<run dir>  CORPUS=<corpus root>
+SKELETON=<pins.skeleton.json> (default <run>/pins.skeleton.json when `up` wrote one — since 0.1.12, ADR-0042: the carried sets,
+the tail and end-of-turn id measured from your endpoint, the endpoint's provenance; read here, never named by GSJ_PINS_PATH)
+PROBE=<model-probe.json from #your-model> (the tail's other source — needed when no skeleton measured one; omit on the reference
+model in thinking-off; for a non-off level pass the probe you ran with that THINKING — the comparison set here is always the
+thinking-off reference)   BODY=<the inspected quarantine file> (optional when the quarantine holds exactly one)
+MODE=thinking-on (only for a non-off level; a skeleton written for one carries it)
 Every assert is a stop: it refuses to approve what it did not expect."""
 import hashlib, json, os
 from datetime import datetime, timezone
@@ -197,6 +201,14 @@ run, corpus = Path(os.environ["RUN"]), Path(os.environ["CORPUS"])
 reference_path = Path(checks.PINS_PATH)
 reference = json.loads(reference_path.read_bytes())["pins"]
 assert ANCHOR in reference["tool_roster_hash"], f"{reference_path} is not the reference set this walk compares against"
+# the skeleton `up` writes since 0.1.12: read, checked against the reference, never approved from
+skeleton_path = Path(os.environ["SKELETON"]) if os.environ.get("SKELETON") else run / "pins.skeleton.json"
+skeleton = json.loads(skeleton_path.read_bytes()) if skeleton_path.is_file() else None
+assert not os.environ.get("SKELETON") or skeleton, f"SKELETON={skeleton_path} does not exist: name the pins.skeleton.json `up` wrote, or unset SKELETON for <run>/pins.skeleton.json"
+if skeleton:
+    assert skeleton.get("format") == "gsj-pins-skeleton/1", f"{skeleton_path} is not a pins skeleton (format {skeleton.get('format')!r})"
+    for key in ("tool_roster_hash", "settings_hash"):
+        assert skeleton["pins"][key] == reference[key], f"the skeleton's {key} is not the reference's: it was written under another pins file — investigate"
 sha = lambda data: hashlib.sha256(data).hexdigest()
 canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -234,7 +246,15 @@ assert roster == ANCHOR, "the canonicalization anchor did not reproduce from the
 
 # G6: the tail, checked exactly as the validator checks it (turn 1 at the prompt's end, later turns at their interstitial)
 probe = json.loads(Path(os.environ["PROBE"]).read_bytes())["derived"] if os.environ.get("PROBE") else None
-tail = probe["g6_expected_tail_ids"] if probe else reference["g6_expected_tail_ids"][0]
+measured = skeleton["pins"]["g6_expected_tail_ids"][0] if skeleton and skeleton["pins"]["g6_expected_tail_ids"] else None
+if probe and measured:
+    assert probe["g6_expected_tail_ids"] == measured, (f"model-probe.json ({probe['g6_expected_tail_ids']}) and the skeleton ({measured}) "
+                                                        "measured different tails: the endpoint or the thinking level changed between them")
+tail = probe["g6_expected_tail_ids"] if probe else measured if measured else reference["g6_expected_tail_ids"][0]
+tail_source = ("the live /tokenize add_generation_prompt delta under pi's kwargs (model-probe.json)" if probe
+               else f"the endpoint's own render as `up` measured it ({skeleton_path.name})" if measured
+               else "the packaged reference tail (the reference model)")
+tail_artifact = os.environ.get("PROBE") or (str(skeleton_path) if measured else str(reference_path))
 ids, mask = trace["response_ids"], trace["loss_mask"]
 starts = [i for i, f in enumerate(mask) if f == 1 and (not i or mask[i - 1] != 1)]
 ends = [i + 1 for i, f in enumerate(mask) if f == 1 and mask[i + 1:i + 2] != [1]]
@@ -250,7 +270,8 @@ assert cards, f"no skills/<name>/SKILL.md under {corpus}"
 pins = {
     "format": "gsj-pins/1",
     "derived_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-    "host": f"{run}: derived by docs/guide/bring-your-own.md#your-pins from the inspected body {source.name}",
+    "host": (f"{run}: derived by docs/guide/bring-your-own.md#your-pins from the inspected body {source.name}"
+             + (f", starting from the skeleton `up` wrote ({skeleton_path.name})" if skeleton else "")),
     "pins": {
         "system_prompt_hash": [sha(systems[0].encode("utf-8"))],
         "tool_roster_hash": [roster],
@@ -266,20 +287,21 @@ pins = {
         "settings_hash": {"algo": "canonical-JSON sha256 of trace.metadata.gsj_settings; equals the reference value",
                           "artifacts": [str(source), str(reference_path)]},
         "skill_card_hash": {"algo": "sha256 of each card's raw file bytes", "artifacts": [str(card) for card in cards]},
-        "g6_expected_tail_ids": {"algo": ("the live /tokenize add_generation_prompt delta under pi's kwargs (model-probe.json)"
-                                          if probe else "the packaged reference tail (the reference model)")
-                                         + "; matched at every turn opening of the inspected body",
-                                 "artifacts": [os.environ.get("PROBE", str(reference_path)), str(source)]},
+        "g6_expected_tail_ids": {"algo": tail_source + "; matched at every turn opening of the inspected body",
+                                 "artifacts": [tail_artifact, str(source)]},
     },
-    "not_measured": ["tokenizer_hash (G4: tokenizer.json identity)", "chat_template_hash (G4: the served template's bytes)",
-                     "weights revision", "sampling policy"],
+    # what was not measured: the skeleton's own list when one was read (the tail was matched above), else the fixed four
+    "not_measured": [("tool-call parser IDENTITY (a serve flag; its presence was probed in step 5)" if probe and "tool-call parser" in n else n)
+                     for n in skeleton["not_measured"] if not n.startswith(("g6_expected_tail_ids", "end_of_turn_token_id"))] if skeleton
+                    else ["tokenizer_hash (G4: tokenizer.json identity)", "chat_template_hash (G4: the served template's bytes)",
+                          "weights revision", "sampling policy"],
     # what an acceptance under this file covers, per set (bring-your-own.md#what-an-acceptance-covers)
     "coverage": {
         "skill_card_hash": "derived here from this corpus's cards (G1); checked on every trace",
         "system_prompt_hash": "derived here from the inspected body's wire prompt (G2); checked on every trace",
         "tool_roster_hash": "carried from the reference — asserted equal above; checked on every trace (G3)",
         "settings_hash": "carried from the reference — asserted equal above; checked on every trace (G7's settings clause)",
-        "g6_expected_tail_ids": ("derived here from the endpoint's own render (G6); checked on every trace" if probe
+        "g6_expected_tail_ids": ("derived here from the endpoint's own render (G6); checked on every trace" if probe or measured
                                  else "the packaged reference tail (G6); checked on every trace"),
         "tokenizer_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
         "chat_template_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
@@ -289,8 +311,15 @@ pins = {
                     "re_pin": "re-run this script from a fresh quarantined episode after any corpus, harness, model or mode change",
                     "first_episode_validate": "yours: the next submit under GSJ_PINS_PATH must collect 1/1"},
 }
-if os.environ.get("MODE"):
-    pins["mode"] = os.environ["MODE"]
+if skeleton:
+    engine = skeleton["provenance"]["engine"]
+    if engine["served_model"]["served"]:
+        pins["provenance"]["engine"] = engine     # the endpoint as `up` probed it
+    else:
+        print(f"engine block NOT carried: `up` probed {engine['served_model']['id']!r} before it was served — re-run `up` to refresh the skeleton")
+    print(f"skeleton read {skeleton_path} (tail {'measured by up' if measured else 'not measured by up'})")
+if os.environ.get("MODE") or (skeleton and skeleton.get("mode")):
+    pins["mode"] = os.environ.get("MODE") or skeleton["mode"]
 out = run / "pins.gsj.json"
 out.write_text(json.dumps(pins, indent=2) + "\n")
 print(f"written  {out}")
@@ -316,11 +345,11 @@ PY
 
 ### What the walk proves, and what it does not
 
-Proved by the stranger (2026-09-06: `pip install` → scaffold → `up` → one episode quarantined `G2` + `G6` on `qwen3.6-27b` → inspected → derived → restarted → `collected 1/1`, findings `[]` in a fresh process, the receiver's, the poll's and the trainer's bodies equal) and re-walked at CP-92 on a workstation estate against the reference model (CP-92's `#your-model` script re-measured the stranger's `qwen3.6-27b` endpoint read-only and both reference modes; CP-92's accepted episode is the reference model's). Round three (2026-09-07, four containerised strangers on 0.1.10, the same `qwen3.6-27b` endpoint) reproduced both sections independently, twice: one stranger on the library's own scaffold derived `G2: 8b159eb8…` — the value CP-92 measured and round two's stranger measured before it — and `G1: c1ade0f2…`; another wrote its own six-page corpus, got a different G2 (`f1603bea…`) and G1 (`cc6509b3…`) correctly, ran the skill row, and both landed on the identical tail `[248045, 74455, 198, 248068, 271, 248069, 271]` and eot `248046`, with the roster `a7a7956b…` and settings `dae89485…` matched to the reference. Different hosts, corpora, models, agents; same procedure, same answers (one of them also noticed that this page publishes those very answers for that very endpoint, said so before running, and turned the walk into a check that they are still right — they were; the fix for the experiment is a different endpoint, not a page that withholds its measurements). Across the walks: the library's own scaffold and a stranger's corpus, a model the library never measured, five accepted episodes. Round four (2026-09-08, two more B-door strangers on 0.1.11, the same borrowed endpoint) walked it a third and fourth time: both derived the same file, both reached `collected 1/1` — one of them after `up` had died at the gateway-host probe one file short of `rollout.yaml` and resumed with `--gateway-host` (fixed as a class at CP-96), and one of them measured the endpoint's values before cloning so its own walk stayed a measurement. That stranger also asked why `up` writes no pins at all when it already holds the skeleton — the two carried hashes, the tail it measures, the `not_measured` and `coverage` blocks — leaving only the two hashes an inspected episode supplies; CP-96 argued it (ADR-0042): `up` will write that skeleton beside `rollout.yaml` as `pins.skeleton.json`, never as `pins.gsj.json`, so the file the gates read still comes from a person who read a quarantined body — parked on the next `estate.py` sitting that ships a wheel. Not proved: a training run consuming such episodes; the skill row, unless you ran it (its G1 hash is derived from the card's bytes either way); the estate-side G4 walk, which needs the snapshot and a checkout. A re-pin is the same walk from a fresh quarantined episode — after any change to `AGENTS.md`, a skill card, the harness settings, the model, its template, or the thinking mode; `estate.py update` says out loud when a corpus edit moves G1 or G2.
+Proved by the stranger (2026-09-06: `pip install` → scaffold → `up` → one episode quarantined `G2` + `G6` on `qwen3.6-27b` → inspected → derived → restarted → `collected 1/1`, findings `[]` in a fresh process, the receiver's, the poll's and the trainer's bodies equal) and re-walked at CP-92 on a workstation estate against the reference model (CP-92's `#your-model` script re-measured the stranger's `qwen3.6-27b` endpoint read-only and both reference modes; CP-92's accepted episode is the reference model's). Round three (2026-09-07, four containerised strangers on 0.1.10, the same `qwen3.6-27b` endpoint) reproduced both sections independently, twice: one stranger on the library's own scaffold derived `G2: 8b159eb8…` — the value CP-92 measured and round two's stranger measured before it — and `G1: c1ade0f2…`; another wrote its own six-page corpus, got a different G2 (`f1603bea…`) and G1 (`cc6509b3…`) correctly, ran the skill row, and both landed on the identical tail `[248045, 74455, 198, 248068, 271, 248069, 271]` and eot `248046`, with the roster `a7a7956b…` and settings `dae89485…` matched to the reference. Different hosts, corpora, models, agents; same procedure, same answers (one of them also noticed that this page publishes those very answers for that very endpoint, said so before running, and turned the walk into a check that they are still right — they were; the fix for the experiment is a different endpoint, not a page that withholds its measurements). Across the walks: the library's own scaffold and a stranger's corpus, a model the library never measured, five accepted episodes. Round four (2026-09-08, two more B-door strangers on 0.1.11, the same borrowed endpoint) walked it a third and fourth time: both derived the same file, both reached `collected 1/1` — one of them after `up` had died at the gateway-host probe one file short of `rollout.yaml` and resumed with `--gateway-host` (fixed as a class at CP-96), and one of them measured the endpoint's values before cloning so its own walk stayed a measurement. That stranger also asked why `up` writes no pins at all when it already holds the skeleton — the two carried hashes, the tail it measures, the `not_measured` and `coverage` blocks — leaving only the two hashes an inspected episode supplies; CP-96 argued it (ADR-0042) and CP-97 built it, shipped in 0.1.12: `up` writes that skeleton beside `rollout.yaml` as `pins.skeleton.json`, never as `pins.gsj.json` — with the tail and the end-of-turn id measured from the endpoint's own render (which is also how `builder.end_of_turn_token_id` stopped defaulting to the reference model's), under a format both the library and `up` refuse as pins — so the file the gates read still comes from a person who read a quarantined body, and the script above starts from what was measured. Not proved: a training run consuming such episodes; the skill row, unless you ran it (its G1 hash is derived from the card's bytes either way); the estate-side G4 walk, which needs the snapshot and a checkout. A re-pin is the same walk from a fresh quarantined episode — after any change to `AGENTS.md`, a skill card, the harness settings, the model, its template, or the thinking mode; `estate.py update` says out loud when a corpus edit moves G1 or G2.
 
 ## What an acceptance covers
 
-`collected 1/1` means the receiver's gates found nothing to complain about **under the pins in force** — and on a foreign endpoint not every approved set in that file is yours. The eight slots of a `gsj-pins/1` file, as the walk above leaves them (the demo's `bootstrap.py` writes the same shape, with the two G4 keys present and empty; `up` prints which sets are empty, and the file's `coverage` block says this per set):
+`collected 1/1` means the receiver's gates found nothing to complain about **under the pins in force** — and on a foreign endpoint not every approved set in that file is yours. The eight slots of a `gsj-pins/1` file, as the walk above leaves them (the demo's `bootstrap.py` writes the same shape, with the two G4 keys present and empty; `up` prints which sets are empty, writes the skeleton with the two derived sets empty since 0.1.12 — refused as pins by both sides — and the file's `coverage` block says this per set):
 
 | approved set | gate | after the walk on a foreign endpoint | what an acceptance therefore says |
 | --- | --- | --- | --- |
