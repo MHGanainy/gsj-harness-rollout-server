@@ -9,6 +9,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from conftest import cli_shape
+
 
 @pytest.fixture
 def est(tmp_path, monkeypatch):
@@ -21,8 +23,13 @@ def est(tmp_path, monkeypatch):
     # created — two READ-ONLY Docker calls (the daemon probe, the image
     # inspection) may precede the credential seam; anything else is still work
     def docker_canary(cmd, **kw):
-        if cmd[:2] == ["docker", "info"] or cmd[:3] == ["docker", "image", "inspect"]:
-            return subprocess.CompletedProcess(cmd, 0, "29.0.0\n", "")
+        # CP-98 (rule 10): the shapes are the measured ones — `info` answers the
+        # two words check_daemon asks for since CP-96 (this fake had kept the
+        # one-word answer), `image inspect` a present image's JSON array
+        if cmd[:2] == ["docker", "info"]:
+            return cli_shape("docker info --format {{.ServerVersion}} {{.Driver}}", cmd, stdout="29.0.0 overlay2\n")
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            return cli_shape("docker image inspect <present>", cmd, stdout="[\n  {}\n]\n")
         raise AssertionError(f"unexpected Docker call {cmd}")
 
     monkeypatch.setattr(module, "run", Mock(side_effect=docker_canary))

@@ -2464,14 +2464,19 @@ def reap_container(name: str, wait_s: float = PROBE_REAP_S) -> bool:
     create is still in flight when the client dies, and the container
     appears only when the copy ends (measured at CP-96's own proof: a
     `docker rm -f` a second after the kill found nothing, and the
-    container turned up `Created` four minutes later). True when it is
-    gone or never appeared within the bound."""
+    container turned up `Created` four minutes later). Removed is read off
+    STDOUT — the CLI prints the name it removed — because a name the
+    daemon has not produced yet is `docker rm -f`'s exit 0 as well, with
+    `No such container` on STDERR (CLI 28.5.1 / API 1.51, host and nested
+    vfs daemons alike; CP-96 read the exit code, so its bound never ran —
+    row 100, fixed at CP-98). True when it is gone; False when the daemon
+    had not produced it within the bound."""
     started = time.monotonic()
     while True:
-        removed = run(["docker", "rm", "-f", name], capture_output=True).returncode == 0
-        if removed:
+        proc = run(["docker", "rm", "-f", name], capture_output=True)
+        if proc.stdout.strip() == name:      # removed: the CLI names what it removed
             return True
-        if time.monotonic() - started >= wait_s:
+        if time.monotonic() - started >= wait_s:   # `No such container`: not produced yet
             return False
         time.sleep(2)
 
@@ -2535,10 +2540,12 @@ def probe_dial(network: str, candidates: list, gport: int, exec_container: str |
                    "driver (vfs) creating a container from a large image alone can take minutes")
     except OSError as exc:
         failure = f"could not start via {via}: {exc}"
+        cleanup = None                  # the client never ran: nothing was created, nothing to reap
     finally:
         if cleanup and not reap_container(cleanup):   # a killed `docker run --rm` never fires its --rm
-            failure = ((failure or "") + f"; the daemon is still creating {cleanup} — it will appear "
-                       f"as `Created` when the copy ends: `docker rm -f {cleanup}` removes it")
+            failure = ((failure or "") + f"; the daemon is still creating {cleanup} ({PROBE_REAP_S:.0f} s "
+                       f"of `docker rm -f` found nothing) — it will appear as `Created` when the copy "
+                       f"ends: `docker rm -f {cleanup}` removes it")
     if proc is not None and proc.returncode != 0 and not proc.stdout.strip():
         failure = (f"exit {proc.returncode} via {via}: "
                    + (proc.stderr.strip().splitlines() or ["no output"])[-1])

@@ -40,6 +40,7 @@ next: <advisory>
 - **R1 — do not reinvent**: name the off-the-shelf candidate before writing >50 lines of infrastructure; going custom needs an ADR.
 - **R2 — if confused, search first**: look for prior art; found → adopt and cite; not found → propose with a default under `questions:` and never stall.
 - **R3 — simplicity**: the simplest thing that satisfies the charter and the CP's Definition of Done; no abstraction the charter doesn't mandate.
+- **R4 — fakes are measured, never written** (charter §8 rule 10, CP-98): a test that fakes a CLI takes its exit code and streams from `estate/corpus/tests/cli_shapes.json` through `conftest.cli_shape`; the suite re-measures that file against the real CLI wherever a daemon answers. A shape the file lacks is measured first. Two shipped defects taught it (CP-84's Compose grammar, row 100's `docker rm -f`).
 
 ## Layout & commands
 
@@ -70,19 +71,19 @@ next: <advisory>
 │   ├── config.py                # SERVER — one YAML
 │   ├── client.py                # TRAINER — submit + collect
 │   └── cli.py                   # SERVER — the console script, below
-├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 463 — 462 + 1 skipped on the runner, the demo-thirty pin is local — + mcp-service 164)
+├── tests/                       # root suite: 176 tests across 9 modules (CI adds corpus 471 — 470 + 1 skipped on the runner, the demo-thirty pin is local; the job's label still reads 463, `.github/` not lifted at CP-98 — + mcp-service 164)
 ├── pins/                        # the approved sets (reference + thinking-on/) + container/ (the G2 singleton) + derive scripts — single source for the wheel copies
 ├── vendor/                      # Polar @ POLAR_SHA + patches/ (P1–P3) + apply_patches.sh + REVENDOR.md
 └── estate/                      # everything that stands the H200 test estate up — one roof since CP-50; outside the size law
     ├── README.md                #   the estate recipe (deltas vs the predecessor's BRINGUP) + the post-CP-50 data-migration note
     ├── estate.sh                #   the thin front door: bringup | up | owner | down | mcp-up | mcp-down | serve | serve-updated | health | status
-    ├── estate.py                #   the estate's one tool: scaffold | validate | up | ingest | update | status | down (CP-59's bring-up, renamed CP-72, update CP-73, up --decisions-dir CP-79, status on a partial run + the split pull refusals CP-92, status's three states via the run lock + the sandbox image checked first + the pull heartbeat CP-94, the readiness probe by `docker exec` into the run's own container that degrades instead of aborting + monotonic wait budgets printing what they waited + the building collection on the poll line + the verify headline counting skips + the heartbeat naming the layer phase + the storage driver named CP-96, the pins skeleton written beside rollout.yaml with the G6 tail and end-of-turn id measured from the endpoint's own render and refused as pins CP-97 (ADR-0042); outside the size law; force-included into the wheel as gsj_rollout.estate from 0.1.6 — gsj_rollout.bringup on wheels 0.1.3–0.1.5)
+    ├── estate.py                #   the estate's one tool: scaffold | validate | up | ingest | update | status | down (CP-59's bring-up, renamed CP-72, update CP-73, up --decisions-dir CP-79, status on a partial run + the split pull refusals CP-92, status's three states via the run lock + the sandbox image checked first + the pull heartbeat CP-94, the readiness probe by `docker exec` into the run's own container that degrades instead of aborting + monotonic wait budgets printing what they waited + the building collection on the poll line + the verify headline counting skips + the heartbeat naming the layer phase + the storage driver named CP-96, the pins skeleton written beside rollout.yaml with the G6 tail and end-of-turn id measured from the endpoint's own render and refused as pins CP-97 (ADR-0042), the fallback probe's reaper reading *removed* off the CLI's stdout so its bound engages CP-98; outside the size law; force-included into the wheel as gsj_rollout.estate from 0.1.6 — gsj_rollout.bringup on wheels 0.1.3–0.1.5)
     ├── runs/                    #   estate.py per-run directories (.env, run.json, traces) — ignored
     ├── rollout.h200.yaml        #   the one YAML for the H200 estate
     ├── serving/                 #   vLLM bring-up scripts + the served jinja + model envs (was staging/serving/)
     ├── forgejo/                 #   git-host bring-up: compose + up/down/create_owner
     ├── mcp-service/             #   the retrieval service — own suite (164), venv, Dockerfile, GHCR image
-    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (463) + staging/ (163 frozen fixture files)
+    └── corpus/                  #   the ingestion pipeline (ingest_corpus.py, force-included into the wheel; its own `python -m` entry deprecated since CP-72) + its suite (471 — since CP-98 it also re-measures `tests/cli_shapes.json` against the real CLI, skipping where no daemon answers) + staging/ (163 frozen fixture files)
 ```
 
 `spike/` (the CP-06 evidence) is off the tree since CP-68 — frozen at tag [`spike-cp06`](https://github.com/MHGanainy/gsj-harness-rollout-server/tree/spike-cp06/spike) (commit `a769771`, tree `2082a24f`), ADR-0029; restore with `git checkout spike-cp06 -- spike`.
@@ -93,7 +94,7 @@ Commands:
 
 ```
 pip install -e ".[dev]"
-pytest -q                                  # the root suite: 176 (corpus: .venv/bin/python -m pytest -q estate/corpus/tests → 463)
+pytest -q                                  # the root suite: 176 (corpus: .venv/bin/python -m pytest -q estate/corpus/tests → 471)
 gsj-rollout serve --config <yaml>          # renders topology.rendered.yaml, prints the two Polar
                                            # commands (operator-run), then runs OUR receiver
 gsj-rollout submit --config <yaml> \

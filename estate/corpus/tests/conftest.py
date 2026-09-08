@@ -5,6 +5,7 @@ pipeline's first-class hermetic rail (ADR-0047). No network, no Forgejo."""
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 import time
@@ -14,6 +15,31 @@ import pytest
 
 CORPUS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORPUS_DIR))
+
+# The real CLI's shapes, measured — CHARTER §8 rule 10 (CP-98): a fake's exit
+# code and streams come from this file, never from the test author's memory;
+# test_estate_cp98_reaper.py re-measures every entry against the CLI on PATH.
+CLI_SHAPES_PATH = Path(__file__).resolve().parent / "cli_shapes.json"
+CLI_SHAPES = json.loads(CLI_SHAPES_PATH.read_text(encoding="utf-8"))
+
+
+def cli_shape(key: str, cmd: list | None = None, **subs) -> subprocess.CompletedProcess:
+    """A faked CLI answer with the REAL CLI's shape: exit code, stdout and
+    stderr from cli_shapes.json, `{name}` filled from `subs`. `cmd` is the
+    argv the code under test ran (recorded on the CompletedProcess)."""
+    shape = CLI_SHAPES["shapes"][key]
+
+    def fill(text: str) -> str:     # `{name}` only — never str.format: a stream may hold braces
+        for k, v in subs.items():
+            text = text.replace("{" + k + "}", v)
+        return text
+
+    stdout = shape.get("stdout")
+    if stdout is None:      # the value is the host's, not the CLI's (`stdout_re`): the caller's literal
+        return subprocess.CompletedProcess(cmd or shape["argv"], shape["returncode"],
+                                           subs.get("stdout", ""), fill(shape["stderr"]))
+    return subprocess.CompletedProcess(cmd or shape["argv"], shape["returncode"],
+                                       fill(stdout), fill(shape["stderr"]))
 
 AGENTS_MD = "# AGENTS.md\n\nCite pages as `page:N` (file `md/page_NNNN.md`).\n"
 SKILL_MD = "# Skill: summarize\n\nSummarize; cite pages as `page:N`.\n"

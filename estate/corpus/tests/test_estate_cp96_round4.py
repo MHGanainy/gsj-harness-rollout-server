@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FakePull
+from conftest import FakePull, cli_shape
 
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
@@ -112,7 +112,7 @@ def test_probe_fallback_run_is_named_and_removed_in_a_finally_when_it_times_out(
             assert kw.get("timeout") == est.PROBE_RUN_TIMEOUT_S
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
         assert cmd[:3] == ["docker", "rm", "-f"], cmd
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+        return cli_shape("docker rm -f <present>", cmd, name=cmd[3])   # the CLI names what it removed
 
     monkeypatch.setattr(est, "run", fake_run)
     results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
@@ -127,23 +127,31 @@ def test_reap_container_keeps_trying_while_the_daemon_is_still_creating_it(est, 
     """CP-96's own proof found the race: a `docker rm -f` a second after the
     killed client found nothing, and the container turned up `Created` four
     minutes later when the vfs copy ended. The reaper retries for a bound
-    and, past it, the failure names the container and the command."""
+    and, past it, the failure names the container and the command.
+
+    CP-98 (row 100): the fake here used to answer exit 1 while the container
+    was missing — the real CLI answers exit 0 with `No such container` on
+    STDERR, and CP-96's loop read exit 0 as removed, so the bound this test
+    proved never ran on any daemon. The fake now takes the CLI's measured
+    shape (cli_shapes.json); against CP-96's implementation this test fails
+    on the call count (one call, not three) and on the bound (True, not
+    False)."""
     monkeypatch.setattr(est.time, "sleep", lambda s: None)
-    answers = iter([1, 1, 0])
+    answers = iter(["docker rm -f <missing>", "docker rm -f <missing>", "docker rm -f <present>"])
     calls = []
     monkeypatch.setattr(est, "run", lambda cmd, **kw: (calls.append(cmd),
-                                                       subprocess.CompletedProcess(cmd, next(answers), "", ""))[1])
+                                                       cli_shape(next(answers), cmd, name=cmd[3]))[1])
     assert est.reap_container("gsj-probe-1", wait_s=60) is True
     assert calls == [["docker", "rm", "-f", "gsj-probe-1"]] * 3
     clock = iter([0.0, 0.0, 31.0])
     monkeypatch.setattr(est.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "No such container"))
+    monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape("docker rm -f <missing>", cmd, name=cmd[3]))
     assert est.reap_container("gsj-probe-2", wait_s=30) is False
 
     def fake_run(cmd, **kw):
         if cmd[:2] == ["docker", "run"]:
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
-        return subprocess.CompletedProcess(cmd, 1, "", "No such container")
+        return cli_shape("docker rm -f <missing>", cmd, name=cmd[3])
 
     monkeypatch.setattr(est, "run", fake_run)
     monkeypatch.setattr(est, "reap_container", lambda name, wait_s=30: False)
@@ -225,9 +233,11 @@ def test_gateway_host_explicit_is_never_probed(est, monkeypatch):
 
 
 def test_container_running_reads_the_daemon(est, monkeypatch):
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "true\n", ""))
+    monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape("docker inspect --format {{.State.Running}} <running>", cmd, name="x"))
     assert est.container_running("x")
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "No such object"))
+    monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape("docker inspect --format {{.State.Running}} <created>", cmd, name="x"))
+    assert not est.container_running("x")
+    monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape("docker inspect --format {{.State.Running}} <missing>", cmd, name="x"))
     assert not est.container_running("x")
 
 
@@ -362,7 +372,7 @@ def test_rebuild_in_progress_reads_the_running_container_and_its_health(est, mon
     monkeypatch.setattr(est, "http", lambda *a, **k: (200, {"state": "ready"}))
     assert not est.rebuild_in_progress("http://127.0.0.1:8790", "gsj-canary-mcp")
     monkeypatch.setattr(est, "http", lambda *a, **k: (200, {"state": "indexing"}))
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "no such"))
+    monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape("docker inspect --format {{.State.Running}} <missing>", cmd, name="gsj-canary-mcp"))
     assert not est.rebuild_in_progress("http://127.0.0.1:8790", "gsj-canary-mcp")
 
 

@@ -1,0 +1,125 @@
+{
+  "format": "gsj-cli-shapes/1",
+  "why": "The real CLI's exit code and streams for every shape a test in this suite fakes and estate.py branches on. Measured, never written (CHARTER §8 rule 10, CP-98): test_estate_cp98_reaper.py re-measures each shape against the CLI on PATH wherever a daemon answers, and a fake takes its shape from here through conftest.cli_shape. Row 100 is why: CP-96's reaper test faked `docker rm -f <missing>` as exit 1, the real CLI answers exit 0 with the message on STDERR, and the bound the test proved never ran on any daemon. A `{name}` in a stream is the argument the command was given; `stdout_re` replaces `stdout` where the value is the host's, not the CLI's.",
+  "measured": {
+    "docker_client": "28.5.1",
+    "docker_server": "28.5.1",
+    "api": "1.51",
+    "daemons": [
+      "Docker Desktop 28.5.1 (API 1.51), overlayfs, arm64 — the workstation",
+      "a nested dockerd 29.8.0 (API 1.56) --storage-driver vfs inside the gsj-stranger box, driven by the 28.5.1 client — the round-four strangers' daemon (CP-97, CP-98)"
+    ],
+    "date": "2026-09-08",
+    "cp": "CP-98"
+  },
+  "shapes": {
+    "docker rm -f <present>": {
+      "setup": "created",
+      "argv": [
+        "docker",
+        "rm",
+        "-f",
+        "{name}"
+      ],
+      "returncode": 0,
+      "stdout": "{name}\n",
+      "stderr": "",
+      "read_by": "reap_container: removed iff stdout names the container"
+    },
+    "docker rm -f <missing>": {
+      "setup": "absent",
+      "argv": [
+        "docker",
+        "rm",
+        "-f",
+        "{name}"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "Error response from daemon: No such container: {name}\n",
+      "read_by": "reap_container: exit 0 is NOT removed (row 100)"
+    },
+    "docker inspect --format {{.State.Running}} <missing>": {
+      "setup": "absent",
+      "argv": [
+        "docker",
+        "inspect",
+        "--format",
+        "{{.State.Running}}",
+        "{name}"
+      ],
+      "returncode": 1,
+      "stdout": "\n",
+      "stderr": "Error: No such object: {name}\n",
+      "read_by": "container_running: returncode",
+      "note": "the template renders one empty line on stdout even when the object is missing — measured on 28.5.1 and 29.8.0; the first draft of this file wrote '' and the measuring test refused it on both daemons (CP-98)"
+    },
+    "docker inspect --format {{.State.Running}} <created>": {
+      "setup": "created",
+      "argv": [
+        "docker",
+        "inspect",
+        "--format",
+        "{{.State.Running}}",
+        "{name}"
+      ],
+      "returncode": 0,
+      "stdout": "false\n",
+      "stderr": "",
+      "read_by": "container_running: returncode + stdout == 'true'"
+    },
+    "docker inspect --format {{.State.Running}} <running>": {
+      "setup": "running",
+      "argv": [
+        "docker",
+        "inspect",
+        "--format",
+        "{{.State.Running}}",
+        "{name}"
+      ],
+      "returncode": 0,
+      "stdout": "true\n",
+      "stderr": "",
+      "read_by": "container_running: returncode + stdout == 'true'"
+    },
+    "docker image inspect <missing>": {
+      "setup": "image-absent",
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "{name}"
+      ],
+      "returncode": 1,
+      "stdout": "[]\n",
+      "stderr": "Error response from daemon: No such image: {name}\n",
+      "read_by": "image_present: returncode"
+    },
+    "docker info --format {{.ServerVersion}} {{.Driver}}": {
+      "setup": "daemon",
+      "argv": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}} {{.Driver}}"
+      ],
+      "returncode": 0,
+      "stdout_re": "^\\S+ \\S+\\n$",
+      "stderr": "",
+      "read_by": "check_daemon: returncode + the second word (the storage driver)"
+    },
+    "docker image inspect <present>": {
+      "setup": "image-present",
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "{name}"
+      ],
+      "returncode": 0,
+      "stdout_re": "^\\[\\n.*\\n\\]\\n$",
+      "stderr": "",
+      "read_by": "image_present: returncode (the JSON array on stdout is not read)"
+    }
+  }
+}

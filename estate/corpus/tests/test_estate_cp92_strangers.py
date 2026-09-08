@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FakePull
+from conftest import FakePull, cli_shape
 
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
@@ -120,7 +120,7 @@ def test_forgejo_pull_refusal_branches_on_where_the_pull_failed(est, monkeypatch
         if cmd[:2] == ["docker", "pull"]:
             return subprocess.CompletedProcess(cmd, 1, "", fake_run.stderr)
         if cmd[:3] == ["docker", "image", "inspect"]:
-            return subprocess.CompletedProcess(cmd, 1, "", "No such image")
+            return cli_shape("docker image inspect <missing>", cmd, name=cmd[3])   # CP-98: the measured shape
         raise AssertionError(f"unexpected docker call {cmd}")
 
     monkeypatch.setattr(est, "run", fake_run)
