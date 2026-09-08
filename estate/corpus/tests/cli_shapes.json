@@ -7,7 +7,8 @@
     "api": "1.51",
     "daemons": [
       "Docker Desktop 28.5.1 (API 1.51), overlayfs, arm64 — the workstation",
-      "a nested dockerd 29.8.0 (API 1.56) --storage-driver vfs inside the gsj-stranger box, driven by the 28.5.1 client — the round-four strangers' daemon (CP-97, CP-98)"
+      "a nested dockerd 29.8.0 (API 1.56) --storage-driver vfs inside the gsj-stranger box, driven by the 28.5.1 client — the round-four strangers' daemon (CP-97, CP-98)",
+      "Docker 28.0.4 (API 1.48) on the GitHub-hosted CI runner, overlay2, amd64 — where the `: unknown` suffix is absent (CP-99)"
     ],
     "date": "2026-09-08",
     "cp": "CP-98 (the file), CP-99 (the two `docker exec` shapes)"
@@ -132,10 +133,10 @@
         "print(1)"
       ],
       "returncode": 127,
-      "stdout": "OCI runtime exec failed: exec failed: unable to start container process: exec: \"python\": executable file not found in $PATH: unknown\n",
       "stderr": "",
       "read_by": "probe_dial: a non-zero exit with NO parsed dial line is the failure — the detail comes off stdout when stderr is empty",
-      "note": "measured at CP-99: the CLI writes its own refusal to STDOUT and leaves stderr EMPTY, so CP-96's `returncode != 0 and not proc.stdout.strip()` guard never fired here and `up` refused with `no host address is dialable` for a probe that never dialed. The adopted-retrieval-service shape: a container of somebody else's whose image has no python."
+      "note": "measured at CP-99: the CLI writes its own refusal to STDOUT and leaves stderr EMPTY, so CP-96's `returncode != 0 and not proc.stdout.strip()` guard never fired here and `up` refused with `no host address is dialable` for a probe that never dialed. The adopted-retrieval-service shape: a container of somebody else's whose image has no python. The TRAILING `: unknown` is the runtime's, not the CLI's, and it differs by version — present on Docker 28.5.1/API 1.51 (the workstation), absent on 28.0.4/API 1.48 (the CI runner, which is where this file's first cross-daemon disagreement was caught, CP-99). Hence `stdout_re`: what the code branches on is that stdout is non-empty and its last line is the detail, and both daemons agree on that.",
+      "stdout_re": "^OCI runtime exec failed: exec failed: unable to start container process: exec: \"python\": executable file not found in \\$PATH(: unknown)?\\n$"
     },
     "docker exec <absent> python -c <script>": {
       "setup": "absent",

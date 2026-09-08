@@ -347,8 +347,15 @@ def test_an_exec_that_could_not_start_the_interpreter_is_a_failure_not_a_silent_
     so that shape recorded NO failure, the dial parsed nothing, and `up`
     refused with `no host address is dialable` — a refusal about the network
     for a probe that never ran. The guard is the parsed dial now."""
+    # `stdout_re` in the file means the value is the host's, not the CLI's: the
+    # trailing `: unknown` is the runtime's and differs by version (present on
+    # 28.5.1, absent on the CI runner's 28.0.4 — CP-99's own CI caught it), so
+    # the fake carries a literal the measuring test accepts on both.
+    oci = ('OCI runtime exec failed: exec failed: unable to start container process: '
+           'exec: "python": executable file not found in $PATH: unknown\n')
     monkeypatch.setattr(est, "run", lambda cmd, **kw: cli_shape(
-        "docker exec <running> python -c <script>, no interpreter in the image", cmd, name=cmd[2]))
+        "docker exec <running> python -c <script>, no interpreter in the image", cmd,
+        name=cmd[2], stdout=oci))
     results, failure = est.probe_dial(NET, ["10.0.0.5"], 18299, "gsj-helix-mcp", None,
                                       "gsj-probe-abc")
     assert results == []
