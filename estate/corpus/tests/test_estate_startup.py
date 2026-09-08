@@ -80,6 +80,7 @@ def test_unidentified_custom_images_and_no_drop_remain_supported(image, drop):
 def waiting(monkeypatch, health, state=None, logs=""):
     clock = [100.0]
     monkeypatch.setattr(est.time, "time", lambda: clock[0])
+    monkeypatch.setattr(est.time, "monotonic", lambda: clock[0])   # CP-96: the budget's clock
     monkeypatch.setattr(est.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
     mcp = est.Mcp("http://127.0.0.1:9", "http://mcp:8790", "fixture-secret", "created")
     readings = iter(health)

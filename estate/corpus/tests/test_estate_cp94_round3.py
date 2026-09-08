@@ -22,6 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from conftest import FakePull
+
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
 STAGING = ESTATE_DIR / "corpus" / "staging"
@@ -239,7 +241,7 @@ def test_up_refuses_an_absent_sandbox_image_before_any_container_is_pulled_or_cr
     assert f"what to do: {REFUSAL_CURE}" in err
     assert "Traceback" not in err
     calls = docker["calls"].read_text().splitlines()
-    assert calls == ["info --format {{.ServerVersion}}", f"image inspect {HARNESS}"], calls
+    assert calls == ["info --format {{.ServerVersion}} {{.Driver}}", f"image inspect {HARNESS}"], calls   # CP-96: the driver rides the same call
     # nothing was pulled, composed, created or probed — and no run record landed
     assert not any(c.split()[0] in ("pull", "compose", "network", "run") for c in calls)
     assert not (tmp_path / "canary" / "run.json").exists()
@@ -256,7 +258,7 @@ def test_up_names_a_stopped_daemon_as_such_not_as_a_missing_image(tmp_path):
     assert proc.returncode == 1
     assert "the Docker daemon is not reachable" in proc.stderr
     assert "sandbox image" not in proc.stderr
-    assert docker["calls"].read_text().splitlines() == ["info --format {{.ServerVersion}}"]
+    assert docker["calls"].read_text().splitlines() == ["info --format {{.ServerVersion}} {{.Driver}}"]
 
 
 def test_skip_sandbox_image_records_the_absence_and_goes_on_to_the_next_docker_call(tmp_path):
@@ -276,7 +278,7 @@ def test_skip_sandbox_image_records_the_absence_and_goes_on_to_the_next_docker_c
     assert "sandbox image" not in proc.stderr
     assert "`docker compose` (v2 plugin) is missing" in proc.stderr
     calls = docker["calls"].read_text().splitlines()
-    assert calls[:2] == [f"image inspect {HARNESS}", "info --format {{.ServerVersion}}"]
+    assert calls[:2] == [f"image inspect {HARNESS}", "info --format {{.ServerVersion}} {{.Driver}}"]
 
 
 # ------------------------------------------------------- the pull heartbeat
@@ -295,12 +297,12 @@ def test_image_pull_prints_a_heartbeat_with_elapsed_and_host_bytes_while_the_pul
 
     monkeypatch.setattr(est, "host_rx_bytes", rx)
 
-    def fake_run(cmd, **kw):
-        assert cmd == ["docker", "pull", "example.invalid/big:1"] and kw.get("stderr") is subprocess.PIPE
-        time.sleep(0.5)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+    def fake_popen(cmd, **kw):
+        assert cmd == ["docker", "pull", "example.invalid/big:1"]
+        assert kw.get("stdout") is subprocess.PIPE and kw.get("stderr") is subprocess.PIPE
+        return FakePull(cmd, 0, delay=0.5)
 
-    monkeypatch.setattr(est, "run", fake_run)
+    monkeypatch.setattr(est, "popen", fake_popen)      # CP-96: the streaming seam
     proc = est.image_pull("example.invalid/big:1", "mcp")
     assert proc.returncode == 0
     out = capsys.readouterr().out
@@ -308,14 +310,13 @@ def test_image_pull_prints_a_heartbeat_with_elapsed_and_host_bytes_while_the_pul
     assert len(beats) >= 2, out
     assert all("elapsed" in b and "this host received 3.0 MiB" in b and "the pipe is moving" in b
                for b in beats), beats
-    assert "a heartbeat every 0s says whether this host's pipe is moving" in out
+    assert "a heartbeat every 0s says which phase the layers are in" in out
 
 
 def test_image_pull_heartbeat_says_nothing_moved_and_names_the_three_checks(est, monkeypatch, capsys):
     monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
     monkeypatch.setattr(est, "host_rx_bytes", lambda: 42)
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: (time.sleep(0.4),
-                                                       subprocess.CompletedProcess(cmd, 1, "", "boom"))[1])
+    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 1, stderr="boom", delay=0.4))
     proc = est.image_pull("example.invalid/big:1", "forgejo")
     assert proc.returncode == 1 and proc.stderr == "boom"
     out = capsys.readouterr().out
@@ -325,15 +326,14 @@ def test_image_pull_heartbeat_says_nothing_moved_and_names_the_three_checks(est,
 def test_image_pull_without_readable_counters_still_beats(est, monkeypatch, capsys):
     monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
     monkeypatch.setattr(est, "host_rx_bytes", lambda: None)
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: (time.sleep(0.4),
-                                                       subprocess.CompletedProcess(cmd, 0, "", ""))[1])
+    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0, delay=0.4))
     est.image_pull("example.invalid/big:1", "mcp")
     out = capsys.readouterr().out
     assert "byte counters are not readable here" in out
 
 
 def test_image_pull_returns_at_once_for_a_fast_pull_with_no_heartbeat(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0))
     proc = est.image_pull("example.invalid/small:1", "mcp")
     assert proc.returncode == 0
     assert "still pulling" not in capsys.readouterr().out

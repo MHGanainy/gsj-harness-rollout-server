@@ -115,6 +115,7 @@ SCHEMA = 1
 # 52; the mirror code.forgejo.org still serves it at the same digest) —
 # hence --forgejo-image: any registry event is routed around with one flag.
 FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.3"
+FORGEJO_HEALTHZ_BUDGET_S = 120.0
 FORGEJO_IMAGE_DIGEST = "sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
 FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, measured digest-equal
 MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"   # CP-79's published two-platform decisions image
@@ -198,6 +199,22 @@ PH = Phases()
 
 def run(cmd: list, **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, text=True, **kw)
+
+
+def run_phase(cmd: list, env: dict, phase: str) -> subprocess.CompletedProcess:
+    """One pipeline phase as a subprocess. `verify` is captured and
+    re-emitted with its headline corrected (CP-96, `verify_headline`);
+    every other phase streams as before."""
+    if phase != "verify":
+        return run(cmd, env=env)
+    proc = run(cmd, env=env, capture_output=True)
+    if proc.stdout:
+        print(verify_headline(proc.stdout), end="" if proc.stdout.endswith("\n") else "\n",
+              flush=True)
+    if proc.stderr:
+        print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n",
+              file=sys.stderr, flush=True)
+    return proc
 
 
 def http(method: str, url: str, body: dict | None = None, *,
@@ -842,12 +859,25 @@ def check_daemon() -> None:
         die("`docker` is not on PATH.", None, "Docker with the compose v2 plugin",
             "install Docker (https://docs.docker.com/engine/install/) or "
             "adopt existing services instead of creating them")
-    probe = run(["docker", "info", "--format", "{{.ServerVersion}}"],
+    probe = run(["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}}"],
                 capture_output=True)
     if probe.returncode != 0:
         die("the Docker daemon is not reachable.",
             (probe.stderr.strip().splitlines() or ["nothing"])[-1],
             "a running daemon", "start Docker (or fix socket permissions), then re-run")
+    driver = (probe.stdout.split() + ["", ""])[1]
+    if driver in COPY_ON_CREATE_DRIVERS:
+        # CP-96 (round four): the price of a copy-on-create daemon surfaced
+        # post-mortem — ~13 GB per sandbox container, minutes per create,
+        # Polar's 600 s sandbox-create budget blown — from the same call
+        # that already answers "is there a daemon"
+        warn("docker", f"storage driver {driver!r}: every container is a full COPY of its image, "
+                       "not a layer over it — each episode's sandbox container copies the harness "
+                       "image (~13 GB per container and minutes per create measured at round four; "
+                       "Polar's 600 s sandbox-create budget was blown on a busy host), and the "
+                       "retrieval container copies its 4 GB image before it can start. The cure is "
+                       "the daemon, not this tool: a data root on ext4/xfs with overlay2 (a nested "
+                       "daemon: `-v /var/lib/docker`). Continuing — slowly")
 
 
 def check_docker() -> None:
@@ -890,6 +920,9 @@ def image_tag(image: str) -> str:
 # and a captured child printed nothing at all. Either could not tell a
 # working pull from a hung one without sampling /proc/net/dev by hand.
 PULL_HEARTBEAT_S = float(os.environ.get("GSJ_ESTATE_PULL_HEARTBEAT_S", "60"))
+COPY_ON_CREATE_DRIVERS = ("vfs",)   # CP-96: named at the first Docker call, not in a post-mortem
+HEALTH_TIMEOUT_S = 15.0         # one /health read (CP-96: 5 s read a slow host as unreachable)
+SLEEP_SKEW_S = 30.0             # wall minus monotonic beyond this = the host slept (CP-96)
 
 
 def host_rx_bytes() -> int | None:
@@ -926,46 +959,124 @@ def _human(n: int) -> str:
     return f"{n:.1f} GiB"
 
 
+def popen(cmd: list, **kw) -> subprocess.Popen:
+    """The streaming seam beside `run` (CP-96): a process whose stdout is
+    read line by line while it runs — the tests hand back a fake."""
+    return subprocess.Popen(cmd, text=True, **kw)
+
+
+# `docker pull` without a TTY prints one line per layer state transition:
+# "<id>: Pulling fs layer" → "Downloading" → "Verifying Checksum" →
+# "Download complete" → "Extracting" → "Pull complete" (and "Already exists").
+_PULL_STATES = ("Pull complete", "Already exists", "Extracting", "Download complete",
+                "Verifying Checksum", "Downloading", "Pulling fs layer", "Waiting")
+
+
+def pull_phase_tally(layers: dict, line: str) -> None:
+    """Fold one line of docker's pull output into the per-layer state map."""
+    head, sep, state = line.strip().partition(": ")
+    if not sep or " " in head or len(head) < 8:
+        return                                  # the tag line, Digest:, Status:
+    for known in _PULL_STATES:
+        if state.startswith(known):
+            layers[head] = known
+            return
+
+
+def pull_phase_summary(layers: dict) -> tuple[str, bool]:
+    """What the layers are doing, and whether the pipe SHOULD be moving —
+    round four (CP-96): a heartbeat that reads only received bytes said
+    "the pipe is moving" through an extraction (26 KiB of noise) and a
+    stranger counted `Download complete` against `Pull complete` by hand to
+    tell a phase change from a stall. Extraction expects no bytes."""
+    if not layers:
+        return "no layer line from docker yet (the manifest is still being resolved)", True
+    counts = {s: 0 for s in _PULL_STATES}
+    for state in layers.values():
+        counts[state] += 1
+    done = counts["Pull complete"] + counts["Already exists"]
+    downloading = counts["Downloading"] + counts["Pulling fs layer"] + counts["Waiting"]
+    queued = counts["Download complete"] + counts["Verifying Checksum"]
+    parts = [f"{done}/{len(layers)} layers complete"]
+    if counts["Extracting"]:
+        parts.append(f"{counts['Extracting']} extracting")
+    if queued:
+        parts.append(f"{queued} downloaded, waiting to extract")
+    if downloading:
+        parts.append(f"{downloading} downloading")
+    text = ", ".join(parts)
+    if downloading:
+        return text, True
+    if counts["Extracting"] or queued:
+        return text + " — EXTRACTION: no bytes are expected on the pipe now", False
+    return text, True
+
+
 def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
     """One pull, said out loud; the caller decides what a failure means.
     docker's own stdout passes through live (a TTY draws bytes per layer; a
     log gets one line per layer state — and a large layer on a slow pipe
     prints nothing until it lands), stderr is kept for the refusal, and once
-    a minute a heartbeat says how long the pull has run and how many bytes
-    this host received meanwhile — what a reader needs before concluding it
-    hung (docs/guide/troubleshooting.md, the pull row)."""
+    a minute a heartbeat says how long the pull has run, which phase its
+    layers are in (CP-96: extraction expects no bytes, so a quiet pipe is
+    not a stall there) and how many bytes this host received meanwhile —
+    what a reader needs before concluding it hung
+    (docs/guide/troubleshooting.md, the pull row)."""
     say(phase, f"{image} is absent on this daemon — pulling it (docker's progress follows; a "
                f"large layer on a slow pipe prints nothing until it lands — a heartbeat every "
-               f"{PULL_HEARTBEAT_S:.0f}s says whether this host's pipe is moving)")
-    result: dict = {}
+               f"{PULL_HEARTBEAT_S:.0f}s says which phase the layers are in and whether this "
+               "host's pipe is moving)")
+    layers: dict = {}
+    errors: list = []
+    cmd = ["docker", "pull", image]
+    try:
+        proc = popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as exc:
+        return subprocess.CompletedProcess(cmd, 1, "", f"{type(exc).__name__}: {exc}")
 
-    def worker() -> None:
+    def drain_stderr() -> None:
         try:
-            result["proc"] = run(["docker", "pull", image], stderr=subprocess.PIPE)
-        except BaseException as exc:  # noqa: BLE001 — surfaced as a failed pull
-            result["proc"] = subprocess.CompletedProcess(["docker", "pull", image], 1, "",
-                                                         f"{type(exc).__name__}: {exc}")
+            errors.append(proc.stderr.read() or "")
+        except (OSError, ValueError):
+            pass
 
-    puller = threading.Thread(target=worker, daemon=True)
-    puller.start()
+    def drain_stdout() -> None:
+        try:
+            for line in proc.stdout:
+                print(line, end="" if line.endswith("\n") else "\n", flush=True)
+                pull_phase_tally(layers, line)
+        except (OSError, ValueError):
+            pass
+
+    drainers = [threading.Thread(target=t, daemon=True) for t in (drain_stderr, drain_stdout)]
+    for t in drainers:
+        t.start()
     started, rx0 = time.monotonic(), host_rx_bytes()
     while True:
-        puller.join(PULL_HEARTBEAT_S)
-        if not puller.is_alive():
+        try:
+            proc.wait(timeout=PULL_HEARTBEAT_S)
             break
+        except subprocess.TimeoutExpired:
+            pass
         rx1 = host_rx_bytes()
+        where, expects_bytes = pull_phase_summary(layers)
         if rx0 is None or rx1 is None:
             moved = "this host's byte counters are not readable here"
         elif rx1 - rx0 > 0:
             moved = f"this host received {_human(rx1 - rx0)} in the last {PULL_HEARTBEAT_S:.0f}s — the pipe is moving"
+        elif not expects_bytes:
+            moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — as expected "
+                     "while the daemon extracts (watch the daemon's data root grow instead)")
         else:
             moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — before killing it, "
                      "the three checks: docs/guide/troubleshooting.md, the pull row")
         rx0 = rx1
         elapsed = int(time.monotonic() - started)
-        say(phase, f"still pulling {image} — {elapsed // 60}m{elapsed % 60:02d}s elapsed; {moved} "
-                   "(a liveness signal for the pipe, not the pull's own byte count)")
-    return result["proc"]
+        say(phase, f"still pulling {image} — {elapsed // 60}m{elapsed % 60:02d}s elapsed; {where}; "
+                   f"{moved} (a liveness signal for the pipe, not the pull's own byte count)")
+    for t in drainers:                          # the last lines land before the verdict
+        t.join(timeout=5)
+    return subprocess.CompletedProcess(cmd, proc.returncode, "", "".join(errors))
 
 
 # CP-92 (the stranger runs of 2026-09-06): a pull can fail AFTER the
@@ -982,6 +1093,25 @@ _STORAGE_WORDS = ("layer", "extract", "mount", "overlay", "snapshotter", "unpack
                   "whiteout", "rootfs")
 _TRANSPORT_MARKS = ("dial tcp", "lookup ", "tls handshake", "unexpected eof",
                     "connection refused", "no such host", "i/o timeout", "manifest unknown")
+
+
+_VERIFY_HEADLINE = re.compile(r"^== verify: (PASS|FAIL) \((\d+) pass / (\d+) fail\) ==$", re.M)
+
+
+def verify_headline(text: str) -> str:
+    """The pipeline's verify table counts a SKIPPED row as a pass in its
+    headline (`8 pass / 0 fail` with `mcp — SKIPPED (--skip-ingest)` among
+    the rows — round four, CP-96). The detail row is honest; the headline
+    is corrected here, in the driver, until ingest_corpus.py's next lift."""
+    m = _VERIFY_HEADLINE.search(text)
+    if not m:
+        return text
+    skipped = sum(1 for line in text.splitlines() if "  SKIPPED (" in line)
+    if not skipped:
+        return text
+    passed = int(m.group(2)) - skipped
+    return text[:m.start()] + (f"== verify: {m.group(1)} ({passed} pass / {skipped} skipped / "
+                               f"{m.group(3)} fail) ==") + text[m.end():]
 
 
 def pull_failure_kind(stderr: str) -> str:
@@ -1348,15 +1478,17 @@ def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
              "below was measured on the pinned bytes, so read this run's phases "
              "critically (pin bytes with --forgejo-image name@sha256:…)")
     url = f"http://127.0.0.1:{port}"
-    deadline = time.time() + 120
-    while time.time() < deadline:
+    started, wall0 = time.monotonic(), time.time()     # monotonic budget (CP-96)
+    while time.monotonic() - started < FORGEJO_HEALTHZ_BUDGET_S:
         if http("GET", f"{url}/api/healthz", timeout=3)[0] == 200:
             break
         time.sleep(2)
     else:
-        die("Forgejo did not answer /api/healthz within 120 s.", None, None,
+        die(f"Forgejo did not answer /api/healthz within the {FORGEJO_HEALTHZ_BUDGET_S:.0f} s budget.",
+            f"waited {time.monotonic() - started:.0f} s on this process's clock (the wall clock "
+            f"advanced {time.time() - wall0:.0f} s)", "HTTP 200 from /api/healthz",
             f"docker logs {container}; the first start initialises the "
-            f"instance — re-run once it settles")
+            f"instance — re-run once it settles (the run is resumable)")
     # the admin: created once via the in-container CLI with a RANDOM password
     # (never on an argv), kept in the run's .env
     listing = compose(rundir, "exec", "-T", "forgejo", "su", "git", "-c",
@@ -1657,7 +1789,7 @@ def mcp_config_review(doc: dict, cfg_path: Path,
         origin = ("the corpus's own decisions/ (corpus-contract v3, locked in decisions.lock.json)"
                   if decisions_source == "corpus" else "--decisions-dir, the override")
         lines.append(f"      decisions           rii-dok v1 drop — {count} .xml file(s) in {decisions_dir} (read-only; {origin}), not the synthetic generator\n"
-                     "          Randnummern chunks from the drop; above ~5,000 units on CPU this can be minutes, not seconds")
+                     "          Randnummern chunks from the drop; a cold embed is minutes on a contended CPU host (round four: a 313-unit drop inside a laptop's nested container), seconds on an idle server")
     else:
         lines.append(f"      decisions           synthetic (seed {d.get('seed')}, corpus_size {d.get('corpus_size')}) — no real court text; synthetic 30 by default (no drop)")
     return "\n".join(lines)
@@ -1771,19 +1903,63 @@ class Mcp:
         self.mode = mode
 
     def health(self) -> dict | None:
-        status, body = http("GET", f"{self.url}/health", timeout=5)
+        # 15 s, not 5 (CP-96): on a contended CPU host a slow /health read
+        # as "unreachable" and started the docker inspect/logs cascade
+        status, body = http("GET", f"{self.url}/health", timeout=HEALTH_TIMEOUT_S)
         return body if status == 200 and isinstance(body, dict) else None
+
+    @staticmethod
+    def progress_line(h: dict) -> str:
+        """The poll line: the case collections' fetched/embedded counts, and
+        — CP-96, round four — the collection the service is BUILDING right
+        now from its per-batch `build` block (mcp-service state.py, CP-77):
+        while a decisions drop embeds, `progress` names only the case
+        collections (both done) and reads as finished; a stranger diagnosed
+        a healthy service as wedged and restarted it."""
+        prog = h.get("progress") or {}
+        fetched = sum(1 for p in prog.values() if p.get("done"))
+        embedded = sum(1 for p in prog.values() if p.get("embedded"))
+        line = (f"{h.get('state')}: {fetched}/{len(prog)} cases fetched, "
+                f"{embedded}/{len(prog)} embedded")
+        b = h.get("build")
+        # the block stays on a collection's LAST batch until the next
+        # collection's first batch lands (measured: 30 s between the last
+        # case and a 4,089-piece drop's first batch) — say so, not "building"
+        stale = (isinstance(b, dict) and b.get("collection") in prog
+                 and prog[b["collection"]].get("embedded") and b.get("batch") == b.get("batches"))
+        if isinstance(b, dict) and b.get("collection") and not stale:
+            line += (f"; building {b['collection']}: batch {b.get('batch')}/{b.get('batches')} "
+                     f"({b.get('vectors')}/{b.get('total')} vectors)")
+        elif h.get("state") not in ("ready", "error") and prog and embedded == len(prog):
+            line += ("; the service is still working (the next collection has not reported a batch yet)"
+                     if stale else "; the service is still working (no batch has landed yet)")
+        return line
 
     def wait_ready(self, timeout_s: float, what: str,
                    container: str | None = None) -> dict:
-        deadline = time.time() + timeout_s
+        # CP-96: the budget is MONOTONIC — a suspended host no longer burns it
+        # (round four's overnight run slept under a wall-clock deadline);
+        # the wall clock is read beside it so a sleep shows in the log
+        started, wall0 = time.monotonic(), time.time()
+        deadline = started + timeout_s
         last = None
+        last_said = started
         silent_since = None
-        while time.time() < deadline:
+        last_tail = None
+        skew_said = 0.0
+        while time.monotonic() < deadline:
+            elapsed = time.monotonic() - started
+            skew = (time.time() - wall0) - elapsed
+            if skew - skew_said > SLEEP_SKEW_S:
+                warn("mcp", f"the wall clock advanced {time.time() - wall0:.0f} s while this "
+                            f"process waited {elapsed:.0f} s — the host slept or was paused "
+                            f"for ~{skew:.0f} s; the {timeout_s:.0f} s budget (--ingest-timeout) "
+                            "counts only the time this process waited")
+                skew_said = skew
             h = self.health()
             if h is None:
                 line = "unreachable"
-                silent_since = silent_since or time.time()
+                silent_since = silent_since or time.monotonic()
                 state = {}
                 if container:
                     inspected = run(["docker", "inspect", "--format", "{{json .State}}", container],
@@ -1796,12 +1972,16 @@ class Mcp:
                     if not isinstance(state, dict):
                         state = {}
                 terminal = state.get("Status") in ("exited", "dead", "restarting")
-                if container and (terminal or time.time() - silent_since > 20):
+                quiet = time.monotonic() - silent_since
+                if container and (terminal or (quiet > 20 and (
+                        last_tail is None or time.monotonic() - last_tail > 20))):
                     # a service that stops answering is not "still indexing":
-                    # read the container's own tail once before waiting on
-                    # (measured at CP-59: the amd64 image under qemu on an
-                    # arm64 daemon segfaults at the embed step and the
-                    # container stays "running" with a dead process)
+                    # read the container's own tail (once per 20 s, CP-96 —
+                    # not every poll) before waiting on (measured at CP-59:
+                    # the amd64 image under qemu on an arm64 daemon
+                    # segfaults at the embed step and the container stays
+                    # "running" with a dead process)
+                    last_tail = time.monotonic()
                     tail = run(["docker", "logs", "--tail", "20", container],
                                capture_output=True)
                     text = (tail.stdout or "") + (tail.stderr or "")
@@ -1827,16 +2007,21 @@ class Mcp:
                             "a running service answering /health while it indexes", fix)
             else:
                 silent_since = None
-                prog = h.get("progress") or {}
-                fetched = sum(1 for p in prog.values() if p.get("done"))
-                embedded = sum(1 for p in prog.values() if p.get("embedded"))
-                line = (f"{h.get('state')}: {fetched}/{len(prog)} cases fetched, "
-                        f"{embedded}/{len(prog)} embedded")
+                line = self.progress_line(h)
+            if h and h.get("state") == "ready":
+                say("mcp", f"{what}: {line} — waited {elapsed:.0f} s of the "
+                           f"{timeout_s:.0f} s budget")
+                return h
             if line != last:
                 say("mcp", f"{what}: {line}")
-                last = line
-            if h and h.get("state") == "ready":
-                return h
+                last, last_said = line, time.monotonic()
+            elif time.monotonic() - last_said >= PULL_HEARTBEAT_S:
+                # nothing changed for a heartbeat interval: say so with the
+                # measured wait (CP-96 — the log used to go silent for the
+                # whole embed, and could not show a resumed host's clocks)
+                say("mcp", f"{what}: still {line} — waited {elapsed:.0f} s of the "
+                           f"{timeout_s:.0f} s budget")
+                last_said = time.monotonic()
             if h and h.get("state") == "error":
                 die("the retrieval service reached state=error.",
                     h.get("error"), "state=ready",
@@ -1848,13 +2033,19 @@ class Mcp:
                     "model; a clone failure means the read token or the "
                     "Forgejo URL as seen from the container is wrong")
             time.sleep(3)
-        fix = ("large corpora embed for a while on cpu — re-run to keep waiting "
-               "(the index survives), or --ingest-timeout" if last != "unreachable" else
+        elapsed = time.monotonic() - started
+        fix = ("the service is still building (a cold embed on a contended CPU host is minutes, "
+               "not seconds — round four's laptops, four containers deep): "
+               "re-run `up` WITHOUT --rebuild to keep waiting — the index survives and the "
+               "service keeps building; a re-run WITH --rebuild would recreate the container and "
+               "embed from zero — or raise --ingest-timeout" if last != "unreachable" else
                f"check {self.url}/health and the service's startup logs "
                + (f"(`docker logs --tail 80 {container}`); " if container else "; ")
                + "correct the service URL or startup error, then re-run")
-        die(f"the retrieval service did not reach state=ready within {timeout_s:.0f} s.",
-            last, "state=ready", fix)
+        die(f"the retrieval service did not reach state=ready within the {timeout_s:.0f} s "
+            "budget (--ingest-timeout).",
+            f"waited {elapsed:.0f} s on this process's clock (the wall clock advanced "
+            f"{time.time() - wall0:.0f} s); last: {last}", "state=ready", fix)
 
     def reindex(self) -> tuple[int, object]:
         token = ic.mint_admin_token(self.secret)
@@ -1925,8 +2116,106 @@ def host_ipv4s() -> list[str]:
     return ips
 
 
+PROBE_EXEC_TIMEOUT_S = 60.0     # a `docker exec` dial loop: 3 s per candidate + slack
+PROBE_RUN_TIMEOUT_S = 120.0     # the fallback `docker run` — the create is the cost
+PROBE_REAP_S = 30.0             # how long a `finally` keeps trying to remove a killed run's container
+
+
+def reap_container(name: str, wait_s: float = PROBE_REAP_S) -> bool:
+    """Remove a named container a killed `docker run` client left to the
+    daemon — and keep trying for a bound: on a copy-on-create daemon the
+    create is still in flight when the client dies, and the container
+    appears only when the copy ends (measured at CP-96's own proof: a
+    `docker rm -f` a second after the kill found nothing, and the
+    container turned up `Created` four minutes later). True when it is
+    gone or never appeared within the bound."""
+    started = time.monotonic()
+    while True:
+        removed = run(["docker", "rm", "-f", name], capture_output=True).returncode == 0
+        if removed:
+            return True
+        if time.monotonic() - started >= wait_s:
+            return False
+        time.sleep(2)
+
+
+def container_running(name: str) -> bool:
+    proc = run(["docker", "inspect", "--format", "{{.State.Running}}", name],
+               capture_output=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def rebuild_in_progress(url: str, container: str) -> bool:
+    """A running retrieval container whose /health says it is still
+    indexing (not ready, not error) — the state a timed-out --rebuild
+    leaves behind (CP-96)."""
+    if not container_running(container):
+        return False
+    status, body = http("GET", f"{url.rstrip('/')}/health", timeout=HEALTH_TIMEOUT_S)
+    return (status == 200 and isinstance(body, dict)
+            and body.get("state") not in (None, "ready", "error"))
+
+
+def probe_dial(network: str, candidates: list, gport: int, exec_container: str | None,
+               probe_image: str | None) -> tuple[list, str | None]:
+    """Dial every candidate from INSIDE the run's network and say which
+    answered — (results, failure). The class fix of CP-96 (round four, four
+    times in three containers, both codebases): the probe used to `docker
+    run --rm` the 731 MiB sandbox image under a 120 s budget, and on a
+    copy-on-create storage driver the create alone outlasts the budget, so
+    the probe could never pass there however often `up` re-ran — and the
+    killed `docker run --rm` never fired its --rm, leaving a Created
+    container per attempt. Now: `docker exec` into a container this run
+    already has running on the network (nothing is created, nothing can
+    leak); only with none available does it fall back to a NAMED `docker
+    run` of the sandbox image that a `finally` removes; and whatever times
+    out is caught and reported, never raised."""
+    dial = ("import urllib.request as u\nfor h in %s:\n"
+            "    try:\n        r = u.urlopen('http://%%s:%d/' %% h, timeout=3)\n"
+            "        print(h, 'OK', r.status)\n"
+            "    except Exception:\n        print(h, 'FAIL')\n"
+            % (json.dumps(candidates), gport))
+    js = ("const c=%s;(async()=>{for(const h of c){try{const r=await fetch("
+          "'http://'+h+':%d/',{signal:AbortSignal.timeout(3000)});"
+          "console.log(h,'OK',r.status)}catch(e){console.log(h,'FAIL')}}})()"
+          % (json.dumps(candidates), gport))
+    if exec_container:
+        cmd, budget, cleanup = (["docker", "exec", exec_container, "python", "-c", dial],
+                                PROBE_EXEC_TIMEOUT_S, None)
+        via = f"`docker exec {exec_container}` (this run's own container, already on {network!r})"
+    elif probe_image:
+        cleanup = f"gsj-probe-{os.getpid()}"
+        cmd, budget = (["docker", "run", "--name", cleanup, "--network", network, probe_image,
+                        "node", "-e", js], PROBE_RUN_TIMEOUT_S)
+        via = f"a `docker run` of {probe_image} named {cleanup} (removed after)"
+    else:
+        return [], "no container to dial from (the retrieval service is adopted and the sandbox image is absent)"
+    proc, failure = None, None
+    try:
+        proc = run(cmd, capture_output=True, timeout=budget)
+    except subprocess.TimeoutExpired:
+        failure = (f"timed out after {budget:.0f} s via {via} — on a copy-on-create storage "
+                   "driver (vfs) creating a container from a large image alone can take minutes")
+    except OSError as exc:
+        failure = f"could not start via {via}: {exc}"
+    finally:
+        if cleanup and not reap_container(cleanup):   # a killed `docker run --rm` never fires its --rm
+            failure = ((failure or "") + f"; the daemon is still creating {cleanup} — it will appear "
+                       f"as `Created` when the copy ends: `docker rm -f {cleanup}` removes it")
+    if proc is not None and proc.returncode != 0 and not proc.stdout.strip():
+        failure = (f"exit {proc.returncode} via {via}: "
+                   + (proc.stderr.strip().splitlines() or ["no output"])[-1])
+    results: list = []
+    for line in (proc.stdout if proc is not None else "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in candidates:
+            results.append({"candidate": parts[0], "reachable": parts[1] == "OK"})
+    return results, failure
+
+
 def gateway_host(network: str, gport: int, explicit: str | None,
-                 probe_image: str | None, recorded: str | None = None) -> tuple[str, str, list]:
+                 probe_image: str | None, recorded: str | None = None,
+                 exec_container: str | None = None) -> tuple[str, str, list]:
     """ONE address reachable from host dispatch AND from inside episode
     containers (CP-03 finding 2) — MEASURED, not assumed: a listener on
     the gateway port, and a container on the run's network dialing every
@@ -1935,78 +2224,83 @@ def gateway_host(network: str, gport: int, explicit: str | None,
     LAN interface was host-only, host.docker.internal container-only, and a
     VPN interface the one address both could dial — no heuristic knows that.
     Candidates: the compose network's gateway IP (Linux — the H200's answer),
-    then every host IPv4."""
+    then every host IPv4. The dial runs inside `exec_container` when the run
+    has one (CP-96); a probe that cannot run DEGRADES to the first candidate,
+    labelled unmeasured, with the flag that writes a better one — it no
+    longer aborts a bring-up one file short of rollout.yaml."""
     if explicit:
         return explicit, "--gateway-host (not probed)", []
     candidates: list[str] = []
+    origin: dict[str, str] = {}
     if platform.system() == "Linux" and shutil.which("docker"):
         proc = run(["docker", "network", "inspect", network, "--format",
                     "{{(index .IPAM.Config 0).Gateway}}"], capture_output=True)
         if proc.returncode == 0 and proc.stdout.strip():
             candidates.append(proc.stdout.strip())
+            origin[candidates[-1]] = f"the gateway IP of the compose network {network!r}"
     if recorded and recorded not in candidates:
         candidates.append(recorded)     # the run's last measured answer, re-measured
-    candidates += [ip for ip in host_ipv4s() if ip not in candidates]
+        origin[recorded] = "the run's last recorded answer"
+    for ip in host_ipv4s():
+        if ip not in candidates:
+            candidates.append(ip)
+            origin[ip] = "a host IPv4"
     try:                                # Docker Desktop with the /etc/hosts line:
         socket.gethostbyname("host.docker.internal")   # both sides dial the name
         candidates.insert(0, "host.docker.internal")
+        origin["host.docker.internal"] = "the name this host resolves (an /etc/hosts line)"
     except OSError:
         pass
     results: list = []
-    if probe_image and candidates and shutil.which("docker"):
-        import threading
+    if not candidates:
+        return "127.0.0.1", "fallback — 127.0.0.1 is NOT reachable from a sandbox", results
+    first = f"{candidates[0]} = {origin.get(candidates[0], 'the first candidate')}"
+    if not shutil.which("docker") or not (exec_container or probe_image):
+        warn("config", f"no container to dial from ({'no docker on PATH' if not shutil.which('docker') else 'the retrieval service is adopted and the sandbox image is absent'}) — "
+                       f"the gateway host is {first}, UNMEASURED; pass --gateway-host <address> "
+                       "if a sandbox cannot dial it (--help says how to choose one)")
+        return candidates[0], f"{first} (UNMEASURED — no container to probe from)", results
+    import threading
 
-        class _Probe(_http_server.BaseHTTPRequestHandler):   # answers 204, serves nothing
-            def do_GET(self):
-                self.send_response(204)
-                self.end_headers()
+    class _Probe(_http_server.BaseHTTPRequestHandler):   # answers 204, serves nothing
+        def do_GET(self):
+            self.send_response(204)
+            self.end_headers()
 
-            def log_message(self, *a, **k):
-                pass
+        def log_message(self, *a, **k):
+            pass
 
-        server = None
-        try:
-            server = _http_server.HTTPServer(("0.0.0.0", gport), _Probe)
-        except OSError:
-            pass    # something (the gateway itself?) already listens: probe it
-        if server:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-        js = ("const c=%s;(async()=>{for(const h of c){try{const r=await fetch("
-              "'http://'+h+':%d/',{signal:AbortSignal.timeout(3000)});"
-              "console.log(h,'OK',r.status)}catch(e){console.log(h,'FAIL')}}})()"
-              % (json.dumps(candidates), gport))
-        proc = run(["docker", "run", "--rm", "--network", network, probe_image,
-                    "node", "-e", js], capture_output=True, timeout=120)
+    server = None
+    try:
+        server = _http_server.HTTPServer(("0.0.0.0", gport), _Probe)
+    except OSError:
+        pass    # something (the gateway itself?) already listens: probe it
+    if server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        results, failure = probe_dial(network, candidates, gport, exec_container, probe_image)
+    finally:
         if server:
             server.shutdown()
             server.server_close()
-        if proc.returncode != 0 and not proc.stdout.strip():
-            die(f"the gateway-host probe container could not run on network {network!r}.",
-                (proc.stderr.strip().splitlines() or ["no output"])[-1],
-                "a container on the sandbox's network dialing this host",
-                "the network must exist (a created run makes its own; an adopted-only "
-                "run creates or verifies it); --gateway-host <address> skips the probe")
-        for line in proc.stdout.splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and parts[0] in candidates:
-                results.append({"candidate": parts[0], "reachable": parts[1] == "OK"})
-        for r in results:
-            if r["reachable"]:
-                return r["candidate"], ("measured: dialable from a container on "
-                                        f"{network!r} and from this host"), results
-        die(f"no host address is dialable from a container on {network!r}.",
-            f"tried {candidates} — every one timed out from the container",
-            "ONE address the rollout API (host) and the sandbox both dial (CP-03)",
-            "on Docker Desktop add `127.0.0.1 host.docker.internal` to /etc/hosts and "
-            "pass --gateway-host host.docker.internal; on Linux the compose network's "
-            "gateway IP usually works; --gateway-host <address> writes it unprobed")
-    elif candidates:
-        warn("config", "no image to probe from (the sandbox image is absent) — the "
-             "gateway host is the first host IPv4, unmeasured; pass --gateway-host "
-             "if a sandbox cannot dial it")
-    if candidates:
-        return candidates[0], "first host IPv4 (UNMEASURED)", results
-    return "127.0.0.1", "fallback — 127.0.0.1 is NOT reachable from a sandbox", results
+    if failure:
+        warn("config", f"the gateway-host probe could not run — {failure}. The run continues "
+                       f"with {first}, UNMEASURED; it was about to try {candidates}. "
+                       "If a sandbox cannot dial it, re-run `up` with --gateway-host "
+                       "<address> (the run is resumable: every phase before this one is "
+                       "recorded and reused; --help says how to choose the address)")
+        return candidates[0], f"{first} (UNMEASURED — the probe {failure.split(' —')[0].split(':')[0]})", results
+    for r in results:
+        if r["reachable"]:
+            return r["candidate"], ("measured: dialable from a container on "
+                                    f"{network!r} and from this host"), results
+    die(f"no host address is dialable from a container on {network!r}.",
+        f"tried {candidates} — every one timed out from the container",
+        "ONE address the rollout API (host) and the sandbox both dial (CP-03)",
+        "on Docker Desktop add `127.0.0.1 host.docker.internal` to /etc/hosts and "
+        "pass --gateway-host host.docker.internal; on Linux the compose network's "
+        "gateway IP usually works; --gateway-host <address> writes it unprobed "
+        "(the run is resumable — re-run `up` with the flag)")
 
 
 # ------------------------------------------------------------- the estate
@@ -2396,7 +2690,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
                 **{k: v for k, v in run_.env.items()
                    if k in (push_env, read_env, MCP_SECRET_ENV)}}
-        proc = run(cmd, env=penv)
+        proc = run_phase(cmd, penv, phase)
         if proc.returncode != 0:
             die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
                 "the pipeline's own message above (it names the file, rule or variable)",
@@ -2701,6 +2995,14 @@ def cmd_up(args: argparse.Namespace) -> None:
         # ports) by itself; a changed MOUNTED config or --rebuild is read only
         # at start, so those force the recreate — an untouched run is a no-op
         recreate = rebuild or (cfg_before is not None and cfg_before != sha256_file(cfg))
+        if recreate and rebuild_in_progress(f"http://127.0.0.1:{mport}", container):
+            # CP-96 (round four): a --rebuild whose previous attempt timed out
+            # at the wait used to recreate the container and embed from zero
+            # on every re-run; the service is still building — attach to it
+            warn("mcp", f"{container} is still building under index.rebuild: always — "
+                        "attaching to that build instead of recreating the container "
+                        "(a recreate would embed from zero again)")
+            recreate = False
         up = compose_up(rundir, "-d", *(["--force-recreate"] if recreate else []), "mcp")
         if up.returncode != 0:
             kind = pull_failure_kind(up.stderr)
@@ -2898,8 +3200,14 @@ def cmd_up(args: argparse.Namespace) -> None:
                  "estate.serving_base_url to an address the gateway container can dial "
                  "(host.docker.internal on Docker Desktop, the compose network's gateway "
                  "IP on Linux) before it starts — the closing block lists the keys")
+    # CP-96: the dial runs inside this run's retrieval container when it has
+    # one (nothing to create, nothing to leak); the sandbox image is the
+    # fallback only for an adopted service
+    probe_exec = (f"gsj-{name}-mcp" if mcp.mode == "created"
+                  and container_running(f"gsj-{name}-mcp") else None)
     ghost, ghow, gprobe = gateway_host(network, gport, explicit_ghost,
-                                       probe_image, prev.get("gateway_host"))
+                                       probe_image, prev.get("gateway_host"),
+                                       exec_container=probe_exec)
     if prev.get("gateway_host") and prev["gateway_host"] != ghost:
         changed.append(f"the gateway host: {prev['gateway_host']!r} -> {ghost!r} ({ghow})")
     rec["ports"] = {"rollout": rport, "gateway": gport, "receiver": xport}
@@ -3828,7 +4136,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
                 **{k: v for k, v in run_.env.items()
                    if k in (push_env, read_env, MCP_SECRET_ENV)}}
-        proc = run(cmd, env=penv)
+        proc = run_phase(cmd, penv, phase)
         if proc.returncode != 0:
             die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
                 "the pipeline's own message above", "exit 0",
@@ -4379,7 +4687,11 @@ def main() -> None:
                     help="create: re-embed the run's store under the requested model "
                          "(index.rebuild: always for one start)")
     mg.add_argument("--ingest-timeout", type=float, default=1800.0,
-                    help="seconds to wait for the index (default 1800)")
+                    help="seconds each readiness wait may take, on this process's clock — the "
+                         "bring-up's own wait for the service and the pipeline's wait after a "
+                         "reindex both spend it; a suspended host does not (CP-96); a cold embed "
+                         "of a decisions drop on a contended CPU host is minutes, not seconds "
+                         "(default 1800)")
     eg = up.add_argument_group("engine and rollout config")
     eg.add_argument("--engine-url", help=f"the inference endpoint's root (default {DEFAULT_ENGINE_URL})")
     eg.add_argument("--engine-model", help=f"served model name (default {REFERENCE_MODEL})")
@@ -4395,8 +4707,15 @@ def main() -> None:
     eg.add_argument("--thinking", help="pi thinking level (default off)")
     eg.add_argument("--gateway-host",
                     help="the address BOTH the host and sandboxes dial the gateway on "
-                         "(default: probed from this host's interfaces — explicit skips the "
-                         "probe; required with --polar-leg container)")
+                         "(default: probed — a dial from inside the run's retrieval container "
+                         "to each of this host's addresses; explicit skips the probe; required "
+                         "with --polar-leg container). How to choose one when the probe cannot "
+                         "run: on Linux the compose network's gateway IP (`docker network "
+                         "inspect gsj-<name>-net --format '{{(index .IPAM.Config 0).Gateway}}'`); "
+                         "on Docker Desktop `host.docker.internal` after adding "
+                         "`127.0.0.1 host.docker.internal` to /etc/hosts; verify with "
+                         "`docker run --rm --network gsj-<name>-net alpine wget -qO- "
+                         "http://<address>:<gateway port>/` while something listens there")
     eg.add_argument("--polar-leg", choices=("host", "container"),
                     help="where Polar's two processes and the receiver run (default host: "
                          "loopback binds, ports scanned free here; container: 0.0.0.0 binds, "
@@ -4411,7 +4730,10 @@ def main() -> None:
                          f"(default: the run's record, else {ic.DEFAULT_SANDBOX_IMAGE}; "
                          "a corpus.yaml sandbox_image key is ignored since CP-71)")
     eg.add_argument("--skip-sandbox-image", action="store_true", default=None,
-                    help="do not refuse when the sandbox image is absent")
+                    help="do not refuse when the sandbox image is absent (the gateway-host "
+                         "probe no longer needs it — CP-96 — except with an ADOPTED retrieval "
+                         "service, where the host is then written unmeasured; the sandbox "
+                         "image is still needed before the first episode)")
     up.set_defaults(func=cmd_up)
     ig = sub.add_parser("ingest", parents=[common],
                         help="re-index the corpus into a standing retrieval "
@@ -4424,7 +4746,8 @@ def main() -> None:
                                       "(default: corpus.yaml's deprecated mcp.url_base; "
                                       "neither named skips the re-index, loudly)")
     ig.add_argument("--ingest-timeout", type=float, default=900.0,
-                    help="seconds to wait for /health ready (default 900)")
+                    help="seconds the wait for /health ready may take, on this process's "
+                         "clock (default 900)")
     ig.set_defaults(func=cmd_ingest)
     ud = sub.add_parser("update", parents=[common],
                         help="sync corpus EDITS into a standing estate: diff "
@@ -4440,7 +4763,8 @@ def main() -> None:
     ud.add_argument("--dry-run", action="store_true",
                     help="the local diff report only — touch nothing, ask nothing")
     ud.add_argument("--ingest-timeout", type=float, default=1800.0,
-                    help="seconds to wait for the index (default 1800)")
+                    help="seconds each readiness wait may take, on this process's clock "
+                         "(default 1800)")
     ud.set_defaults(func=cmd_update)
     st = sub.add_parser("status", parents=[common], help="what stands for a run")
     st.add_argument("--name", required=True)

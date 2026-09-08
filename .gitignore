@@ -50,3 +50,6 @@ docs/polar/thinking/*
 !docs/polar/thinking/episode-on.quarantined.json
 stranger/*
 stranger-*.md
+
+# the operator's round-four orchestration evidence (untracked like stranger/)
+round4-orchestration-*/

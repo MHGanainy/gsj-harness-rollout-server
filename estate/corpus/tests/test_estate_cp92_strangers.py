@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import FakePull
+
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
 
@@ -122,6 +124,9 @@ def test_forgejo_pull_refusal_branches_on_where_the_pull_failed(est, monkeypatch
         raise AssertionError(f"unexpected docker call {cmd}")
 
     monkeypatch.setattr(est, "run", fake_run)
+    # CP-96: the pull streams through the popen seam; its verdict is the same
+    monkeypatch.setattr(est, "popen", lambda cmd, **kw: (calls.append(cmd),
+                                                         FakePull(cmd, 1, stderr=fake_run.stderr))[1])
     monkeypatch.setattr(est, "write_compose", lambda *a, **k: None)
     monkeypatch.setattr(est, "PH", est.Phases())
     r = est.Run("canary")
