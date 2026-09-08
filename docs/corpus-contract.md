@@ -656,8 +656,8 @@ the estate's pins are re-derived and named**:
 
 - `estate.py up` already tells you: its pins phase warns with the exact
   cards the in-force approved set lacks. It deliberately does not write
-  pins — since 0.1.12 (ADR-0042) it writes `pins.skeleton.json` beside
-  `rollout.yaml`: the carried sets, the G6 tail and the end-of-turn id
+  pins — since 0.1.12 (ADR-0042) it writes `<run>/pins.skeleton.json`
+  beside the run's own `rollout.yaml`: the carried sets, the G6 tail and the end-of-turn id
   measured from the engine, G1 and G2 empty; refused as pins by the
   library and by `up`, read by the page's script.
 - The library owns the walk, as a page a stranger can follow:

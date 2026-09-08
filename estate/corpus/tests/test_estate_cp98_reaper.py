@@ -95,7 +95,7 @@ def test_probe_dial_past_the_bound_names_the_container_the_wait_and_the_command(
     clock = iter([0.0] + [float(t) for t in range(0, 40, 2)])
     monkeypatch.setattr(est.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(est, "run", fake_run)
-    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
+    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS, "gsj-probe-nonce")
     name = calls[0][3]
     assert results == [] and name.startswith("gsj-probe-")
     assert failure.startswith("timed out after 20 s via a `docker run` of " + HARNESS)
@@ -120,7 +120,7 @@ def test_probe_dial_does_not_reap_when_the_client_never_started(est, monkeypatch
 
     monkeypatch.setattr(est, "run", fake_run)
     monkeypatch.setattr(est.time, "sleep", lambda s: pytest.fail("the reaper waited"))
-    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
+    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS, "gsj-probe-nonce")
     assert results == [] and failure.startswith("could not start via a `docker run` of " + HARNESS)
     assert "still creating" not in failure
     assert [c for c in calls if c[:3] == ["docker", "rm", "-f"]] == []
@@ -135,13 +135,13 @@ def test_probe_dial_removes_a_container_the_run_left_when_it_completed(est, monk
     def fake_run(cmd, **kw):
         calls.append(cmd)
         if cmd[:2] == ["docker", "run"]:
-            return subprocess.CompletedProcess(cmd, 0, "10.0.0.5 OK 204\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "10.0.0.5 SENTINEL\n", "")
         return cli_shape("docker rm -f <present>", cmd, name=cmd[3])
 
     monkeypatch.setattr(est, "run", fake_run)
     monkeypatch.setattr(est.time, "sleep", lambda s: pytest.fail("the reaper waited"))
-    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
-    assert results == [{"candidate": "10.0.0.5", "reachable": True}] and failure is None
+    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS, "gsj-probe-nonce")
+    assert results == [{"candidate": "10.0.0.5", "container": "our sentinel"}] and failure is None
     assert len([c for c in calls if c[:3] == ["docker", "rm", "-f"]]) == 1
 
 

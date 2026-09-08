@@ -76,21 +76,27 @@ def test_probe_dial_execs_into_the_running_retrieval_container_and_creates_nothi
     """b2 (round four): the old probe `docker run --rm`'d the 731 MiB sandbox
     image to make four HTTP calls, and on a copy-on-create daemon the
     create alone outlasted its budget. The dial now runs inside the run's
-    own retrieval container: nothing is created, nothing can leak."""
+    own retrieval container: nothing is created, nothing can leak.
+
+    CP-99 (round five): the dial's vocabulary is three-valued now — the
+    sentinel's nonce, a foreign listener, or nothing — because b1's probe
+    read a foreign listener's HTTP answer as the gateway address being
+    reachable and wrote it as `measured:`."""
     calls = []
 
     def fake_run(cmd, **kw):
         calls.append(cmd)
         assert cmd[:2] == ["docker", "exec"] and cmd[2] == "gsj-canary-mcp" and cmd[3] == "python"
         assert kw.get("timeout") == est.PROBE_EXEC_TIMEOUT_S
-        return subprocess.CompletedProcess(cmd, 0, "10.0.0.5 FAIL\n192.168.1.9 OK 204\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "10.0.0.5 NOTHING\n192.168.1.9 SENTINEL\n", "")
 
     monkeypatch.setattr(est, "run", fake_run)
     results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5", "192.168.1.9"], 18299,
-                                      "gsj-canary-mcp", HARNESS)
+                                      "gsj-canary-mcp", HARNESS, "gsj-probe-abc123")
     assert failure is None
-    assert results == [{"candidate": "10.0.0.5", "reachable": False},
-                       {"candidate": "192.168.1.9", "reachable": True}]
+    # CP-99: the dial says WHAT answered, not merely that something did
+    assert results == [{"candidate": "10.0.0.5", "container": "nothing"},
+                       {"candidate": "192.168.1.9", "container": "our sentinel"}]
     assert len(calls) == 1 and not any(c[:2] == ["docker", "run"] or c[:2] == ["docker", "rm"]
                                        for c in calls)
     dial = calls[0][-1]
@@ -115,7 +121,8 @@ def test_probe_fallback_run_is_named_and_removed_in_a_finally_when_it_times_out(
         return cli_shape("docker rm -f <present>", cmd, name=cmd[3])   # the CLI names what it removed
 
     monkeypatch.setattr(est, "run", fake_run)
-    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
+    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS,
+                                      "gsj-probe-abc123")
     assert results == []
     assert failure.startswith("timed out after 120 s via a `docker run` of " + HARNESS)
     assert "copy-on-create" in failure and "still creating" not in failure
@@ -155,7 +162,8 @@ def test_reap_container_keeps_trying_while_the_daemon_is_still_creating_it(est, 
 
     monkeypatch.setattr(est, "run", fake_run)
     monkeypatch.setattr(est, "reap_container", lambda name, wait_s=30: False)
-    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS)
+    results, failure = est.probe_dial("gsj-canary-net", ["10.0.0.5"], 18299, None, HARNESS,
+                                      "gsj-probe-abc123")
     assert "the daemon is still creating gsj-probe-" in failure and "`docker rm -f gsj-probe-" in failure
 
 
@@ -182,16 +190,25 @@ def test_gateway_host_prefers_the_exec_target_and_returns_the_measured_answer(es
     no_hosts_line(monkeypatch, est)
     seen = {}
 
-    def fake_dial(network, candidates, gport, exec_container, probe_image):
+    def fake_dial(network, candidates, gport, exec_container, probe_image, nonce):
         seen.update(exec_container=exec_container, probe_image=probe_image, candidates=candidates)
-        return [{"candidate": "10.0.0.5", "reachable": False},
-                {"candidate": "192.168.1.9", "reachable": True}], None
+        # CP-99: 127.0.0.1 is the candidate whose HOST leg this test lets run for
+        # real — the sentinel is bound on 0.0.0.0 of this process, so the host
+        # dial reaches it and the nonce comes back. Nothing is faked below the
+        # dial the container would have made.
+        return [{"candidate": "10.0.0.5", "container": "nothing"},
+                {"candidate": "127.0.0.1", "container": "our sentinel"}], None
 
     monkeypatch.setattr(est, "probe_dial", fake_dial)
     monkeypatch.setattr(est.shutil, "which", lambda name: "/usr/bin/docker")
     host, how, results = est.gateway_host("gsj-canary-net", free_port(), None, HARNESS,
                                           recorded=None, exec_container="gsj-canary-mcp")
-    assert host == "192.168.1.9" and how.startswith("measured: dialable from a container on")
+    assert host == "127.0.0.1" and how.startswith("measured: this run's own sentinel answered on :")
+    assert "from a container on 'gsj-canary-net' and from this host" in how
+    assert results == [{"candidate": "10.0.0.5", "container": "nothing",
+                        "host": "not dialed", "reachable": False},
+                       {"candidate": "127.0.0.1", "container": "our sentinel",
+                        "host": "our sentinel", "reachable": True}]
     assert seen["exec_container"] == "gsj-canary-mcp" and seen["probe_image"] == HARNESS
     assert "WARNING" not in capsys.readouterr().out
 
@@ -200,8 +217,14 @@ def test_gateway_host_with_nothing_to_dial_from_labels_the_candidate_by_its_orig
     """b1: `--skip-sandbox-image` wrote `http://host.docker.internal:8200 (first
     host IPv4 (UNMEASURED))` — a hostname labelled as an IPv4. The label now
     names what the candidate is, and the probe no longer depends on the
-    sandbox image when the run has a retrieval container of its own."""
-    monkeypatch.setattr(est, "host_ipv4s", lambda: ["10.0.0.5"])
+    sandbox image when the run has a retrieval container of its own.
+
+    CP-99: this host offers no IPv4 of its own here, so the resolvable name
+    is the only candidate and still the one degraded to. Its ORDER against a
+    real address moved this checkpoint (round five's b1 lost a working
+    compose gateway to a name that merely resolved) and is asserted in
+    test_estate_cp99_gateway.py."""
+    monkeypatch.setattr(est, "host_ipv4s", lambda: [])
     monkeypatch.setattr(est.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(est.shutil, "which", lambda name: "/usr/bin/docker")
     monkeypatch.setattr(est.socket, "gethostbyname", lambda name: "192.168.65.254")
@@ -217,14 +240,15 @@ def test_gateway_host_with_nothing_to_dial_from_labels_the_candidate_by_its_orig
 
 def test_gateway_host_measured_negative_is_still_a_refusal_that_names_the_resume(est, monkeypatch, capsys):
     no_hosts_line(monkeypatch, est)
-    monkeypatch.setattr(est, "probe_dial", lambda *a, **k: ([{"candidate": "10.0.0.5", "reachable": False},
-                                                             {"candidate": "192.168.1.9", "reachable": False}], None))
+    monkeypatch.setattr(est, "probe_dial", lambda *a, **k: ([{"candidate": "10.0.0.5", "container": "nothing"},
+                                                             {"candidate": "192.168.1.9", "container": "nothing"}], None))
     monkeypatch.setattr(est.shutil, "which", lambda name: "/usr/bin/docker")
     with pytest.raises(SystemExit) as exc:
         est.gateway_host("gsj-canary-net", free_port(), None, HARNESS, exec_container="gsj-canary-mcp")
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert "REFUSED" in err and "no host address is dialable" in err and "resumable" in err
+    assert "REFUSED" in err and "no host address reached this probe's sentinel" in err
+    assert "10.0.0.5: nothing from the container" in err and "resumable" in err
 
 
 def test_gateway_host_explicit_is_never_probed(est, monkeypatch):
@@ -479,8 +503,14 @@ def test_up_help_says_how_to_choose_a_gateway_host_and_what_skip_sandbox_image_m
 # ------------------------------------------------- the storage driver
 
 def test_check_daemon_names_a_copy_on_create_driver_from_the_same_docker_info_call(est, monkeypatch, capsys):
-    """b2 priced vfs after the fact (~13 GB per sandbox container); the
-    daemon check already runs `docker info` — one more field says it first."""
+    """b2 priced vfs after the fact; the daemon check already runs
+    `docker info` — one more field says it first.
+
+    CP-99 re-words the price to round five's CONTROLLED pair (same door,
+    same corpus, same row 2, the driver the only difference) instead of
+    round four's single loaded host: 19.4 s against 1.1 s to create the
+    sandbox container, 31 G against 8.4 G of data root for the same
+    4.061 GB of images. "~13 GB per container" was never measured."""
     calls = []
     monkeypatch.setattr(est.shutil, "which", lambda name: "/usr/bin/docker")
     monkeypatch.setattr(est, "run", lambda cmd, **kw: (calls.append(cmd),
@@ -489,7 +519,10 @@ def test_check_daemon_names_a_copy_on_create_driver_from_the_same_docker_info_ca
     assert calls == [["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}}"]]
     out = capsys.readouterr().out
     assert "WARNING" in out and "storage driver 'vfs': every container is a full COPY" in out
-    assert "~13 GB per container" in out and "Continuing — slowly" in out
+    assert "sandbox init took 19.4 s here against 1.1 s there, 17×" in out
+    assert "Continuing — slowly" in out
+    assert "31 G against 8.4 G for 4.061 GB of images" in out
+    assert "~13 GB per container" not in out      # inferred once, never measured (CP-99)
     monkeypatch.setattr(est, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "29.0.0 overlay2\n", ""))
     est.check_daemon()
     assert "storage driver" not in capsys.readouterr().out

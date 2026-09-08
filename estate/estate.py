@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import fcntl
 import functools
 import getpass
@@ -519,7 +520,7 @@ def refuse_skeleton_pins() -> None:
         f"a {PINS_FORMAT} file whose derived sets an inspected quarantined episode supplied "
         f"({', '.join(DERIVED_SETS)}), or GSJ_PINS_PATH unset (the reference set)",
         f"unset GSJ_PINS_PATH for the first episode, inspect its quarantined body, then run "
-        f"{BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py (it reads the skeleton) and "
+        f"{BRING_YOUR_OWN_URL}#your-pins — its derive_my_pins.py reads the skeleton — and "
         f"point GSJ_PINS_PATH at the pins.gsj.json it writes — never at {SKELETON_NAME}")
 
 
@@ -916,15 +917,25 @@ def check_daemon() -> None:
     driver = (probe.stdout.split() + ["", ""])[1]
     if driver in COPY_ON_CREATE_DRIVERS:
         # CP-96 (round four): the price of a copy-on-create daemon surfaced
-        # post-mortem — ~13 GB per sandbox container, minutes per create,
-        # Polar's 600 s sandbox-create budget blown — from the same call
-        # that already answers "is there a daemon"
+        # post-mortem, from the same call that already answers "is there a
+        # daemon". CP-99 (round five) re-words the price to what a CONTROLLED
+        # pair measured — same door, same corpus, same task, the driver the
+        # only difference — instead of what round four inferred once from a
+        # loaded host: the disk ratio holds and is the clean number, the
+        # per-create cost is seconds not minutes, and "~13 GB per container"
+        # was never measured anywhere.
         warn("docker", f"storage driver {driver!r}: every container is a full COPY of its image, "
-                       "not a layer over it — each episode's sandbox container copies the harness "
-                       "image (~13 GB per container and minutes per create measured at round four; "
-                       "Polar's 600 s sandbox-create budget was blown on a busy host), and the "
-                       "retrieval container copies its 4 GB image before it can start. The cure is "
-                       "the daemon, not this tool: a data root on ext4/xfs with overlay2 (a nested "
+                       "not a layer over it. Measured on identical work, this driver against "
+                       "overlay2 (round five, same corpus and task): an episode's sandbox init "
+                       "took 19.4 s here against 1.1 s there, 17× — the 731 MB harness image "
+                       "being copied is the only plausible tenant of that delta — the retrieval "
+                       "container took 75 s from `compose up` to answering while the data root "
+                       "grew 4 G for a 2.65 GB image, and the data root ends up holding 3.7× "
+                       "what overlay2 holds for the same images (31 G against 8.4 G for 4.061 GB "
+                       "of images — 7.6× the images' own size here, 7.5× on the other host that "
+                       "reproduced it). On a LOADED host it is worse than a ratio: round four "
+                       "blew Polar's 600 s sandbox-create budget here twice. The cure is the "
+                       "daemon, not this tool: a data root on ext4/xfs with overlay2 (a nested "
                        "daemon: `-v /var/lib/docker`). Continuing — slowly")
 
 
@@ -2288,7 +2299,11 @@ def choose_end_of_turn(flag, measurement: dict, recorded, recorded_source) -> tu
     if recorded is not None and recorded_source in ("flag", None):
         return int(recorded), "flag"
     if measurement.get("end_of_turn_token_id") is not None:
-        return int(measurement["end_of_turn_token_id"]), "measured"
+        # CP-99: a value carried from the record is not this run's measurement —
+        # `reuse_measurement` flags it and every other consumer says so
+        return (int(measurement["end_of_turn_token_id"]),
+                "reused from the record's earlier measurement"
+                if measurement.get("reused_from_record") else "measured")
     if recorded is not None:
         return int(recorded), "record"
     return None, "default"
@@ -2320,6 +2335,19 @@ def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
     measured_how = ("measured from" if measured and not reused else
                     "reused from the record's earlier measurement of" if reused else
                     "NOT measured — see measured.why — at")
+    # CP-99 (round five, a1's question — the one thing three skeletons could
+    # not answer): this file describes ITSELF, not the estate it is written
+    # into. Where the pins in force already carry the two derived sets and
+    # every skill card here is in their G1 set — the demo door's state, where
+    # episodes are accepted — a bare "derive: not done" reads as a walk this
+    # estate owes, beside a pins file that has already done it.
+    # What `covered` may and may not claim: G1 IS checked here (every card's
+    # sha256 against the approved set), G2 is NOT and cannot be — whether the
+    # in-force system_prompt_hash covers THIS corpus's wire prompt is only
+    # knowable from an episode. So the prose says which half it checked, and
+    # names the edit (AGENTS.md) that makes the walk needed again.
+    covered = (not g1.get("not_in_approved_set")
+               and not [k for k in DERIVED_SETS if k in (g1.get("empty_sets") or [])])
     doc: dict = {
         "format": SKELETON_FORMAT,
         "skeleton": (f"NOT A PINS FILE — the starting point for {BRING_YOUR_OWN_URL}#your-pins "
@@ -2354,8 +2382,11 @@ def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
         "in_force": {"end_of_turn_token_id": eot, "source": eot_source,
                      "note": ("builder.end_of_turn_token_id as rollout.yaml carries it — flag: this "
                               "invocation's or a recorded --end-of-turn-token-id; measured: the "
-                              "endpoint's own render; record: an earlier up's value; default: the "
-                              "library's 151645, the reference model's")},
+                              "endpoint's own render; 'reused from the record's earlier measurement': "
+                              "this run's engine did not answer, so the same endpoint's earlier "
+                              "render stands (CP-99 — it used to say 'measured', which this run did "
+                              "not do); record: an earlier up's value; default: the library's 151645, "
+                              "the reference model's")},
         "provenance": {
             "tool_roster_hash": {"algo": f"{carried}; the walk's script asserts the trace's roster "
                                          "equals it — never derives one; checked on every trace (G3)",
@@ -2372,7 +2403,9 @@ def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
                          if measured else f"NOT MEASURED — {measurement.get('why')}"),
                 "artifacts": [f"{eurl}/tokenize"] if measured else []},
             "engine": {
-                "recorded_by": f"{PROG} up (ADR-0042) — this endpoint, as probed at {probe.get('probed_at')}",
+                "recorded_by": (f"{PROG} up (ADR-0042) — this endpoint, "
+                                + (f"as probed at {probe.get('probed_at')}" if probe.get("reachable")
+                                   else f"probe ATTEMPTED at {probe.get('probed_at')}: it did not answer")),
                 "served_model": {"id": emodel, "served": probe.get("model_served"),
                                  "listed": probe.get("models"),
                                  "source": f"GET {eurl}/v1/models"},
@@ -2398,24 +2431,45 @@ def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
              ["end_of_turn_token_id — see measured.why (the tail was measured)"] if measured else
              ["g6_expected_tail_ids and end_of_turn_token_id — see measured.why"]),
         "coverage": {
-            "skill_card_hash": ("NOT DERIVED YET — empty; the inspected episode's skill row supplies "
-                                "it (G1); the page's step 4"),
-            "system_prompt_hash": ("NOT DERIVED YET — empty; the inspected body's wire prompt "
-                                   "supplies it (G2); the page's step 4"),
+            "skill_card_hash": ("NOT DERIVED YET in THIS file — empty; the inspected episode's skill "
+                                "row supplies it (G1); the page's step 4"
+                                + (f" — but the pins in force at {pins_path} already carry it and "
+                                   "cover every skill card in this corpus: nothing on this estate is "
+                                   "waiting for it" if covered else "")),
+            "system_prompt_hash": ("NOT DERIVED YET in THIS file — empty; the inspected body's wire "
+                                   "prompt supplies it (G2); the page's step 4"
+                                   + (f" — the pins in force at {pins_path} carry a non-empty set, "
+                                      "but whether it covers THIS corpus's wire prompt is not "
+                                      "checkable without an episode (unlike G1 above): an edited "
+                                      "AGENTS.md quarantines the first one" if covered else "")),
             "tool_roster_hash": f"{carried}; checked on every trace (G3)",
             "settings_hash": f"{carried}; checked on every trace (G7's settings clause)",
-            "g6_expected_tail_ids": ("measured here from the endpoint's own render (G6); checked on "
+            "g6_expected_tail_ids": ((("reused from this run's record — the endpoint did not answer "
+                                      "this time; originally measured" if reused else "measured here")
+                                     + " from the endpoint's own render (G6); checked on "
                                      "every trace once the walk's script has matched it at every "
-                                     "turn opening of the inspected body" if measured else
+                                     "turn opening of the inspected body") if measured else
                                      "NOT MEASURED — empty; nothing checks G6 until it is"),
             "tokenizer_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
             "chat_template_hash": "NOT MEASURED — no approved set; nothing on this estate checks it (G4 is estate-side)",
             "sampling_policy": "UNKNOWN — pi sends none; the endpoint's defaults are the policy; no gate covers it",
         },
         "walk_status": {
-            "derive": (f"not done: run one episode with GSJ_PINS_PATH unset, inspect its quarantined "
-                       f"body, then {BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py — it reads "
-                       f"this file (SKELETON=…) and writes pins.gsj.json"),
+            "derive": ((f"NOT NEEDED on this estate as far as `{PROG} up` can check: the pins in "
+                        f"force at {pins_path} already carry {' and '.join(DERIVED_SETS)}, and every "
+                        f"skill card in this corpus is in their skill_card_hash set (G1, checked "
+                        f"here). What is NOT checked and cannot be without an episode: whether their "
+                        f"system_prompt_hash covers THIS corpus's wire system prompt (G2) — if your "
+                        f"AGENTS.md has changed since those pins were derived, the first episode "
+                        f"quarantines on G2 and the walk below is how you re-derive. Otherwise keep "
+                        f"this file for the corpus or model those pins do NOT cover — that is what it "
+                        f"is a starting point for; it is never pins. The walk: one episode with "
+                        f"GSJ_PINS_PATH unset (the reference set), inspect the quarantined body, then "
+                        f"the derive_my_pins.py at {BRING_YOUR_OWN_URL}#your-pins reads this file "
+                        f"(SKELETON=…) and writes pins.gsj.json" if covered else
+                        f"not done: run one episode with GSJ_PINS_PATH unset, inspect its quarantined "
+                        f"body, then the derive_my_pins.py at {BRING_YOUR_OWN_URL}#your-pins — it reads "
+                        f"this file (SKELETON=…) and writes pins.gsj.json")),
             "re_pin": f"re-run `{PROG} up` after any engine, template or thinking-mode change (this file is rewritten), the page's script after any corpus, harness or model change",
             "first_episode_validate": "yours: the next submit under GSJ_PINS_PATH=<the derived pins.gsj.json> must collect 1/1",
         },
@@ -2481,6 +2535,21 @@ def reap_container(name: str, wait_s: float = PROBE_REAP_S) -> bool:
         time.sleep(2)
 
 
+def host_dial(candidate: str, gport: int, nonce: str) -> str:
+    """What answers `candidate:gport` FROM THIS PROCESS's host — `our
+    sentinel`, `a foreign listener` or `nothing`. CP-99: the label `up`
+    writes has always said "and from this host" while only the container
+    leg was ever dialed; the host half was INFERRED from "the host reaches
+    its own interface IPs trivially", which is true of a host IPv4 and
+    false of every name — b1's `host.docker.internal` resolved and routed
+    nowhere, and the host dial that would have caught it was never made."""
+    status, body = http("GET", f"http://{candidate}:{gport}/", timeout=3.0)
+    if status is None:
+        return "nothing"
+    return ("our sentinel" if isinstance(body, str) and body.strip() == nonce
+            else "a foreign listener")
+
+
 def container_running(name: str) -> bool:
     proc = run(["docker", "inspect", "--format", "{{.State.Running}}", name],
                capture_output=True)
@@ -2499,11 +2568,13 @@ def rebuild_in_progress(url: str, container: str) -> bool:
 
 
 def probe_dial(network: str, candidates: list, gport: int, exec_container: str | None,
-               probe_image: str | None) -> tuple[list, str | None]:
-    """Dial every candidate from INSIDE the run's network and say which
-    answered — (results, failure). The class fix of CP-96 (round four, four
-    times in three containers, both codebases): the probe used to `docker
-    run --rm` the 731 MiB sandbox image under a 120 s budget, and on a
+               probe_image: str | None, nonce: str) -> tuple[list, str | None]:
+    """Dial every candidate from INSIDE the run's network and say WHAT
+    answered — (results, failure), one `{"candidate", "container"}` per
+    line the dial printed, where `container` is `our sentinel`, `a foreign
+    listener` or `nothing`. The class fix of CP-96 (round four, four times
+    in three containers, both codebases): the probe used to `docker run
+    --rm` the 731 MiB sandbox image under a 120 s budget, and on a
     copy-on-create storage driver the create alone outlasts the budget, so
     the probe could never pass there however often `up` re-ran — and the
     killed `docker run --rm` never fired its --rm, leaving a Created
@@ -2511,16 +2582,32 @@ def probe_dial(network: str, candidates: list, gport: int, exec_container: str |
     already has running on the network (nothing is created, nothing can
     leak); only with none available does it fall back to a NAMED `docker
     run` of the sandbox image that a `finally` removes; and whatever times
-    out is caught and reported, never raised."""
-    dial = ("import urllib.request as u\nfor h in %s:\n"
+    out is caught and reported, never raised.
+
+    CP-99 (round five, the defect that killed b1's run): the dial used to
+    accept ANY HTTP answer as the candidate being reachable, so a foreign
+    listener on the same host:port passed it — b1's `host.docker.internal`
+    resolved to the Desktop VM's host-gateway address, something else
+    answered there, and `up` wrote it as `measured: dialable`. It carries
+    the sentinel's NONCE now: only this run's own probe server knows it, so
+    a candidate that answers with anything else is `a foreign listener`,
+    which is not a reachable gateway address and never wins."""
+    hosts = json.dumps(candidates)
+    # urlopen RAISES on >= 400, so a foreign listener that answers 404 (a vLLM,
+    # an auth gate) would print NOTHING and read as "no listener there" — the
+    # misdiagnosis this whole change exists to stop. HTTPError is an answer.
+    dial = ("import urllib.request as u, urllib.error as e\nfor h in %s:\n"
             "    try:\n        r = u.urlopen('http://%%s:%d/' %% h, timeout=3)\n"
-            "        print(h, 'OK', r.status)\n"
-            "    except Exception:\n        print(h, 'FAIL')\n"
-            % (json.dumps(candidates), gport))
-    js = ("const c=%s;(async()=>{for(const h of c){try{const r=await fetch("
+            "        print(h, 'SENTINEL' if r.read().decode('utf-8', 'replace').strip() == %s "
+            "else 'FOREIGN')\n"
+            "    except e.HTTPError:\n        print(h, 'FOREIGN')\n"
+            "    except Exception:\n        print(h, 'NOTHING')\n"
+            % (hosts, gport, json.dumps(nonce)))
+    js = ("const c=%s,N=%s;(async()=>{for(const h of c){try{const r=await fetch("
           "'http://'+h+':%d/',{signal:AbortSignal.timeout(3000)});"
-          "console.log(h,'OK',r.status)}catch(e){console.log(h,'FAIL')}}})()"
-          % (json.dumps(candidates), gport))
+          "const t=(await r.text()).trim();console.log(h,t===N?'SENTINEL':'FOREIGN')}"
+          "catch(e){console.log(h,'NOTHING')}}})()"
+          % (hosts, json.dumps(nonce), gport))
     if exec_container:
         cmd, budget, cleanup = (["docker", "exec", exec_container, "python", "-c", dial],
                                 PROBE_EXEC_TIMEOUT_S, None)
@@ -2546,14 +2633,24 @@ def probe_dial(network: str, candidates: list, gport: int, exec_container: str |
             failure = ((failure or "") + f"; the daemon is still creating {cleanup} ({PROBE_REAP_S:.0f} s "
                        f"of `docker rm -f` found nothing) — it will appear as `Created` when the copy "
                        f"ends: `docker rm -f {cleanup}` removes it")
-    if proc is not None and proc.returncode != 0 and not proc.stdout.strip():
-        failure = (f"exit {proc.returncode} via {via}: "
-                   + (proc.stderr.strip().splitlines() or ["no output"])[-1])
     results: list = []
+    answered = {"SENTINEL": "our sentinel", "FOREIGN": "a foreign listener"}
     for line in (proc.stdout if proc is not None else "").splitlines():
         parts = line.split()
         if len(parts) >= 2 and parts[0] in candidates:
-            results.append({"candidate": parts[0], "reachable": parts[1] == "OK"})
+            results.append({"candidate": parts[0],
+                            "container": answered.get(parts[1], "nothing")})
+    if proc is not None and proc.returncode != 0 and not results:
+        # CP-99, measured while proving the fix (rule 10): `docker exec` writes
+        # its OWN refusal to STDOUT — `exit 127, OCI runtime exec failed: … exec:
+        # "python": executable file not found in $PATH` with an EMPTY stderr (CLI
+        # 28.5.1) — so CP-96's `not proc.stdout.strip()` guard read a CLI error as
+        # dial output, recorded no failure, and left `up` to refuse "no host
+        # address is dialable" for a probe that never dialed anything. The guard
+        # is the parsed dial now, and the detail falls back to stdout.
+        failure = (f"exit {proc.returncode} via {via}: "
+                   + (proc.stderr.strip().splitlines()
+                      or proc.stdout.strip().splitlines() or ["no output"])[-1])
     return results, failure
 
 
@@ -2561,17 +2658,34 @@ def gateway_host(network: str, gport: int, explicit: str | None,
                  probe_image: str | None, recorded: str | None = None,
                  exec_container: str | None = None) -> tuple[str, str, list]:
     """ONE address reachable from host dispatch AND from inside episode
-    containers (CP-03 finding 2) — MEASURED, not assumed: a listener on
-    the gateway port, and a container on the run's network dialing every
-    candidate; the first that answers wins (the host reaches its own
-    interface IPs trivially). Measured at CP-59 on a Docker Desktop Mac: the
-    LAN interface was host-only, host.docker.internal container-only, and a
-    VPN interface the one address both could dial — no heuristic knows that.
-    Candidates: the compose network's gateway IP (Linux — the H200's answer),
-    then every host IPv4. The dial runs inside `exec_container` when the run
-    has one (CP-96); a probe that cannot run DEGRADES to the first candidate,
-    labelled unmeasured, with the flag that writes a better one — it no
-    longer aborts a bring-up one file short of rollout.yaml."""
+    containers (CP-03 finding 2) — MEASURED, not assumed: a sentinel this
+    process binds on the gateway port answering a NONCE nobody else knows,
+    dialed from a container on the run's network AND from this host; the
+    first candidate whose BOTH legs reach that sentinel wins. Measured at
+    CP-59 on a Docker Desktop Mac: the LAN interface was host-only,
+    host.docker.internal container-only, and a VPN interface the one
+    address both could dial — no heuristic knows that. Candidates: the
+    compose network's gateway IP (Linux — the H200's answer), then every
+    host IPv4, then `host.docker.internal` where it resolves. The dial runs
+    inside `exec_container` when the run has one (CP-96); a probe that
+    cannot run DEGRADES to the first candidate, labelled unmeasured, with
+    the flag that writes a better one — it no longer aborts a bring-up one
+    file short of rollout.yaml.
+
+    CP-99 (round five) fixed three defects that between them wrote a dead
+    address as `measured` and hung a stranger's episode for 22 minutes with
+    no refusal, no warning and no sandbox container:
+      (a) the dial accepted any HTTP answer, so a FOREIGN listener on the
+          candidate's host:port passed it — the nonce is the cure, and the
+          host leg is dialed now instead of inferred;
+      (b) `host.docker.internal` was inserted at index 0 unconditionally,
+          on nothing but resolving, and beat a compose gateway that
+          actually answered — it is APPENDED now, and the probe decides;
+      (c) a gateway port already in use meant `pass  # probe it`, which
+          measured somebody else's listener and still printed `measured:`
+          — a port this process cannot bind is now UNMEASURED and says so.
+    A label that overstates what was measured is worse than no label: it
+    is the one thing a reader cannot check cheaply."""
     if explicit:
         return explicit, "--gateway-host (not probed)", []
     candidates: list[str] = []
@@ -2583,64 +2697,112 @@ def gateway_host(network: str, gport: int, explicit: str | None,
             candidates.append(proc.stdout.strip())
             origin[candidates[-1]] = f"the gateway IP of the compose network {network!r}"
     if recorded and recorded not in candidates:
-        candidates.append(recorded)     # the run's last measured answer, re-measured
+        candidates.append(recorded)     # the run's last RECORDED answer (measured or not), re-probed
         origin[recorded] = "the run's last recorded answer"
     for ip in host_ipv4s():
         if ip not in candidates:
             candidates.append(ip)
             origin[ip] = "a host IPv4"
     try:                                # Docker Desktop with the /etc/hosts line:
-        socket.gethostbyname("host.docker.internal")   # both sides dial the name
-        candidates.insert(0, "host.docker.internal")
-        origin["host.docker.internal"] = "the name this host resolves (an /etc/hosts line)"
+        socket.gethostbyname("host.docker.internal")   # both sides MAY dial the name
     except OSError:
         pass
+    else:
+        if "host.docker.internal" not in candidates:
+            # APPENDED, never first (CP-99): resolving is not reaching. On a
+            # nested daemon the Desktop VM's `--add-host` line resolves the
+            # name to an address that routes nowhere from either leg, and
+            # inserting it at index 0 unconditionally is how a candidate that
+            # answered lost on ordering alone. The probe decides the order now.
+            candidates.append("host.docker.internal")
+            origin["host.docker.internal"] = "the name this host resolves (an /etc/hosts line)"
     results: list = []
     if not candidates:
         return "127.0.0.1", "fallback — 127.0.0.1 is NOT reachable from a sandbox", results
-    first = f"{candidates[0]} = {origin.get(candidates[0], 'the first candidate')}"
+    # CP-99: the ORDER the probe dials in is not the order to guess in when it
+    # cannot dial at all. The probe's order is "whatever, the dial decides";
+    # a degrade has to pick, so it picks what is most likely to work and least
+    # likely to be an accident: this run's own recorded (once-measured) answer,
+    # else a name or gateway a container can dial by construction, else the
+    # first candidate. Before this the two were the same list, so appending
+    # host.docker.internal for the probe's sake would have moved a Docker
+    # Desktop degrade onto a DHCP LAN lease.
+    unprobed = next((c for c in (recorded, candidates[0] if platform.system() == "Linux" else None,
+                                 "host.docker.internal") if c and c in candidates), candidates[0])
+    first = f"{unprobed} = {origin.get(unprobed, 'the first candidate')}"
     if not shutil.which("docker") or not (exec_container or probe_image):
         warn("config", f"no container to dial from ({'no docker on PATH' if not shutil.which('docker') else 'the retrieval service is adopted and the sandbox image is absent'}) — "
                        f"the gateway host is {first}, UNMEASURED; pass --gateway-host <address> "
                        "if a sandbox cannot dial it (--help says how to choose one)")
-        return candidates[0], f"{first} (UNMEASURED — no container to probe from)", results
-    import threading
+        return unprobed, f"{first} (UNMEASURED — no container to probe from)", results
+    nonce = f"gsj-probe-{secrets.token_hex(8)}"   # what OUR sentinel answers, and nothing else does
 
-    class _Probe(_http_server.BaseHTTPRequestHandler):   # answers 204, serves nothing
+    class _Probe(_http_server.BaseHTTPRequestHandler):   # answers the nonce, serves nothing
         def do_GET(self):
-            self.send_response(204)
+            body = nonce.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, *a, **k):
             pass
 
-    server = None
     try:
         server = _http_server.HTTPServer(("0.0.0.0", gport), _Probe)
-    except OSError:
-        pass    # something (the gateway itself?) already listens: probe it
-    if server:
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+    except OSError as exc:
+        # CP-99: the honest answer, not a measurement against somebody else's
+        # listener. A port this process cannot bind cannot carry a sentinel,
+        # so every dial would measure whatever already listens there — which
+        # is exactly what `pass  # probe it` did, under a `measured:` label.
+        # EADDRINUSE is the case that matters (this run's own gateway, on a
+        # re-run); every other bind failure gets its own words rather than a
+        # remedy for a listener that does not exist (EACCES on :443).
+        in_use = exc.errno == errno.EADDRINUSE
+        warn("config", f"the gateway-host probe could not run — "
+                       + (f"port {gport} is already in use on this host" if in_use else
+                          f"port {gport} could not be bound on 0.0.0.0")
+                       + f" ({getattr(exc, 'strerror', None) or exc}), so it cannot bind "
+                       "the sentinel a dial has to reach: anything answering there is somebody "
+                       f"else's listener, not this run's gateway. The run continues with {first}, "
+                       f"UNMEASURED; it was about to try {candidates}. "
+                       + (f"Free the port (a gateway this run already started holds it — "
+                          f"`{PROG} status --name <run>` says what stands) and re-run `up` (the run "
+                          "is resumable)" if in_use else
+                          f"Choose a port this process may bind (--gateway-port) and re-run `up`")
+                       + ", or pass --gateway-host <address> (--help says how to choose one)")
+        return (unprobed,
+                f"{first} (UNMEASURED — port {gport} could not be bound: the probe has no sentinel to dial)",
+                results)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        results, failure = probe_dial(network, candidates, gport, exec_container, probe_image)
+        results, failure = probe_dial(network, candidates, gport, exec_container, probe_image, nonce)
+        for r in results:               # the leg the label always claimed and never dialed (CP-99)
+            r["host"] = (host_dial(r["candidate"], gport, nonce)
+                         if r["container"] == "our sentinel" else "not dialed")
+            r["reachable"] = r["container"] == "our sentinel" and r["host"] == "our sentinel"
     finally:
-        if server:
-            server.shutdown()
-            server.server_close()
+        server.shutdown()
+        server.server_close()
     if failure:
         warn("config", f"the gateway-host probe could not run — {failure}. The run continues "
                        f"with {first}, UNMEASURED; it was about to try {candidates}. "
                        "If a sandbox cannot dial it, re-run `up` with --gateway-host "
                        "<address> (the run is resumable: every phase before this one is "
                        "recorded and reused; --help says how to choose the address)")
-        return candidates[0], f"{first} (UNMEASURED — the probe {failure.split(' —')[0].split(':')[0]})", results
+        return unprobed, f"{first} (UNMEASURED — the probe {failure.split(' —')[0].split(':')[0]})", results
     for r in results:
         if r["reachable"]:
-            return r["candidate"], ("measured: dialable from a container on "
-                                    f"{network!r} and from this host"), results
-    die(f"no host address is dialable from a container on {network!r}.",
-        f"tried {candidates} — every one timed out from the container",
-        "ONE address the rollout API (host) and the sandbox both dial (CP-03)",
+            return r["candidate"], (f"measured: this run's own sentinel answered on :{gport} "
+                                    f"from a container on {network!r} and from this host"), results
+    die(f"no host address reached this probe's sentinel from a container on {network!r}.",
+        "; ".join(f"{r['candidate']}: {r['container']} from the container"
+                  + ("" if r["host"] == "not dialed" else f", {r['host']} from this host")
+                  for r in results) or f"tried {candidates} — the dial printed nothing",
+        "ONE address the rollout API (host) and the sandbox both dial (CP-03), answering "
+        "this probe's own sentinel on both legs — an answer that is not the sentinel is "
+        "another service on that port, never this gateway",
         "on Docker Desktop add `127.0.0.1 host.docker.internal` to /etc/hosts and "
         "pass --gateway-host host.docker.internal; on Linux the compose network's "
         "gateway IP usually works; --gateway-host <address> writes it unprobed "
@@ -3566,11 +3728,22 @@ def cmd_up(args: argparse.Namespace) -> None:
             rundir, pins_skeleton(rundir, name, corpus, g1, probe, measurement, eot,
                                   eot_source, thinking))
         rec["pins"]["skeleton"] = str(skeleton)
+        skeleton_covered = (not g1.get("not_in_approved_set")
+                            and not [k for k in DERIVED_SETS if k in (g1.get("empty_sets") or [])])
         say("pins", f"skeleton written: {skeleton} — NOT pins (format {SKELETON_FORMAT}): "
                     f"{', '.join(CARRIED_SETS)} carried from the set in force, the G6 tail "
-                    f"{'measured' if measurement['measured'] else 'NOT measured'}, "
-                    f"{', '.join(DERIVED_SETS)} EMPTY until an inspected quarantined episode "
-                    f"supplies them — {BRING_YOUR_OWN_URL}#your-pins's derive_my_pins.py "
+                    f"{'measured' if measurement['measured'] else 'NOT measured'}"
+                    f"{' (reused from the record — the engine did not answer this run)' if measurement.get('reused_from_record') else ''}, "
+                    f"{', '.join(DERIVED_SETS)} EMPTY in it"
+                    + (f" — and NOT NEEDED here as far as this script can check: {g1['pins_path']} "
+                       "already carries them and every card in this corpus is in its G1 set (G2 is "
+                       "only checkable from an episode — an edited AGENTS.md quarantines the first "
+                       "one). It is the starting point for a corpus or model those pins do not cover "
+                       "(CP-99: a stranger asked why a demo that had already derived usable pins was "
+                       "handed one saying the walk was 'not done')"
+                       if skeleton_covered else
+                       " until an inspected quarantined episode supplies them")
+                    + f" — the derive_my_pins.py at {BRING_YOUR_OWN_URL}#your-pins "
                     "reads this file; never point GSJ_PINS_PATH at it")
     else:
         warn("pins", f"no {SKELETON_NAME}: the pins in force could not be read "
@@ -3755,8 +3928,12 @@ then one episode (the config's whole claim) — nothing exported: submit reads {
   for an unset named read token (since 0.1.7, CP-75); the environment wins when already set.
   Historical wheels through 0.1.6 need .env sourced in a subshell before submit:
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
-    skeleton_row = ((f"  {SKELETON_NAME} NOT pins — the two carried sets, the G6 tail and end-of-turn id "
-                     f"{'measured' if measurement['measured'] else 'NOT measured'} from {eurl};\n"
+    reused_note = " (reused from this run's record — the engine did not answer this time)"
+    skeleton_row = ((f"  {SKELETON_NAME} NOT pins — the two carried sets, the G6 tail "
+                     f"{'measured' if measurement['measured'] else 'NOT measured'}"
+                     f"{reused_note if measurement.get('reused_from_record') else ''}"
+                     f"{' (the end-of-turn id too)' if measurement.get('end_of_turn_token_id') is not None else ' (the end-of-turn id NOT — see the skeleton measured.why)'}"
+                     f" from {eurl};\n"
                      "                     G1/G2 EMPTY until an inspected quarantined episode supplies them "
                      "(#your-pins reads it)\n") if rec["pins"].get("skeleton") else
                     f"  (no {SKELETON_NAME}: the pins in force could not be read — see the pins warning above)\n")
@@ -5120,10 +5297,16 @@ def main() -> None:
     eg.add_argument("--thinking", help="pi thinking level (default off)")
     eg.add_argument("--gateway-host",
                     help="the address BOTH the host and sandboxes dial the gateway on "
-                         "(default: probed — a dial from inside the run's retrieval container "
-                         "to each of this host's addresses; explicit skips the probe; required "
-                         "with --polar-leg container). How to choose one when the probe cannot "
-                         "run: on Linux the compose network's gateway IP (`docker network "
+                         "(default: probed — this process binds a sentinel answering a nonce on "
+                         "the gateway port, then dials every candidate BOTH from inside the run's "
+                         "retrieval container and from this host, and takes the first that returns "
+                         "the nonce on both legs; candidates are the compose network's gateway IP "
+                         "on Linux, this host's IPv4s, and host.docker.internal where it resolves. "
+                         "An answer that is not the sentinel is another service on that port, never "
+                         "this gateway, and never wins; explicit skips the probe; required with "
+                         "--polar-leg container. Three ways the probe does not run, each written "
+                         "UNMEASURED with its reason: no container to dial from, a dial that timed "
+                         "out, and a gateway port this process cannot bind. How to choose one when the probe cannot run: on Linux the compose network's gateway IP (`docker network "
                          "inspect gsj-<name>-net --format '{{(index .IPAM.Config 0).Gateway}}'`); "
                          "on Docker Desktop `host.docker.internal` after adding "
                          "`127.0.0.1 host.docker.internal` to /etc/hosts; verify with "

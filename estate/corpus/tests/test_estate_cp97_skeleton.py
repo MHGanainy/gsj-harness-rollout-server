@@ -292,8 +292,14 @@ def test_pins_skeleton_has_the_pins_shape_under_its_own_format(est, monkeypatch,
     for name, card in corpus.skills.items():
         assert hashlib.sha256(card.read_bytes()).hexdigest() in supplied["skill_card_hash"]
     # the page's blocks
-    assert on_disk["coverage"]["skill_card_hash"].startswith("NOT DERIVED YET — empty")
-    assert on_disk["coverage"]["system_prompt_hash"].startswith("NOT DERIVED YET — empty")
+    # CP-99: the two derived rows say whose emptiness this is — the FILE's, not
+    # the estate's. Here the fixture's pins in force cover every card, so both
+    # rows say so (a1 asked why a demo with usable pins is handed a skeleton
+    # announcing an undone walk; the file answers now instead of restating it).
+    assert on_disk["coverage"]["skill_card_hash"].startswith("NOT DERIVED YET in THIS file — empty")
+    assert on_disk["coverage"]["system_prompt_hash"].startswith("NOT DERIVED YET in THIS file — empty")
+    assert "already carry it and cover every skill card in this corpus" in on_disk["coverage"]["skill_card_hash"]
+    assert on_disk["walk_status"]["derive"].startswith("NOT NEEDED on this estate")
     assert on_disk["coverage"]["tool_roster_hash"].startswith("carried from the pins in force")
     assert on_disk["coverage"]["g6_expected_tail_ids"].startswith("measured here from the endpoint's own render")
     assert on_disk["coverage"]["tokenizer_hash"].startswith("NOT MEASURED")
@@ -393,7 +399,11 @@ def test_refuse_skeleton_pins_stops_before_anything_runs(est, monkeypatch, capsy
     assert "GSJ_PINS_PATH names a pins SKELETON, not pins." in err
     assert str(path) in err and "format 'gsj-pins-skeleton/1'" in err
     assert "empty approved sets: ['chat_template_hash', 'skill_card_hash', 'system_prompt_hash', 'tokenizer_hash']" in err
-    assert "derive_my_pins.py (it reads the skeleton)" in err
+    # CP-99 (a2, F9): the anchor no longer runs into the prose — a terminal
+    # linkifies `…#your-pins's` and the reader gets a 404 on the one file the
+    # refusal is about. The URL ends at a space now, on all three sites.
+    assert "#your-pins — its derive_my_pins.py reads the skeleton — and" in err
+    assert "#your-pins's" not in err
     assert "never at pins.skeleton.json" in err
     assert "found:" in err and "expected:" in err and "what to do:" in err
 

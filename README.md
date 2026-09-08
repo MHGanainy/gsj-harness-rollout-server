@@ -11,6 +11,18 @@ Episode execution and trajectory reconstruction are NVIDIA's Polar, vendored by 
 
 ## Install
 
+**What the wheel cannot do, before you install it (CP-99):** it cannot run an
+episode. It gives you the trainer client, the validators, the corpus pipeline
+and the estate tool — a corpus, five containers, derived pins and a validated
+`rollout.yaml` — and then episode *execution* is NVIDIA's Polar, which
+publishes no Python artifact of any kind. Running one needs either the
+checkout below (a second `uv` venv for `vendor/polar`) or the demo's published
+image, `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.12` — public, anonymously
+pullable, and cut from this repo's vendored Polar plus the PyPI wheel at every
+release (A-28). Two independent readers of the PyPI door filed this in round
+five — one of them after standing a whole estate from the wheel — and it is
+stated here now rather than in a comment three sections down.
+
 ```bash
 # trainer: any Python >= 3.12, anywhere; deps pydantic, httpx, pyyaml; runs no episodes
 # (a venv is yours to bring — stock Ubuntu >= 23.04 refuses a bare pip install with
@@ -79,7 +91,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 | the cutoff holds under a forged claim | tampered token (timestep 12→18, original signature) rejected HTTP 401 from inside the sandbox; valid token 200; live episode retrieved pages [1, 5, 7, 9, 11], all ≤ 12 | CP-07 |
 | two trainers, two loops, zero server changes | slime: 27 qualifying traces → one optimizer step → weight sync (logprobs moved at 5623/5782 positions) → 8/8 re-collect; verl: 110 qualifying → one step → sync (310/310 tensors, exactly one AdamW step) → 8/8; `gsj_rollout/` untouched both times | CP-17, CP-21 |
 | two model families, no code change | Qwen3-0.6B (both golden pairs); Llama-3.1-8B — 8 completions merged into one full chain, quarantine empty, gates green | CP-04′/CP-09′, CP-38 |
-| a stranger can run it from nothing | fresh machine, demo README the only input: clone → pip → estate up → first episode accepted, ≈ 5 minutes wall with the four images already on the daemon — cold, add ~1.6 GiB of pulls (Forgejo 277 MB, the retrieval service 1.28 GiB, the harness 200 MiB compressed): minutes on a fast pipe, most of an hour at ~155 KB/s (round three, 2026-09-07; a pull prints nothing while a large layer lands — `up` prints a heartbeat since CP-94) — plus the model endpoint; every image pulls natively on ARM since CP-64 (the two manual pulls this row once needed are history — a round-four stranger caught the stale claim); a copy-on-create daemon (`vfs`) turns each container create into minutes and each sandbox into ~13 GB — round four's cost, named by `up` since CP-96 | CP-36 |
+| a stranger can run it from nothing | fresh machine, demo README the only input: clone → pip → estate up → first episode accepted, ≈ 5 minutes wall with the four images already on the daemon — cold, add ~1.6 GiB of pulls (Forgejo 277 MB, the retrieval service 1.28 GiB, the harness 200 MiB compressed): minutes on a fast pipe, most of an hour at ~155 KB/s (round three, 2026-09-07; a pull prints nothing while a large layer lands — `up` prints a heartbeat since CP-94) — plus the model endpoint; every image pulls natively on ARM since CP-64 (the two manual pulls this row once needed are history — a round-four stranger caught the stale claim); a copy-on-create daemon (`vfs`) costs a **17× slower sandbox create** (19.4 s against overlay2's 1.1 s on the identical task) and **3.7× the disk** (31 G of data root against 8.4 G, for the same 4.061 GB of images) — measured against an overlay2 control at round five, named by `up` since CP-96 and priced to that pair since CP-99; round four's "minutes per create and ~13 GB per sandbox" was one loaded host, inferred, and is retired | CP-36 |
 | the shell stays thin | ours 2,034/2,034 lines (the size law's equality since CP-75; 1,999/2,000 at the audit) vs Polar's ~14,200 driven; the predecessor spent ~1,800 lines on episode execution alone | audit 2026-08-24; VERDICT §1 |
 | the fixture suites | root 161 + corpus 58 + mcp-service 89, all green by execution | audit 2026-08-24 |
 
@@ -113,7 +125,7 @@ The CP-06 feasibility spike (stub backend, spike harness, the stub-side wire cap
 
 ## Licence
 
-Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact: the wheel contains `gsj_rollout/`, the two pins sets, the G2 reference capture (`pins/container/system_prompt.container.derived.txt`), `ingest_corpus.py` and `estate.py` (as `gsj_rollout.ingest_corpus` / `gsj_rollout.estate` — `gsj_rollout.bringup` on wheels 0.1.3–0.1.5) — nothing else, asserted at build time (18 entries since 0.1.3). Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11. Its frozen [`sandbox/` recipe](https://github.com/MHGanainy/gsj-envloader/tree/v0.8.0/sandbox) also supplied the harness image's arm64 build at CP-64, and its [`staging/BRINGUP.md`](https://github.com/MHGanainy/gsj-envloader/blob/v0.8.0/staging/BRINGUP.md) remains the cold-start reference linked from [the living estate recipe](estate/README.md). Reuse is recorded here; the archive stays frozen.
+Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact **of ours** — no wheel, no sdist; it does reach you inside the demo's `gsj-polar` image, which is built from it (CP-99: a stranger quoted this sentence back as "Polar ships in no released artifact" while a public image carrying it was one `docker pull` away). The wheel contains `gsj_rollout/`, the two pins sets, the G2 reference capture (`pins/container/system_prompt.container.derived.txt`), `ingest_corpus.py` and `estate.py` (as `gsj_rollout.ingest_corpus` / `gsj_rollout.estate` — `gsj_rollout.bringup` on wheels 0.1.3–0.1.5) — nothing else, asserted at build time (18 entries since 0.1.3). Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11. Its frozen [`sandbox/` recipe](https://github.com/MHGanainy/gsj-envloader/tree/v0.8.0/sandbox) also supplied the harness image's arm64 build at CP-64, and its [`staging/BRINGUP.md`](https://github.com/MHGanainy/gsj-envloader/blob/v0.8.0/staging/BRINGUP.md) remains the cold-start reference linked from [the living estate recipe](estate/README.md). Reuse is recorded here; the archive stays frozen.
 
 ## Provenance
 

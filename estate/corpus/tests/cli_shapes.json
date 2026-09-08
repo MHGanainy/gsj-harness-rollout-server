@@ -10,7 +10,7 @@
       "a nested dockerd 29.8.0 (API 1.56) --storage-driver vfs inside the gsj-stranger box, driven by the 28.5.1 client — the round-four strangers' daemon (CP-97, CP-98)"
     ],
     "date": "2026-09-08",
-    "cp": "CP-98"
+    "cp": "CP-98 (the file), CP-99 (the two `docker exec` shapes)"
   },
   "shapes": {
     "docker rm -f <present>": {
@@ -120,6 +120,38 @@
       "stdout_re": "^\\[\\n.*\\n\\]\\n$",
       "stderr": "",
       "read_by": "image_present: returncode (the JSON array on stdout is not read)"
+    },
+    "docker exec <running> python -c <script>, no interpreter in the image": {
+      "setup": "running",
+      "argv": [
+        "docker",
+        "exec",
+        "{name}",
+        "python",
+        "-c",
+        "print(1)"
+      ],
+      "returncode": 127,
+      "stdout": "OCI runtime exec failed: exec failed: unable to start container process: exec: \"python\": executable file not found in $PATH: unknown\n",
+      "stderr": "",
+      "read_by": "probe_dial: a non-zero exit with NO parsed dial line is the failure — the detail comes off stdout when stderr is empty",
+      "note": "measured at CP-99: the CLI writes its own refusal to STDOUT and leaves stderr EMPTY, so CP-96's `returncode != 0 and not proc.stdout.strip()` guard never fired here and `up` refused with `no host address is dialable` for a probe that never dialed. The adopted-retrieval-service shape: a container of somebody else's whose image has no python."
+    },
+    "docker exec <absent> python -c <script>": {
+      "setup": "absent",
+      "argv": [
+        "docker",
+        "exec",
+        "{name}",
+        "python",
+        "-c",
+        "print(1)"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Error response from daemon: No such container: {name}\n",
+      "read_by": "probe_dial: a non-zero exit with no parsed dial line is the failure — this one's detail is on stderr",
+      "note": "measured at CP-99: the exec target died between `up` starting it and the probe running. Unlike the missing-interpreter shape above, this one puts its message where CP-96 looked."
     }
   }
 }
