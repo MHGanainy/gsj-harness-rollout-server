@@ -17,7 +17,7 @@ and the estate tool — a corpus, five containers, derived pins and a validated
 `rollout.yaml` — and then episode *execution* is NVIDIA's Polar, which
 publishes no Python artifact of any kind. Running one needs either the
 checkout below (a second `uv` venv for `vendor/polar`) or the demo's published
-image, `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.12` — public, anonymously
+image, `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13` — public, anonymously
 pullable, and cut from this repo's vendored Polar plus the PyPI wheel at every
 release (A-28). Two independent readers of the PyPI door filed this in round
 five — one of them after standing a whole estate from the wheel — and it is
@@ -60,7 +60,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 
 | | Server role | Trainer role |
 | --- | --- | --- |
-| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.12, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `estate.py`). No `vendor/`, no Polar |
+| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.13, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `estate.py`). No `vendor/`, no Polar |
 | You run | `gsj-rollout serve --config <yaml>`, then the two printed Polar commands yourself: `serve_rollout` (rollout API + scheduler — the trainer's `base_url`) and `serve_gateway` (gateway + capture proxy, one sandbox per episode, loading `pi_harness.py` and `builder.py` by import path) | `RolloutClient`: `submit` · `wait` · `collect` — `collect` submits, polls `GET /rollout/task/{id}`, re-runs `checks` on every result, returns the `Trace`s of clean sessions |
 | You validate | every callback: clean → `traces/`, bad → `quarantine/` with its findings — the same `checks.py` on both sides of the wire | `checks.validate_session_result(result)` — the identical validators the receiver ran, because nothing upstream is trusted |
 | Start here | [Server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md); a foreign model or corpus, from an endpoint URL to an accepted episode: [bring your own](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md); an estate from nothing: [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) | [Trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md); a loop against an existing server: [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) + its `RUNBOOK.md` |
