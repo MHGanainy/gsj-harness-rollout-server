@@ -161,7 +161,7 @@ docker run -d --name gsj-polar-gateway --network host \
   -v "$RUNS_PARENT:$RUNS_PARENT" -v /var/run/docker.sock:/var/run/docker.sock \
   -e TMPDIR="$RUNS_PARENT/polar-sessions" \
   --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
   polar serve_gateway -c "$RUN/topology.rendered.yaml"
 ```
 

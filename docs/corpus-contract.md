@@ -505,7 +505,7 @@ python estate/corpus/ingest_corpus.py all      --corpus <corpus-root>   # the fu
 (`validate` and `ingest` are estate-tool verbs since CP-72 — from a wheel,
 `python -m gsj_rollout.estate validate|ingest`. The other phases keep the
 pipeline's own command line, which still works for every phase but prints
-a deprecation notice; retained through 0.1.13; removal remains eligible from 0.1.8, not scheduled.)
+a deprecation notice; retained through 0.1.14; removal remains eligible from 0.1.8, not scheduled.)
 
 `all` runs the five phases in order and stops at the first failure:
 

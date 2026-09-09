@@ -4,7 +4,7 @@
 
 Two procedures the library owns, written after a stranger walked them first (2026-09-06, library 0.1.9 from PyPI, the library's own scaffold as the corpus, a `qwen3.6-27b` endpoint nobody here operates) and reproduced independently twice the next day at 0.1.10 (round three — [the end of the page](#what-the-walk-proves-and-what-it-does-not)): **[your model](#your-model)** — from an endpoint URL to the values `up` needs, and **[your pins](#your-pins)** — from the first quarantined episode to an accepted one. Each ends with a script you paste and run; each script *asserts* before it *derives*, and neither approves anything you did not inspect. That shape is the stranger's, kept on purpose: the values are cheap, the discipline is the point.
 
-What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (277 MB), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
+What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (277 MB), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
 
 > [!NOTE]
 > **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. What it writes since 0.1.12 (CP-97, ADR-0042) is the **skeleton** — `<run>/pins.skeleton.json` beside `rollout.yaml`: the two carried sets from the pins in force, the tail and the end-of-turn id measured from your endpoint's own render, the two derived sets and G4's empty, `not_measured` and `coverage` stated — under a format (`gsj-pins-skeleton/1`) the library refuses on first use and `up` refuses before anything runs, so nothing consumes it as pins by accident. The script in [your pins](#your-pins) reads it; the judgement stays yours. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
@@ -164,7 +164,7 @@ it derived them from the image and the vendored source and wrote, accurately,
 
 ### Route A — the published image
 
-`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13` is public and anonymously
+`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14` is public and anonymously
 pullable, and carries this release's wheel beside Polar. `$RUN` is your run
 directory (`<runs>/<name>`), `$RUNS_PARENT` the directory that holds it.
 
@@ -172,7 +172,7 @@ directory (`<runs>/<name>`), `$RUNS_PARENT` the directory that holds it.
 docker run -d --name gsj-polar-rollout --network host \
   -v "$RUNS_PARENT:$RUNS_PARENT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
   polar serve_rollout -c "$RUN/topology.rendered.yaml"
 
 mkdir -p "$RUNS_PARENT/polar-sessions"          # the session dir, host-side — see TMPDIR below
@@ -181,7 +181,7 @@ docker run -d --name gsj-polar-gateway --network host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e TMPDIR="$RUNS_PARENT/polar-sessions" \
   --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
   polar serve_gateway -c "$RUN/topology.rendered.yaml"
 ```
 
@@ -225,7 +225,7 @@ rollout API, not merely started:
 
 ```bash
 docker run --rm --network host -v "$RUNS_PARENT:$RUNS_PARENT" \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
   polar status -c "$RUN/topology.rendered.yaml"     # Registered Nodes: 1, the gateway [UP] under it
 ```
 
