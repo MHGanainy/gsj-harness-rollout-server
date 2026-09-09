@@ -2485,6 +2485,33 @@ def write_pins_skeleton(rundir: Path, doc: dict) -> Path:
     return path
 
 
+def skeleton_footer_row(skeleton: str | None, measurement: dict, eurl: str,
+                        g1: dict, covered: bool) -> str:
+    """The `== run <name> ==` block's skeleton line.
+
+    CP-101 (row 102): this line said `G1/G2 EMPTY until an inspected
+    quarantined episode supplies them` UNCONDITIONALLY — printed twenty lines
+    under the conditional pins line CP-99 made honest, on the same screen,
+    claiming the opposite of it. Round six's a1 read both and filed the
+    contradiction. The footer is conditional on the same fact the pins line
+    tests: whether the pins already in force cover this corpus.
+    """
+    if not skeleton:
+        return f"  (no {SKELETON_NAME}: the pins in force could not be read — see the pins warning above)\n"
+    reused = " (reused from this run's record — the engine did not answer this time)"
+    eot = (" (the end-of-turn id too)" if measurement.get("end_of_turn_token_id") is not None
+           else " (the end-of-turn id NOT — see the skeleton measured.why)")
+    head = (f"  {SKELETON_NAME} NOT pins — the two carried sets, the G6 tail "
+            f"{'measured' if measurement['measured'] else 'NOT measured'}"
+            f"{reused if measurement.get('reused_from_record') else ''}{eot} from {eurl};\n")
+    if covered:
+        return head + ("                     G1/G2 EMPTY in it — NOT NEEDED on this estate: "
+                       f"{g1.get('pins_path')} already carries them (#your-pins is for a corpus "
+                       "or model those pins do not cover)\n")
+    return head + ("                     G1/G2 EMPTY until an inspected quarantined episode "
+                   "supplies them (#your-pins reads it)\n")
+
+
 def host_ipv4s() -> list[str]:
     """Every non-loopback IPv4 this host carries, in interface order."""
     ips: list[str] = []
@@ -3722,7 +3749,12 @@ def cmd_up(args: argparse.Namespace) -> None:
              "nothing checks those on this estate (G4's tokenizer/chat-template bytes are "
              "estate-side and were not measured): an accepted episode says nothing about "
              f"them — {BRING_YOUR_OWN_URL}#what-an-acceptance-covers")
-    # CP-97 (ADR-0042): the skeleton — beside rollout.yaml, never pins
+    # CP-97 (ADR-0042): the skeleton — beside rollout.yaml, never pins.
+    # CP-101: `skeleton_covered` is read again by the `== run <name> ==` footer
+    # below, which said "EMPTY until an inspected quarantined episode supplies
+    # them" unconditionally — twenty lines under the conditional line CP-99 wrote,
+    # on the same screen, saying the opposite (round six's a1 filed the pair).
+    skeleton_covered = False
     if g1.get("checked"):
         skeleton = write_pins_skeleton(
             rundir, pins_skeleton(rundir, name, corpus, g1, probe, measurement, eot,
@@ -3928,15 +3960,8 @@ then one episode (the config's whole claim) — nothing exported: submit reads {
   for an unset named read token (since 0.1.7, CP-75); the environment wins when already set.
   Historical wheels through 0.1.6 need .env sourced in a subshell before submit:
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
-    reused_note = " (reused from this run's record — the engine did not answer this time)"
-    skeleton_row = ((f"  {SKELETON_NAME} NOT pins — the two carried sets, the G6 tail "
-                     f"{'measured' if measurement['measured'] else 'NOT measured'}"
-                     f"{reused_note if measurement.get('reused_from_record') else ''}"
-                     f"{' (the end-of-turn id too)' if measurement.get('end_of_turn_token_id') is not None else ' (the end-of-turn id NOT — see the skeleton measured.why)'}"
-                     f" from {eurl};\n"
-                     "                     G1/G2 EMPTY until an inspected quarantined episode supplies them "
-                     "(#your-pins reads it)\n") if rec["pins"].get("skeleton") else
-                    f"  (no {SKELETON_NAME}: the pins in force could not be read — see the pins warning above)\n")
+    skeleton_row = skeleton_footer_row(rec["pins"].get("skeleton"), measurement, eurl,
+                                       g1, skeleton_covered)
     print(f"""
 == run {name} == {rel}/
   rollout.yaml       the rollout server's config (validated; topology.rendered.yaml beside it)

@@ -141,17 +141,124 @@ Run it, then hand the values to `up`:
 
 ```bash
 ENGINE=http://127.0.0.1:8100 python3 probe_model.py          # MODEL=… when several are served; MARKER=… off the Qwen family; THINKING=medium for a thinking-on estate
+mkdir -p runs                # `up` REFUSES to create its own runs root (CP-90): from a wheel
+                             # that root is ./runs, and on a fresh box it does not exist yet.
+                             # `--runs-dir <dir>` names another; the refusal says both.
 $ESTATE up --corpus <root> --engine-url http://127.0.0.1:8100 \
     --engine-model "<served model>" --end-of-turn-token-id <id> -y
 ```
 
 `up` records both in the run's `rollout.yaml` (neither is binding: edit the file or re-run `up`). **Since 0.1.12 `up` performs this measurement itself** (step 3 under the same kwargs, for the `--thinking` level it is given, and the end-of-turn id taken as the first non-whitespace token the template emits after assistant content in a closed render — the demo's rule, not step 2's known-marker check; without `/detokenize` the tail is measured and the id is not, said so): `builder.end_of_turn_token_id` takes the measured id unless `--end-of-turn-token-id` says otherwise (an explicit value persists across re-runs and a disagreement is warned about), the engine phase prints both values, and both land in `<run>/pins.skeleton.json` with every request/response pair — so from 0.1.12 on this script is the read-only check you run *before* `up`, and step 5 (the tool-choice probe) is the part `up` still does not do. On wheels through 0.1.11 the tail ids are not `up`'s to write — they go into your pins file, next. What the stranger measured this way, for the record: `qwen3.6-27b`, `<|im_end|>` = **248046** (the reference model's is 151645), tail `[248045, 74455, 198, 248068, 271, 248069, 271]`; `up`'s warning through 0.1.11 said the id "stays the Qwen3 default unless told otherwise" — this is how you told it, and since 0.1.12 it is measured.
 
+## Polar's two processes
+
+`up` stands the estate; it does not run episodes. That last step is Polar's, and
+Polar publishes no Python artifact — the boundary named in the assumptions above.
+Two routes reach it, and **round six's two library-door strangers took one each,
+independently, without being asked**. Both ranked what was missing here first of
+everything they found: naming the image (CP-99, register row 108) was *necessary
+and is not sufficient*, because a named image you cannot invoke is still a wall.
+The invocations below are the first stranger's, verified rather than invented —
+it derived them from the image and the vendored source and wrote, accurately,
+*"Commands (mine; no page contains them)"*.
+
+### Route A — the published image
+
+`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13` is public and anonymously
+pullable, and carries this release's wheel beside Polar. `$RUN` is your run
+directory (`<runs>/<name>`), `$RUNS_PARENT` the directory that holds it.
+
+```bash
+docker run -d --name gsj-polar-rollout --network host \
+  -v "$RUNS_PARENT:$RUNS_PARENT" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  polar serve_rollout -c "$RUN/topology.rendered.yaml"
+
+mkdir -p "$RUNS_PARENT/polar-sessions"          # the session dir, host-side — see TMPDIR below
+docker run -d --name gsj-polar-gateway --network host \
+  -v "$RUNS_PARENT:$RUNS_PARENT" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e TMPDIR="$RUNS_PARENT/polar-sessions" \
+  --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  polar serve_gateway -c "$RUN/topology.rendered.yaml"
+```
+
+What each flag is for — this is the content the boundary owes you:
+
+- **`--network host`** — with `--polar-leg host` (the default) `rollout.yaml` binds
+  the rollout API and the receiver on loopback and advertises the gateway at the
+  address `up` measured. Sharing the host's network namespace makes all four of
+  those addresses true inside the container **without re-addressing a single key**.
+  It is the whole reason not to take `--polar-leg container`, which asks you to
+  re-address four values by hand.
+- **`-v "$RUNS_PARENT:$RUNS_PARENT"`, at the identical path** — `topology.rendered.yaml`,
+  `harness.artifacts_dir` and `receiver.traces_dir` are absolute *host* paths. The
+  container must see them at the same string, or Polar writes evidence somewhere
+  the host cannot read.
+- **`-v /var/run/docker.sock`** — `serve_gateway` starts one sandbox container per
+  episode, as a sibling on the host daemon. No page said this; the Docker CLI baked
+  into the image is the only hint, and a hint is not a document.
+- **`-e TMPDIR=<a path bind-mounted identically>`** — the flag that does not announce
+  itself, and the one that cost round six an episode. Polar `mkdtemp`s each session
+  directory under the **gateway process's** `$TMPDIR` and bind-mounts it into the
+  sandbox through the socket, so the *daemon* must be able to resolve that path.
+  A containerised gateway's default `/tmp/session-…` does not exist on the host; the
+  daemon silently creates an empty host directory and mounts that instead, and the
+  episode fails in the worst possible way — see
+  [a whole episode marked ERROR](troubleshooting.md#a-containerised-gateway-and-tmpdir).
+  Point `TMPDIR` at a directory that is bind-mounted at its own path, as above.
+- **`--env-file` with the quotes stripped** — the secret goes on the **gateway line
+  only** ([server-guide.md](server-guide.md)). `estate.py` writes its `.env` as
+  `KEY='value'`, and **compose's dotenv parser strips those quotes while
+  `docker run --env-file` does not**: pipe the file in unedited and the gateway
+  holds a 66-character secret against the retrieval service's 64-character one,
+  every `search_case` returns 401, and the episode completes *green with no
+  retrieved pages* — the one failure mode nothing in the trace names. The stranger
+  caught it only by measuring inside the container
+  (`docker exec gsj-polar-gateway sh -c 'echo ${#GSJ_MCP_TOKEN_SECRET}'` → 64).
+  The `<(…)` form is bash's; in `sh`, write the filtered file out first.
+
+Check both came up before submitting — the gateway must have *registered* with the
+rollout API, not merely started:
+
+```bash
+docker run --rm --network host -v "$RUNS_PARENT:$RUNS_PARENT" \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  polar status -c "$RUN/topology.rendered.yaml"     # Registered Nodes: 1, the gateway [UP] under it
+```
+
+### Route B — a checkout
+
+The other stranger never pulled the image: the container recipe lived in a repo it
+had been told not to read, so it took the documented checkout route instead, and
+reached the same accepted episode.
+
+```bash
+git clone https://github.com/MHGanainy/gsj-harness-rollout-server
+cd gsj-harness-rollout-server/vendor/polar && uv venv && uv pip install -e .
+```
+
+Then Polar's two processes are the ones `gsj-rollout serve` prints, run from that
+venv with the checkout on `PYTHONPATH` (`vendor/REVENDOR.md` carries the recipe,
+including the A-14 `gsj_rollout` install).
+
+> [!NOTE]
+> **What `gsj-rollout serve` prints, and why it does not say this.** From a wheel,
+> `serve`'s `NOTE:` names only a `<checkout>` and spells no image, while `estate.py`'s
+> closing block — one command earlier — does name the image. A round-six stranger hit
+> that disagreement from the door, without going looking, and asked for the two to
+> match. They do not yet: `gsj_rollout/cli.py` is inside the 2,034-line size law,
+> whose headroom is zero by design, so the line is register row 108's standing
+> residue rather than an oversight. This page is where the recipe lives until a
+> checkpoint funds the line.
+
 ## Your pins
 
 The wheel ships the **reference estate's** approved sets. On your corpus every episode quarantines — `G2:system_prompt_hash_not_approved:<hash>` for your `AGENTS.md`, `G1:skill_card_hash_not_approved:<hash>` for your skill cards on a skill row — and on a non-reference model `G6:prompt_suffix_ne_tail_ids` (and `G6:interstitial_ne_tail_ids:…` on later turns) for the tail. That first quarantine is not a failure; it is the evidence the walk reads. The order matters:
 
-1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use).
+1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset) — the receiver is `gsj-rollout serve` from the wheel, and Polar's two are [above](#polars-two-processes). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use).
 2. **Run one episode against the reference pins**, with a task id you will recognise:
    ```bash
    gsj-rollout submit --config <run>/rollout.yaml --from-bank <run>/taskbank.parquet --row 0 \

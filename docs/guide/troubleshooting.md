@@ -99,7 +99,7 @@ A sandbox failure surfaces twice: `Agent execution failed for session <id>` in t
 | `PiHarness: token secret env var 'GSJ_MCP_TOKEN_SECRET' is unset in the gateway process` | export the variable named by `estate.mcp_token_secret_env` before the gateway command (`serve` prints it with `GSJ_MCP_TOKEN_SECRET=<secret>` in front); it must equal the retrieval service's own secret, else `search_case` gets `401` and the episode completes with no pages (→ `H41` if armed) |
 | `PiHarness settings missing required keys: […]` | the request was not rendered by `render_task_request` — `agent.settings` needs `case_id` `timestep` `clone_url_for` `mcp_url_base` `tools_allowlist` `artifacts_dir` |
 | `PiHarness requires model_name as 'provider/model'` | the renderer builds `<estate.provider>/<estate.model>`; a hand-built request must too |
-| `step <i> exited with code <rc>` | pi exited non-zero — its output is in `<session_dir>/logs/agent/step.<ii>.stdout.log` / `.stderr.log` on the gateway host, its transcript in `<artifacts_dir>/<session_id>/pi_transcript.jsonl` |
+| `step <i> exited with code <rc>` | pi exited non-zero — **or pi ran fine and the `tee` after it did not**: read [a containerised gateway and `TMPDIR`](#a-containerised-gateway-and-tmpdir) below before anything else, especially if the trajectory looks whole. Its transcript is at `<artifacts_dir>/<session_id>/pi_transcript.jsonl`. `<session_dir>/logs/agent/step.<ii>.stdout.log` on the gateway host is where pi's own streams go **while the session runs** — Polar `rmtree`s that directory the moment the session ends (`polar/gateway/node.py`), so on a finished episode it is gone and this is not a cure you can follow after the fact (CP-101; a round-six stranger went looking and found nothing there). To keep it, stop the gateway before it reaps, or read the transcript instead |
 
 > [!WARNING]
 > The three networking traps that cost live episodes:
@@ -124,6 +124,63 @@ Quick reference — who dials what:
 | `polar.gateway.public_url` | the rollout API **and** pi in the container | no registration → `(0/N sessions)` timeout; or `ADM4:no_traces` |
 | `polar.rollout.host/port/public_url` | the trainer, the gateway | exit 3 |
 | `receiver.host/port/public_url` | the rollout API (callback) | nothing lands on disk; `submit` still collects |
+
+### A containerised gateway and `TMPDIR`
+
+**Symptom, and it is the worst shape a failure can take**: a quarantined episode
+carrying `ADM1:status_not_completed:ERROR` and `error: "step 0 exited with code 1"`
+on a body that is otherwise *whole* — one chain, every completion merged,
+`gsj_validation.findings: []`, the agent's deliverable written correctly to `out/`.
+The gateway log says only:
+
+```
+PiHarness postprocess: transcript download failed: docker cp download_file failed with exit code 1
+```
+
+**Cause.** Polar creates each session directory with `mkdtemp` in the **gateway
+process's** `$TMPDIR` (`polar/gateway/node.py`) and bind-mounts it into every
+sandbox container (`polar/runtime/docker.py`, as `/polar/session`). Run the gateway
+*as a container* and that path exists inside the gateway, not on the host — and the
+daemon, asked for a bind source it cannot find, **silently creates an empty host
+directory and mounts that**. So `/polar/session/logs/agent` is missing inside the
+sandbox; the `tee` that ends pi's command (`gsj_rollout/pi_harness.py`) cannot open
+its file; **a pipeline's exit status is its last command's**, so the step exits 1
+however well pi ran; and Polar stamps the session `ERROR`. The trace is intact and
+the status is a lie about it. The smoking gun is on the host:
+
+```bash
+ls -d /tmp/session-*        # an EMPTY directory the daemon made for the missing mount
+```
+
+**Cure.** Give the gateway a `$TMPDIR` that means the same thing on both sides of
+the socket — a directory bind-mounted at its own path:
+
+```bash
+mkdir -p "$RUNS_PARENT/polar-sessions"
+docker run -d --name gsj-polar-gateway --network host \
+  -v "$RUNS_PARENT:$RUNS_PARENT" -v /var/run/docker.sock:/var/run/docker.sock \
+  -e TMPDIR="$RUNS_PARENT/polar-sessions" \
+  --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.13 \
+  polar serve_gateway -c "$RUN/topology.rendered.yaml"
+```
+
+The demo's compose sets this (`TMPDIR` plus a same-path `sessions` mount), which is
+why the demo door never meets it; a library-door operator running the gateway as a
+container had nothing to read until CP-101. The full flag-by-flag recipe is
+[bring-your-own.md](bring-your-own.md#polars-two-processes). Found by a round-six
+stranger, which diagnosed it to the mechanism from the vendored source and cured it
+with one flag: `ADM1` gone, `status: COMPLETED`, and exactly the gate findings the
+walk predicts. Register row 110.
+
+Two notes for anyone chasing this shape:
+
+- **`postprocess` is not what failed the run.** Its downloads are caught and
+  printed; the transcript line above is a *consequence* of the same missing mount,
+  not the cause of the `ERROR`. The cause is one stage earlier, in the step.
+- **The log the table points at is already gone.** `<session_dir>/logs/agent/…` is
+  `rmtree`d when the session ends, and here it is also the file that could not be
+  written in the first place.
 
 ## At `estate/estate.py` — REFUSED
 

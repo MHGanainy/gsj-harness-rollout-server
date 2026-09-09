@@ -57,3 +57,6 @@ round4-orchestration-*/
 # round five orchestration evidence (untracked like stranger/ and round4)
 round5/
 round5-*.md
+# round six orchestration evidence (untracked like stranger/, round4 and round5)
+round6/
+round6-*.md
