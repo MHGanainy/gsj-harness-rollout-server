@@ -659,7 +659,8 @@ the estate's pins are re-derived and named**:
   pins — since 0.1.12 (ADR-0042) it writes `<run>/pins.skeleton.json`
   beside the run's own `rollout.yaml`: the carried sets, the G6 tail and the end-of-turn id
   measured from the engine, G1 and G2 empty; refused as pins by the
-  library and by `up`, read by the page's script.
+  library (on first use — the first hash gate a completed body reaches,
+  after the admission gates) and by `up`, read by the page's script.
 - The library owns the walk, as a page a stranger can follow:
   [`docs/guide/bring-your-own.md#your-pins`](guide/bring-your-own.md#your-pins)
   — one episode against the reference pins, **inspect** the quarantined

@@ -49,6 +49,12 @@ Every prompt has a default and a flag (or an `--answers` file), so a
 straight enter through every prompt gives a working local estate, and a
 script can drive it with no terminal at all. Every failure names what it
 found, what it expected, and what to do — and stops.
+
+Documentation (the wheel ships none — CP-104):
+https://github.com/MHGanainy/gsj-harness-rollout-server/tree/main/docs/guide —
+bring-your-own.md walks a foreign corpus and model to an accepted episode
+(Polar's two processes from the published image included); server-guide.md
+is this tool's reference; troubleshooting.md reads every refusal it prints.
 """
 
 from __future__ import annotations
@@ -119,6 +125,14 @@ FORGEJO_IMAGE = "codeberg.org/forgejo/forgejo:16.0.3"
 FORGEJO_HEALTHZ_BUDGET_S = 120.0
 FORGEJO_IMAGE_DIGEST = "sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
 FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, measured digest-equal
+# The published Polar image — cut two-platform at every release (A-28) from the
+# vendored Polar at POLAR_SHA plus that release's wheel, tagged
+# `<POLAR_SHA's first eight>-gsj<version>`. From a wheel it is the only way to
+# run Polar's two processes without a checkout. Round seven's b1 (CP-104):
+# `up`'s closing block said "the published gsj-polar image" and spelled nothing
+# pullable — the reference lived on the PyPI page and one guide page only.
+POLAR_IMAGE_REPO = "ghcr.io/mhganainy/gsj-polar"
+POLAR_SHA_SHORT = "f0e8343a"       # the vendor pin the tag encodes; a checkout reads POLAR_SHA itself
 MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"   # CP-79's published two-platform decisions image
 # CP-83: 0.5.0 supports the decisions drop (CP-79), retaining 0.4.1's
 # batched add under chroma's 5,461-item ceiling and orphan sweep. From the
@@ -497,11 +511,94 @@ def pins_g1_check(corpus) -> dict:
             "pins_source": source, "not_in_approved_set": missing, "empty_sets": empty}
 
 
+def polar_image_ref() -> str:
+    """The published image for THIS library version — the tag A-28 cuts at
+    every release. A checkout names the last cut's version until
+    pyproject.toml moves; between a release commit and its image cut the
+    tag is minutes from existing (the CP-100 window, recorded there)."""
+    sha = POLAR_SHA_SHORT
+    if CHECKOUT:
+        try:
+            first = (REPO / "POLAR_SHA").read_text().splitlines()[0]
+            sha = first.split("=", 1)[1].strip()[:8] or sha
+        except (OSError, IndexError):
+            pass
+    try:
+        import gsj_rollout
+        version = gsj_rollout.__version__
+    except ImportError:
+        version = "<version>"
+    return f"{POLAR_IMAGE_REPO}:{sha}-gsj{version}"
+
+
+def polar_route_note() -> str:
+    """The closing block's NOTE from a wheel (CP-94), now naming what round
+    seven's b1 could not find in it: the pullable image, and the page whose
+    two `docker run` invocations start Polar's processes from it (CP-101,
+    row 108). A checkout prints its own vendor/polar venv and no note."""
+    if CHECKOUT:
+        return ""
+    return (f"\n  NOTE: no wheel ships vendor/polar — the two `polar` lines need either the published "
+            f"image {polar_image_ref()} (public, anonymously pullable, cut at every release from this "
+            f"library's vendored Polar plus this wheel; the two `docker run` invocations that start "
+            f"its processes, one clause per flag: {BRING_YOUR_OWN_URL}#polars-two-processes) or a "
+            "checkout (git clone https://github.com/MHGanainy/gsj-harness-rollout-server; build "
+            "vendor/polar's venv per its README) with the checkout on PYTHONPATH; `gsj-rollout "
+            "serve` runs from this wheel as printed")
+
+
+def runnable_prog() -> str:
+    """PROG as a command a reader can paste into another shell. From a wheel
+    it is the interpreter that ran this, not a bare `python` (b2's finding 4:
+    whichever `python` is first on PATH need not be the venv holding
+    gsj_rollout — the submit line already prints the venv's own)."""
+    return PROG if CHECKOUT else f"{sys.executable} -m gsj_rollout.estate"
+
+
+def manage_hint(name: str, root: Path) -> str:
+    """The `status` / `down` pair the closing block prints — with the runs
+    root spelled, always: copied later from another directory, or after an
+    `up` that named `--runs-dir`, the bare form resolves the DEFAULT root
+    and reports `no run named` (round seven's b2, finding 4)."""
+    prog = runnable_prog()
+    return (f"{prog} status --name {name} --runs-dir {root}    |    "
+            f"{prog} down --name {name} --runs-dir {root} [--wipe]")
+
+
+def rerun_hint(name: str, corpus_arg: str, root: Path) -> str:
+    """The `up` that resumes or re-renders a run, complete: the corpus (no
+    default on a wheel) and the runs root (b2's finding 4: the generated
+    rollout.yaml header omitted both)."""
+    return f"{runnable_prog()} up --name {name} {corpus_arg} --runs-dir {root}"
+
+
+def bank_rows_lines(bank: Path, limit: int = 12) -> list[str]:
+    """`submit --row N` takes an index into a parquet file nothing shipped
+    could print: round seven's b1 read it with hand-written pyarrow to learn
+    what row 6 was, and the page's "row 0 is the free prompt; row 1 the skill
+    row" held only by the sort order (`free:` before `skill:` within a
+    timestep). The rows, in the bank's own order — (case_id, timestep,
+    prompt_id) — one line each, capped."""
+    try:
+        rows = ic.read_taskbank_rows(bank)
+    except Exception as exc:    # ic.PipelineError, or pyarrow missing on a status-only host
+        return [f"    (rows not listed — {type(exc).__name__}: {str(exc).splitlines()[0][:160]})"]
+    lines = [f"    --row {i:<3} {r['case_id']}@{r['timestep']}  {r['prompt_id']}  [{r.get('split')}]"
+             for i, r in enumerate(rows[:limit])]
+    if len(rows) > limit:
+        lines.append(f"    … {len(rows) - limit} more row(s); the bank is sorted by (case_id, timestep, prompt_id)")
+    return lines
+
+
 def refuse_skeleton_pins() -> None:
     """CP-97 (ADR-0042): a `GSJ_PINS_PATH` that names a pins SKELETON is
     refused before any estate work — the file `up` writes is not pins, and an
     estate stood up under it would have the receiver refuse every trace
-    (`PinsConfigurationError` on the first empty set) or, worse, read as
+    (`PinsConfigurationError` on the first empty set — on first USE: the first
+    hash gate a COMPLETED body reaches, after the admission gates, which run
+    before any pins are read; round seven's b1 validated `{}` against a
+    skeleton, read ADM1/ADM3 as two broken promises for a minute, then re-ran
+    with a real body and got the refusal the docs promise) or, worse, read as
     validating. Only an explicit override can name one: the checkout's and
     the wheel's own files are never skeletons."""
     named = os.environ.get("GSJ_PINS_PATH")
@@ -1071,6 +1168,37 @@ def pull_phase_summary(layers: dict) -> tuple[str, bool]:
     return text, True
 
 
+PULL_TALLY_STALL_BEATS = 3   # heartbeats with no layer changing state before the verdict is qualified
+
+
+def _span(seconds: float) -> str:
+    return f"{seconds / 60:.0f}m" if seconds >= 60 else f"{seconds:.0f}s"
+
+
+def pull_tally_age(same_beats: int) -> str:
+    """CP-104 (round seven's b1, finding 3): the heartbeat's verdict was
+    binary — `the pipe is moving` at 665 KiB a minute as readily as at 95
+    MiB — and the tally sat at `7/12 layers complete` for twenty-four
+    consecutive heartbeats (2m to 25m; b1 counted seventeen) while one layer
+    went through docker's retry backoff three times (5, 10 and 15 s — the
+    thirty `Retrying in N seconds` countdown lines b1 read as thirty retries;
+    measured on b1's own log, round7/artifacts, at CP-104). It told progress
+    from stall only by diffing lines by hand, and nearly killed a pull that
+    finished eighteen minutes later.
+    The tally's age rides on the line: how long no layer has changed state."""
+    return f", unchanged for {_span(same_beats * PULL_HEARTBEAT_S)}" if same_beats > 0 else ""
+
+
+def pull_moving_caveat(same_beats: int) -> str:
+    """Past the floor, `the pipe is moving` says whose progress the bytes are."""
+    if same_beats < PULL_TALLY_STALL_BEATS:
+        return ""
+    return (f" — but no layer changed state in {_span(same_beats * PULL_HEARTBEAT_S)}: a layer in "
+            "docker's retry loop (`Retrying in N seconds` above) can move bytes for minutes without "
+            "finishing, so the layer tally is the pull's own progress and the byte count is only "
+            "the host's")
+
+
 def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
     """One pull, said out loud; the caller decides what a failure means.
     docker's own stdout passes through live (a TTY draws bytes per layer; a
@@ -1111,6 +1239,7 @@ def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
     for t in drainers:
         t.start()
     started, rx0 = time.monotonic(), host_rx_bytes()
+    seen, same_beats = None, 0           # CP-104: how many beats the layer tally has not moved
     while True:
         try:
             proc.wait(timeout=PULL_HEARTBEAT_S)
@@ -1119,10 +1248,15 @@ def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
             pass
         rx1 = host_rx_bytes()
         where, expects_bytes = pull_phase_summary(layers)
+        snapshot = tuple(sorted(layers.items()))
+        same_beats = same_beats + 1 if (snapshot == seen and snapshot) else 0
+        seen = snapshot
+        where += pull_tally_age(same_beats)
         if rx0 is None or rx1 is None:
             moved = "this host's byte counters are not readable here"
         elif rx1 - rx0 > 0:
-            moved = f"this host received {_human(rx1 - rx0)} in the last {PULL_HEARTBEAT_S:.0f}s — the pipe is moving"
+            moved = (f"this host received {_human(rx1 - rx0)} in the last {PULL_HEARTBEAT_S:.0f}s — "
+                     f"the pipe is moving{pull_moving_caveat(same_beats)}")
         elif not expects_bytes:
             moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — as expected "
                      "while the daemon extracts (watch the daemon's data root grow instead)")
@@ -1152,6 +1286,15 @@ _STORAGE_WORDS = ("layer", "extract", "mount", "overlay", "snapshotter", "unpack
                   "whiteout", "rootfs")
 _TRANSPORT_MARKS = ("dial tcp", "lookup ", "tls handshake", "unexpected eof",
                     "connection refused", "no such host", "i/o timeout", "manifest unknown")
+# CP-104 (round seven's b2, finding 2): a transfer the registry ANSWERED and the
+# connection then cut mid-layer — `Retrying in N seconds` per layer, then
+# `unexpected EOF` — is not a missing manifest, and the cure is the same
+# command again (the daemon keeps every completed layer): b2's identical `up`
+# completed on its second run, after a refusal that had sent it to tags,
+# mirrors and digests. These marks name the cut; the registry-side ones above
+# keep the registry advice.
+_TRANSFER_MARKS = ("unexpected eof", "connection reset", "read tcp", "read: connection")
+# (a `dial tcp …: i/o timeout` or a TLS handshake timeout is the registry NOT answering — download)
 
 
 _VERIFY_HEADLINE = re.compile(r"^== verify: (PASS|FAIL) \((\d+) pass / (\d+) fail\) ==$", re.M)
@@ -1175,13 +1318,17 @@ def verify_headline(text: str) -> str:
 
 def pull_failure_kind(stderr: str) -> str:
     """`extract` when the daemon's error text says the bytes arrived and the
-    storage refused them; `download` for everything else (unreachable
-    registry, a dropped manifest, a TLS or EOF failure, a firewalled
-    daemon's errno). A transport marker with no strong extract sign is a
-    download failure whatever errno rides with it."""
+    storage refused them; `transfer` (CP-104) when the registry answered and
+    the transfer was cut — an EOF, a timeout, a reset — which the same
+    command resumes; `download` for everything else (unreachable registry,
+    a dropped manifest, a firewalled daemon's errno). A transport marker
+    with no strong extract sign is never an extraction failure whatever
+    errno rides with it."""
     text = (stderr or "").lower()
     if any(sign in text for sign in _EXTRACT_STRONG):
         return "extract"
+    if any(mark in text for mark in _TRANSFER_MARKS):
+        return "transfer"
     if any(mark in text for mark in _TRANSPORT_MARKS):
         return "download"
     if any(err in text for err in _EXTRACT_ERRNO) and any(w in text for w in _STORAGE_WORDS):
@@ -1189,13 +1336,34 @@ def pull_failure_kind(stderr: str) -> str:
     return "download"
 
 
+def pull_failure_expected(kind: str, registry_expectation: str) -> str:
+    """The refusal's `expected` clause, per kind (CP-104)."""
+    if kind == "extract":
+        return "a daemon whose storage can extract and mount OCI layers"
+    if kind == "transfer":
+        return ("a transfer that runs to its end — the registry served the manifest and the "
+                "layers were downloading when the connection was cut (round seven's b2: nine "
+                "minutes of `Retrying in N seconds`, then `unexpected EOF`)")
+    return registry_expectation
+
+
 def pull_failure_fix(kind: str, image: str, download_fix: str) -> str:
     """The `what to do` for a failed pull or a compose up that could not
-    mount: a download failure keeps the registry-side advice it was given;
-    an extraction/mount failure names the daemon's storage and the one
-    check that detects it — a RUN, because a plain pull passes on such a
-    daemon (measured 2026-09-06: `docker pull debian:stable-slim` succeeded
-    on a stranger's daemon where no container could start)."""
+    mount: a cut transfer leads with the same command again (CP-104 — the
+    daemon resumes from the layers it kept; only a second identical failure
+    earns the registry advice); a download failure keeps the registry-side
+    advice it was given; an extraction/mount failure names the daemon's
+    storage and the one check that detects it — a RUN, because a plain pull
+    passes on such a daemon (measured 2026-09-06: `docker pull
+    debian:stable-slim` succeeded on a stranger's daemon where no container
+    could start)."""
+    if kind == "transfer":
+        return (f"re-run the same command first — the registry answered and the transfer of "
+                f"{image} was cut mid-layer; the daemon keeps every layer that completed and "
+                "resumes the rest (`Retrying in N seconds` on its own is the pull recovering; "
+                "the run ENDING in `unexpected EOF` is the cut — docs/guide/troubleshooting.md, "
+                "the pull row). Only if the identical command fails the same way twice: "
+                + download_fix)
     if kind != "extract":
         return download_fix
     return (f"the registry answered and every layer downloaded, but THIS daemon's "
@@ -1499,12 +1667,13 @@ def create_forgejo(rundir: Path, run: Run, port: int, signin: bool,
             tag = image_tag(image)
             kind = pull_failure_kind(pull.stderr)
             die(f"the Forgejo image {image} could not be pulled"
-                + (" — downloaded, then not extractable." if kind == "extract" else "."),
+                + {"extract": " — downloaded, then not extractable.",
+                   "transfer": " — the transfer was cut mid-layer; re-run the same command."}.get(kind, "."),
                 (pull.stderr.strip().splitlines() or ["no error text"])[-1],
-                "a pullable image (both platform manifests served — a registry "
-                "cleanup can drop them while the tag's index still lists them: "
-                "16.0.2 on codeberg, measured 2026-08-30)" if kind != "extract"
-                else "a daemon whose storage can extract and mount OCI layers",
+                pull_failure_expected(
+                    kind, "a pullable image (both platform manifests served — a registry "
+                          "cleanup can drop them while the tag's index still lists them: "
+                          "16.0.2 on codeberg, measured 2026-08-30)"),
                 pull_failure_fix(
                     kind, image,
                     f"pass --forgejo-image <ref> naming a live one — another tag "
@@ -2174,6 +2343,10 @@ def pi_chat_template_kwargs(thinking: str) -> dict:
     return {"enable_thinking": thinking != "off", "preserve_thinking": True}
 
 
+TOKENIZE_TIMEOUT_S = 30.0    # one /tokenize request's budget (measure_tail)
+TOKENIZE_RETRY_S = 2.0       # the pause before the one retry a request that got no answer earns (CP-104)
+
+
 def measure_tail(url: str, model: str, thinking: str) -> dict:
     """CP-97 (ADR-0042): G6's tail and the end-of-turn id from the endpoint's
     OWN render — bring-your-own.md#your-model's measurement, performed by
@@ -2198,10 +2371,28 @@ def measure_tail(url: str, model: str, thinking: str) -> dict:
 
     def tokenize(label: str, **fields):
         payload = {"model": model, "add_special_tokens": False, **fields}
-        status, body = http("POST", f"{url}/tokenize", payload, timeout=30)
-        out["requests"][label] = {"request": payload, "status": status, "response": body}
+        status, body = http("POST", f"{url}/tokenize", payload, timeout=TOKENIZE_TIMEOUT_S)
+        attempts = 1
+        if status is None:      # CP-104: no answer is not a refusal — one retry before any verdict
+            time.sleep(TOKENIZE_RETRY_S)
+            status, body = http("POST", f"{url}/tokenize", payload, timeout=TOKENIZE_TIMEOUT_S)
+            attempts = 2
+        out["requests"][label] = {"request": payload, "status": status, "response": body,
+                                  "attempts": attempts}
         if status == 200 and isinstance(body, dict) and isinstance(body.get("tokens"), list):
             return body["tokens"]
+        if status is None:
+            # round seven's a2 met the demo's twin of the old sentence: one lost request
+            # on a shared vLLM reported as "cannot render its own chat template" — the
+            # endpoint answered the same request in 0.25 s either side. Report the
+            # measurement, not an inference about what the endpoint is.
+            out["why"] = (f"POST /tokenize ({label}) got no answer — {attempts} attempts, each under a "
+                          f"{TOKENIZE_TIMEOUT_S:.0f} s timeout, the last: {str(body)[:200]}. That says "
+                          "nothing about whether this endpoint renders its chat template: a shared or "
+                          "briefly loaded endpoint misses a request. Re-run `up` to measure again, or "
+                          "derive the tail and the end-of-turn id from a local snapshot — "
+                          f"{BRING_YOUR_OWN_URL}#your-model")
+            return None
         out["why"] = (f"POST /tokenize ({label}) answered {status}: {str(body)[:200]} — "
                       "this endpoint does not render its own chat template over the API "
                       f"(vLLM's messages form with chat_template_kwargs); derive the tail and "
@@ -2354,7 +2545,10 @@ def pins_skeleton(rundir: Path, name: str, corpus, g1: dict, probe: dict,
                      f"(ADR-0042): the two approved sets only an inspected quarantined episode "
                      f"supplies ({', '.join(DERIVED_SETS)}) are EMPTY, so GSJ_PINS_PATH must never "
                      f"name this file — the library refuses an empty approved set on first use "
-                     f"(PinsConfigurationError) and `{PROG} up` refuses to stand an estate under it. "
+                     f"(PinsConfigurationError — first use being the first hash gate a COMPLETED body "
+                     f"reaches; the admission gates ADM1-ADM4 run before any pins are read, so an empty "
+                     f"or malformed body returns those findings under this file and is not the test) "
+                     f"and `{PROG} up` refuses to stand an estate under it. "
                      f"The page's derive_my_pins.py reads it and writes pins.gsj.json beside it."),
         "derived_at": now_iso(),
         "host": (f"{rundir}: written by {PROG} up for run {name!r} — the carried sets from "
@@ -3851,7 +4045,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         if hp and key in hp and hp[key] != rec["harness"].get(key):
             changed.append(f"harness.{key}: {hp[key]!r} -> {rec['harness'].get(key)!r}")
     head = (f"# GENERATED by {PROG} for run {name} — do not edit (run.json dates it);\n"
-            f"# re-run `{PROG} up --name {name}`. Schema: gsj_rollout/config.py\n"
+            f"# re-run `{rerun_hint(name, f'--corpus {corpus_path}', run_.root)}`. Schema: gsj_rollout/config.py\n"
             f"# (the one YAML). Secrets are named by variable and live in {rundir / '.env'}:\n"
             f"# `gsj-rollout submit` (since 0.1.7, CP-75) reads it beside this file for an unset\n"
             f"# named variable; the environment wins when already set. Historical wheels through\n"
@@ -3921,12 +4115,7 @@ def cmd_up(args: argparse.Namespace) -> None:
     # image), exactly what `gsj-rollout serve` says in its NOTE line
     polar = (f"PYTHONPATH={REPO} {REPO / 'vendor' / 'polar' / '.venv' / 'bin' / 'polar'}" if CHECKOUT
              else "PYTHONPATH=<checkout> <checkout>/vendor/polar/.venv/bin/polar")
-    polar_note = ("" if CHECKOUT else
-                  "\n  NOTE: no wheel ships vendor/polar — the two `polar` lines need a checkout "
-                  "(git clone https://github.com/MHGanainy/gsj-harness-rollout-server; build "
-                  "vendor/polar's venv per its README) with the checkout on PYTHONPATH, or the "
-                  "published gsj-polar image (gsj-rollout-demo's shape); `gsj-rollout serve` "
-                  "runs from this wheel as printed")
+    polar_note = polar_route_note()   # CP-104: names the pullable image and the page
     gsjr = Path(sys.executable).parent / "gsj-rollout"
     gsjr_cmd = str(gsjr) if gsjr.exists() else f"{sys.executable} -m gsj_rollout.cli"
     if leg == "container":
@@ -3962,16 +4151,18 @@ then one episode (the config's whole claim) — nothing exported: submit reads {
   {gsjr_cmd} submit --config {rel}/rollout.yaml --from-bank {rel}/taskbank.parquet --row 0"""
     skeleton_row = skeleton_footer_row(rec["pins"].get("skeleton"), measurement, eurl,
                                        g1, skeleton_covered)
+    bank_rows = "\n".join(bank_rows_lines(rundir / ic.TASKBANK_NAME))   # CP-104 (b1's finding 2)
     print(f"""
 == run {name} == {rel}/
   rollout.yaml       the rollout server's config (validated; topology.rendered.yaml beside it)
-  taskbank.parquet   {rec['corpus'].get('taskbank_rows')} rows, sha256 {bank_sha[:12]}…; corpus.lock.json beside it
+  taskbank.parquet   {rec['corpus'].get('taskbank_rows')} rows, sha256 {bank_sha[:12]}…; corpus.lock.json beside it — what `submit --row N` addresses:
+{bank_rows}
 {skeleton_row}  run.json           the record — {fj.mode} Forgejo {fj.url}, {mcp.mode} MCP {mcp.url}, owner {owner!r},
                      embedding {(h.get('embedding') or {}).get('model')}, engine {eurl} ({'ok' if probe['model_served'] else 'NOT OK'})
   .env               {len(run_.env)} secret(s), mode 0600 — the only place a value lives
 {nxt}
 what stands / stop what this run created:
-  {PROG} status --name {name}    |    {PROG} down --name {name} [--wipe]""")
+  {manage_hint(name, run_.root)}""")
 
 
 # -------------------------------------------------------------- scaffold
@@ -4854,8 +5045,22 @@ def cmd_update(args: argparse.Namespace) -> None:
 def _load_run(name: str, r: Run | None = None) -> Run:
     r = r or Run(name)
     if not (r.dir / "run.json").is_file():
+        if r.dir.is_dir() and r.owned():
+            # CP-104 (round seven's b2, finding 3): an `up` that died in its
+            # first phase — the Forgejo pull or its health wait — left the
+            # ownership marker and no record, and `status` said `no run
+            # named`, having called the same directory ACTIVE minutes before.
+            die(f"run {name!r} started and stopped before its record was written.",
+                f"{r.dir} carries this run's ownership marker and no run.json — `up` writes the "
+                "record once Forgejo stands, so the run ended in the Forgejo image pull or its "
+                "health wait (round seven: a pull cut by `unexpected EOF`)",
+                "a run.json beside the marker",
+                f"re-run `{rerun_hint(name, '--corpus <the corpus root you gave up>', r.root)}` — "
+                "every phase is idempotent and the daemon keeps every layer that completed; "
+                f"`docker ps -a --filter name=gsj-{name}-` shows anything the first phase created, "
+                "which the re-run adopts")
         die(f"no run named {name!r}.", f"{r.dir} has no run.json",
-            "a run this script created", f"{PROG} up --name {name} (or --runs-dir "
+            "a run this script created", f"{runnable_prog()} up --name {name} (or --runs-dir "
             "naming the directory that holds it)")
     r.load()
     return r
@@ -5002,10 +5207,21 @@ def status_rows(r: Run, rec: dict, *, active: bool = False) -> list[tuple[str, s
 def _print_rows_and_services(r: Run, rec: dict, *, active: bool = False) -> None:
     for phase, text in status_rows(r, rec, active=active):
         print(f"  {phase:9} {text}")
+    _print_bank_rows(r, rec)
     if (r.dir / "compose.yaml").is_file():
         print("  created services (compose ps):")
         print("    " + "\n    ".join(_compose_ps_lines(r)))
     sys.stdout.flush()      # the report lands before any refusal, piped or not
+
+
+def _print_bank_rows(r: Run, rec: dict) -> None:
+    """CP-104 (round seven's b1): the rows `submit --row N` addresses, from
+    the run's own bank — `status` is the one reader the bank has."""
+    bank = r.dir / ic.TASKBANK_NAME
+    if bank.is_file():
+        rows = (rec.get("corpus") or {}).get("taskbank_rows")
+        print(f"  taskbank  {rows if rows is not None else '?'} rows — what `submit --row N` addresses:")
+        print("\n".join(bank_rows_lines(bank)))
 
 
 def status_active(name: str, r: Run, rec: dict) -> None:
@@ -5036,7 +5252,7 @@ def status_partial(name: str, r: Run, rec: dict) -> None:
     corpus_arg = f"--corpus {c['path']}" if c.get("path") else "--corpus <the run's corpus root>"
     die(f"run {name!r} is incomplete.", f"{r.dir / 'run.json'} records only part of up "
         "(the phases above stand)", "a completed Forgejo and MCP record",
-        f"re-run `{PROG} up --name {name} {corpus_arg} --runs-dir {r.root}` to resume "
+        f"re-run `{rerun_hint(name, corpus_arg, r.root)}` to resume "
         "(it adopts what stands and backfills the rest), or use down to stop its "
         "created services")
 
@@ -5058,6 +5274,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         status_partial(args.name, r, rec)
     print(f"== run {args.name} == {r.dir}  (last run {rec.get('last_run', {}).get('at')}, "
           f"{rec.get('last_run', {}).get('mode')})")
+    _print_bank_rows(r, rec)
     if (r.dir / "compose.yaml").is_file():
         ps = compose(r.dir, "ps", "--format", "table {{.Name}}\t{{.Status}}", capture_output=True)
         print(ps.stdout.rstrip() or "(nothing running)")
@@ -5315,8 +5532,9 @@ def main() -> None:
                          "151645 (Qwen3's <|im_end|>) stands only when nothing could be "
                          "measured — bring-your-own.md#your-model")
     eg.add_argument("--context-window", type=int,
-                    help="harness.context_window, the window pi plans against (default 32768; "
-                         "must not exceed the endpoint's max_model_len)")
+                    help="harness.context_window, the window pi plans against (default 32768 — "
+                         "the reference estate's served --max-model-len; must not exceed the "
+                         "endpoint's max_model_len)")
     eg.add_argument("--max-tokens", type=int,
                     help="harness.max_tokens, the per-turn generation budget (default 8192)")
     eg.add_argument("--thinking", help="pi thinking level (default off)")

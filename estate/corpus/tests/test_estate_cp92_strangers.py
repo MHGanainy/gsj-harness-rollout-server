@@ -27,10 +27,13 @@ OVERLAY = ("Error response from daemon: failed to create task for container: fai
            "create shim task: OCI runtime create failed: failed to mount /var/lib/docker/"
            "overlay2/abc/merged: mount options: fstype: overlay: invalid argument")
 DOWNLOADS = ("manifest unknown", "dial tcp: lookup ghcr.io: no such host",
-             "net/http: TLS handshake timeout", "unexpected EOF",
+             "net/http: TLS handshake timeout",
              # a firewalled daemon's errno rides a TRANSPORT failure — not storage
              "dial tcp 1.2.3.4:443: connect: operation not permitted",
              "dial tcp 1.2.3.4:443: connect: invalid argument")
+# CP-104 (round seven's b2): a transfer the registry answered and then cut is
+# its own kind — the same command resumes it — and no longer `download`
+TRANSFERS = ("unexpected EOF", "read tcp 10.0.0.2:5555->1.2.3.4:443: read: connection reset by peer")
 HARNESS = "ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3"
 
 
@@ -94,6 +97,11 @@ def test_pull_failure_kind_reads_extraction_and_mount_failures_as_extract(est, s
 @pytest.mark.parametrize("stderr", DOWNLOADS + ("", None))
 def test_pull_failure_kind_reads_registry_side_failures_as_download(est, stderr):
     assert est.pull_failure_kind(stderr) == "download"
+
+
+@pytest.mark.parametrize("stderr", TRANSFERS)
+def test_pull_failure_kind_reads_a_cut_transfer_as_transfer_since_cp104(est, stderr):
+    assert est.pull_failure_kind(stderr) == "transfer"
 
 
 def test_pull_failure_fix_keeps_todays_advice_for_a_download_failure(est):

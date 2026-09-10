@@ -4,7 +4,7 @@
 
 Two procedures the library owns, written after a stranger walked them first (2026-09-06, library 0.1.9 from PyPI, the library's own scaffold as the corpus, a `qwen3.6-27b` endpoint nobody here operates) and reproduced independently twice the next day at 0.1.10 (round three — [the end of the page](#what-the-walk-proves-and-what-it-does-not)): **[your model](#your-model)** — from an endpoint URL to the values `up` needs, and **[your pins](#your-pins)** — from the first quarantined episode to an accepted one. Each ends with a script you paste and run; each script *asserts* before it *derives*, and neither approves anything you did not inspect. That shape is the stranger's, kept on purpose: the values are cheap, the discipline is the point.
 
-What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (277 MB), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
+What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (~80 MB compressed, 277 MB extracted), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
 
 > [!NOTE]
 > **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. What it writes since 0.1.12 (CP-97, ADR-0042) is the **skeleton** — `<run>/pins.skeleton.json` beside `rollout.yaml`: the two carried sets from the pins in force, the tail and the end-of-turn id measured from your endpoint's own render, the two derived sets and G4's empty, `not_measured` and `coverage` stated — under a format (`gsj-pins-skeleton/1`) the library refuses on first use and `up` refuses before anything runs, so nothing consumes it as pins by accident. The script in [your pins](#your-pins) reads it; the judgement stays yours. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
@@ -137,7 +137,7 @@ print(f"not measured          {', '.join(results['derived']['not_measured'])}")
 print("written               model-probe.json")
 ```
 
-Run it, then hand the values to `up`:
+Run it, then hand the served model's name to `up` — since 0.1.12 `up` measures the end-of-turn id and the tail itself:
 
 ```bash
 ENGINE=http://127.0.0.1:8100 python3 probe_model.py          # MODEL=… when several are served; MARKER=… off the Qwen family; THINKING=medium for a thinking-on estate
@@ -145,10 +145,10 @@ mkdir -p runs                # `up` REFUSES to create its own runs root (CP-90):
                              # that root is ./runs, and on a fresh box it does not exist yet.
                              # `--runs-dir <dir>` names another; the refusal says both.
 $ESTATE up --corpus <root> --engine-url http://127.0.0.1:8100 \
-    --engine-model "<served model>" --end-of-turn-token-id <id> -y
+    --engine-model "<served model>" -y          # no --end-of-turn-token-id: up measures it (0.1.12+)
 ```
 
-`up` records both in the run's `rollout.yaml` (neither is binding: edit the file or re-run `up`). **Since 0.1.12 `up` performs this measurement itself** (step 3 under the same kwargs, for the `--thinking` level it is given, and the end-of-turn id taken as the first non-whitespace token the template emits after assistant content in a closed render — the demo's rule, not step 2's known-marker check; without `/detokenize` the tail is measured and the id is not, said so): `builder.end_of_turn_token_id` takes the measured id unless `--end-of-turn-token-id` says otherwise (an explicit value persists across re-runs and a disagreement is warned about), the engine phase prints both values, and both land in `<run>/pins.skeleton.json` with every request/response pair — so from 0.1.12 on this script is the read-only check you run *before* `up`, and step 5 (the tool-choice probe) is the part `up` still does not do. On wheels through 0.1.11 the tail ids are not `up`'s to write — they go into your pins file, next. What the stranger measured this way, for the record: `qwen3.6-27b`, `<|im_end|>` = **248046** (the reference model's is 151645), tail `[248045, 74455, 198, 248068, 271, 248069, 271]`; `up`'s warning through 0.1.11 said the id "stays the Qwen3 default unless told otherwise" — this is how you told it, and since 0.1.12 it is measured.
+`up` records both in the run's `rollout.yaml` (neither is binding: edit the file or re-run `up`). Pass `--end-of-turn-token-id <id>` only to override the measurement (on wheels through 0.1.11, which do not measure it, pass the probe's id): an explicit value wins in `rollout.yaml` and persists across re-runs, while `up` still prints its own measurement beside it and warns if the two disagree — a cross-check, which is how round seven's library-door b1 used it (its own probe's id passed, `up`'s measurement agreeing, no warning). This block showed the flag on every `up` through CP-103, stale beside the measurement described next. **Since 0.1.12 `up` performs this measurement itself** (step 3 under the same kwargs, for the `--thinking` level it is given, and the end-of-turn id taken as the first non-whitespace token the template emits after assistant content in a closed render — the demo's rule, not step 2's known-marker check; without `/detokenize` the tail is measured and the id is not, said so): `builder.end_of_turn_token_id` takes the measured id unless `--end-of-turn-token-id` says otherwise (an explicit value persists across re-runs and a disagreement is warned about), the engine phase prints both values, and both land in `<run>/pins.skeleton.json` with every request/response pair — so from 0.1.12 on this script is the read-only check you run *before* `up`, and step 5 (the tool-choice probe) is the part `up` still does not do. On wheels through 0.1.11 the tail ids are not `up`'s to write — they go into your pins file, next. What the stranger measured this way, for the record: `qwen3.6-27b`, `<|im_end|>` = **248046** (the reference model's is 151645), tail `[248045, 74455, 198, 248068, 271, 248069, 271]`; `up`'s warning through 0.1.11 said the id "stays the Qwen3 default unless told otherwise" — this is how you told it, and since 0.1.12 it is measured.
 
 ## Polar's two processes
 
@@ -208,7 +208,12 @@ What each flag is for — this is the content the boundary owes you:
   daemon silently creates an empty host directory and mounts that instead, and the
   episode fails in the worst possible way — see
   [a whole episode marked ERROR](troubleshooting.md#a-containerised-gateway-and-tmpdir).
-  Point `TMPDIR` at a directory that is bind-mounted at its own path, as above.
+  Point `TMPDIR` at a directory that is bind-mounted at its own path, as above. It is
+  empty between episodes, and that is correct: Polar removes each session's directory
+  when the session ends, and what an episode leaves is under `<artifacts_dir>/<session_id>/`
+  ([troubleshooting.md](troubleshooting.md): *the log the table points at is already gone* — round seven's b1 found
+  its `polar-sessions/` empty after three episodes and could not tell whether anything
+  had been lost).
 - **`--env-file` with the quotes stripped** — the secret goes on the **gateway line
   only** ([server-guide.md](server-guide.md)). `estate.py` writes its `.env` as
   `KEY='value'`, and **compose's dotenv parser strips those quotes while
@@ -218,7 +223,9 @@ What each flag is for — this is the content the boundary owes you:
   retrieved pages* — the one failure mode nothing in the trace names. The stranger
   caught it only by measuring inside the container
   (`docker exec gsj-polar-gateway sh -c 'echo ${#GSJ_MCP_TOKEN_SECRET}'` → 64).
-  The `<(…)` form is bash's; in `sh`, write the filtered file out first.
+  The `<(…)` form is bash's; in `sh`, write the filtered file out first — under
+  `umask 077`, because that file is the secret in clear and the recipe copies it out of
+  a `0600` `.env` (round seven's b1 added the `umask` itself and asked the page to).
 
 Check both came up before submitting — the gateway must have *registered* with the
 rollout API, not merely started:
@@ -246,25 +253,27 @@ including the A-14 `gsj_rollout` install).
 
 > [!NOTE]
 > **What `gsj-rollout serve` prints, and why it does not say this.** From a wheel,
-> `serve`'s `NOTE:` names only a `<checkout>` and spells no image, while `estate.py`'s
-> closing block — one command earlier — does name the image. A round-six stranger hit
-> that disagreement from the door, without going looking, and asked for the two to
-> match. They do not yet: `gsj_rollout/cli.py` is inside the 2,034-line size law,
-> whose headroom is zero by design, so the line is register row 108's standing
-> residue rather than an oversight. This page is where the recipe lives until a
-> checkpoint funds the line.
+> `serve`'s `NOTE:` names only a `<checkout>` and spells no image. `estate.py`'s
+> closing block — one command earlier — spells the pullable reference and links this
+> section since CP-104; through 0.1.14 it said only "the published gsj-polar image"
+> and named a second repository, which round seven's b1 filed first of everything it
+> found (the string existed on the PyPI page and on this page only). A round-six
+> stranger had hit the `serve`/`up` disagreement before it. They still do not match:
+> `gsj_rollout/cli.py` is inside the 2,034-line size law, whose headroom is zero by
+> design, so the `serve` line is register row 108's standing residue rather than an
+> oversight. This page is where the recipe lives until a checkpoint funds the line.
 
 ## Your pins
 
 The wheel ships the **reference estate's** approved sets. On your corpus every episode quarantines — `G2:system_prompt_hash_not_approved:<hash>` for your `AGENTS.md`, `G1:skill_card_hash_not_approved:<hash>` for your skill cards on a skill row — and on a non-reference model `G6:prompt_suffix_ne_tail_ids` (and `G6:interstitial_ne_tail_ids:…` on later turns) for the tail. That first quarantine is not a failure; it is the evidence the walk reads. The order matters:
 
-1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset) — the receiver is `gsj-rollout serve` from the wheel, and Polar's two are [above](#polars-two-processes). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use).
+1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset) — the receiver is `gsj-rollout serve` from the wheel, and Polar's two are [above](#polars-two-processes). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use — the first hash gate a `COMPLETED` body reaches, *after* the admission gates: validating `{}` against it returns `ADM1`/`ADM3` and no refusal, which is not the test — round seven's b1 nearly filed it as one).
 2. **Run one episode against the reference pins**, with a task id you will recognise:
    ```bash
    gsj-rollout submit --config <run>/rollout.yaml --from-bank <run>/taskbank.parquet --row 0 \
        --task-id pins-walk-reference --out <run>/first-attempt
    ```
-   Expect `rejected <session_id>: [...]` and exit 1, with the receiver's copy at `<run>/traces/quarantine/<session_id>.thinking-off.json`. Row 0 of a scaffold is its free prompt; row 1 is the skill row.
+   Expect `rejected <session_id>: [...]` and exit 1, with the receiver's copy at `<run>/traces/quarantine/<session_id>.thinking-off.json`. The bank is sorted by `(case_id, timestep, prompt_id)`, so `free:` rows precede `skill:` rows *within a timestep* — on a scaffold that makes row 0 the free prompt and row 1 the skill row, and on your own corpus it makes row 0 whatever sorts first (round seven's b1 would have landed on an `eval` row of the wrong case). Read your bank before choosing `--row`: since CP-104 `up`'s closing block and `status` list every row as `--row N case@T prompt_id [split]`.
 3. **Inspect the quarantined body before approving anything.** The body is `{"findings": [...], "session_result": {...}}`. What you are checking is that *what ran is what you meant to approve* — the script below asserts the mechanical half, you read the rest:
    - `findings` holds **only** the expected `G1`/`G2`/`G6` kinds. Anything else — an `ADM*`, `LP*`, `G5*`, `G7*` finding — is a different problem; stop and read [troubleshooting.md](troubleshooting.md).
    - `session_result.status` is `COMPLETED`; `trajectory.metadata.reconstruction_stats` shows one chain, nothing truncated, every completion merged.
