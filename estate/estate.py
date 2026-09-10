@@ -253,6 +253,29 @@ def run_phase(cmd: list, env: dict, phase: str) -> subprocess.CompletedProcess:
     return proc
 
 
+def _run_corpus_phase(phase: str, *extra: str, corpus_path: Path, base_url: str,
+                      sandbox_image: str, ingest_timeout: float,
+                      owner_override: str | None, run_env: dict,
+                      credential_names: tuple[str, str], mcp_url: str | None = None,
+                      note: str = "") -> subprocess.CompletedProcess:
+    """The up/update child boundary; credentials are selected at each invocation."""
+    # Every phase resolves the same runtime image (CP-71). The child's CLI
+    # still re-validates the corpus, maps errors, and owns its environment.
+    cmd = [sys.executable, str(INGEST), phase, "--corpus", str(corpus_path),
+           "--base-url", base_url, "--sandbox-image", sandbox_image,
+           "--ingest-timeout", str(ingest_timeout)]
+    if mcp_url:
+        cmd += ["--mcp-url", mcp_url]
+    if owner_override is not None:
+        cmd += ["--owner-override", owner_override]
+    cmd += list(extra)
+    PH.start(phase, f"{INGEST.name} {phase}{note}")
+    penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
+            **{key: value for key, value in run_env.items()
+               if key in (*credential_names, MCP_SECRET_ENV)}}
+    return run_phase(cmd, penv, phase)
+
+
 def http(method: str, url: str, body: dict | None = None, *,
          headers: dict | None = None, auth: tuple[str, str] | None = None,
          timeout: float = 10.0):
@@ -3402,23 +3425,11 @@ def cmd_up(args: argparse.Namespace) -> None:
                       f"(transport override) and by sandboxes at {fj.container_url}")
 
     def pipeline(phase: str, *extra: str, mcp_url: str | None = None) -> None:
-        # --sandbox-image on every phase: the rows and verify's re-derived
-        # expectation must resolve the same estate value (CP-71)
-        cmd = [sys.executable, str(INGEST), phase, "--corpus", str(corpus_path),
-               "--base-url", fj.url, "--sandbox-image", simage,
-               "--ingest-timeout", str(args.ingest_timeout)]
-        if mcp_url:
-            cmd += ["--mcp-url", mcp_url]
-        if owner != yaml_owner:
-            cmd += ["--owner-override", owner]
-        cmd += list(extra)
-        PH.start(phase, f"{INGEST.name} {phase}")
-        # the estate tool IS the new command (CP-72): the pipeline's own
-        # deprecated-entry notice must not fire on its driver's calls
-        penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
-                **{k: v for k, v in run_.env.items()
-                   if k in (push_env, read_env, MCP_SECRET_ENV)}}
-        proc = run_phase(cmd, penv, phase)
+        proc = _run_corpus_phase(
+            phase, *extra, corpus_path=corpus_path, base_url=fj.url,
+            sandbox_image=simage, ingest_timeout=args.ingest_timeout,
+            owner_override=owner if owner != yaml_owner else None,
+            run_env=run_.env, credential_names=(push_env, read_env), mcp_url=mcp_url)
         if proc.returncode != 0:
             die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
                 "the pipeline's own message above (it names the file, rule or variable)",
@@ -4924,20 +4935,12 @@ def cmd_update(args: argparse.Namespace) -> None:
 
     # ---- act: the pipeline's own phases, only where the plan says
     def pipeline(phase: str, *extra: str, mcp: str | None = None) -> None:
-        cmd = [sys.executable, str(INGEST), phase, "--corpus", str(corpus_path),
-               "--base-url", fj_rec["url"], "--sandbox-image", simage,
-               "--ingest-timeout", str(args.ingest_timeout)]
-        if mcp:
-            cmd += ["--mcp-url", mcp]
-        if owner != yaml_owner:
-            cmd += ["--owner-override", owner]
-        cmd += list(extra)
-        PH.start(phase, f"{INGEST.name} {phase}" + (f" --only {' '.join(sorted(plan['push']))}"
-                                                    if "--only" in extra else ""))
-        penv = {**os.environ, "GSJ_PIPELINE_DRIVER": "estate",
-                **{k: v for k, v in run_.env.items()
-                   if k in (push_env, read_env, MCP_SECRET_ENV)}}
-        proc = run_phase(cmd, penv, phase)
+        proc = _run_corpus_phase(
+            phase, *extra, corpus_path=corpus_path, base_url=fj_rec["url"],
+            sandbox_image=simage, ingest_timeout=args.ingest_timeout,
+            owner_override=owner if owner != yaml_owner else None,
+            run_env=run_.env, credential_names=(push_env, read_env), mcp_url=mcp,
+            note=f" --only {' '.join(sorted(plan['push']))}" if "--only" in extra else "")
         if proc.returncode != 0:
             die(f"the corpus pipeline's `{phase}` phase failed (exit {proc.returncode}).",
                 "the pipeline's own message above", "exit 0",

@@ -233,6 +233,17 @@ class Finding:
     split: str = "-"  # train | eval | "-" for corpus-level rows (ADR-0015)
 
 
+@dataclass(frozen=True)
+class _VerificationResult:
+    """Verification facts, before either public or estate presentation."""
+
+    findings: list[Finding]
+
+    @property
+    def exit_code(self) -> int:
+        return int(any(not finding.ok for finding in self.findings))
+
+
 def _read_utf8(path: Path) -> str | None:
     """Text of *path*, or None if it is not valid UTF-8."""
     try:
@@ -2042,8 +2053,9 @@ def _bank_row_findings(corpus: Corpus, lock_bank: dict,
     return findings
 
 
-def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
-                 skip_mcp: bool = False, only: list[str] | None = None) -> int:
+def _verify_result(corpus: Corpus, base_url: str, mcp_url: str | None, *,
+                   skip_mcp: bool = False,
+                   only: list[str] | None = None) -> _VerificationResult:
     lock = load_lock(corpus.root, required=True)
     findings: list[Finding] = []
     # CP-71 (the review's find): scaffold records the resolved sandbox
@@ -2174,8 +2186,15 @@ def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
         else:
             findings.extend(_bank_row_findings(corpus, lock_bank, rows))
 
-    _print_table("verify", findings)
-    return 1 if any(not f.ok for f in findings) else 0
+    return _VerificationResult(findings)
+
+
+def phase_verify(corpus: Corpus, base_url: str, mcp_url: str | None, *,
+                 skip_mcp: bool = False, only: list[str] | None = None) -> int:
+    """Keep the public integer/text boundary over the verifier's result."""
+    result = _verify_result(corpus, base_url, mcp_url, skip_mcp=skip_mcp, only=only)
+    _print_table("verify", result.findings)
+    return result.exit_code
 
 
 # --------------------------------------------------------------------------
