@@ -3,38 +3,46 @@
 [![CI](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MHGanainy/gsj-harness-rollout-server/actions/workflows/ci.yml)
 
 A rollout server for the gsj corpus: given a task `(case, timestep, prompt)`, it runs a pinned coding agent (pi 0.83.0) in an isolated sandbox whose git checkout and retrieval are both truncated at `timestep`, captures every token and logprob the model produced, and emits one validated, training-ready trajectory — **task → sandbox → agent → trace**, nothing else (no storage, scheduling, rewards, weights, versioning, or training; those belong to the trainer that calls it).
+
+**What these traces are for, today.** *Training-ready* names the trace's shape — token ids, a loss mask and the captured logprobs, the form a trainer consumes. What has been proven is narrower, and each part of it is measured below or in the verdict and charter it links:
+
+- **Sound now, for provenance work — every claim the validators make.** The cutoff holds: a forged timestep claim is refused `401` from inside the sandbox, and gate G5 audits every retrieved page ≤ T from the trace alone. The pins are checked — the system prompt, the skill cards, the tool roster, the thinking-mode tail and the no-compaction settings, each against its pinned value, by the same `checks.py` on both sides of the wire. The reconstruction is faithful: `loss_mask` exact at zero tolerance and `prompt_ids` byte-identical against the predecessor's golden reference, on the Mac pair and again on the H200 pair, and the logprobs are real captures.
+- **Not in the trace — the estate's to record, the consumer's to account for.** The **sampling policy**: pi sends no sampling parameters, so the engine's configuration *is* the policy; no OpenAI-compatible API reports it, and on a borrowed endpoint the temperature that produced the logprobs is recorded nowhere (charter §7 row 22 — open, half by decision, half owned by the first production bring-up). The **codec** too: no trace carries it — the pins walk verified it at bring-up on the reference estate, and a borrowed endpoint exposes neither the tokenizer's nor the template's bytes. The **reward** is the trainer's outright, like storage and weight sync: every callback carries `reward: null`, and the citation reward was deferred at CP-88 rather than stacked on the page grader, which pays for form — 1.0 for a bare list of rubric headings with in-cutoff page numbers, checking nothing about whether those pages were read.
+- **Trained: single optimizer steps and two two-step runs — no training result.** Single steps in the slime (CP-17) and verl (CP-21) loops, a stranger's loop (CP-26), the first thinking-on run (CP-32, 72 episodes) and one full-archive step (CP-87); and two two-step runs on the H200 — CP-69 (reward 1/191 → 78/128, which the record reads as near-verbatim format-copying of a seed trajectory: CP-17's mode-collapse onset, measured at scale) and CP-87 (192 episodes per collection, 1/192 → 75/192: a templating policy adding page numbers to the heading list the grader pays for, not a substantive improvement). [The verdict](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) refuses to call the first loop a training result, and the record reads none of them as substantive learning.
+
 Episode execution and trajectory reconstruction are NVIDIA's Polar, vendored by commit with three carried patches; our own code is the 2,034-line shell that points Polar at our corpus, retrieval service, agent, and checks. The evaluation behind it ended in **ADOPT** (provisional 2026-08-09, converted 2026-08-11 on production hardware) — [`docs/VERDICT.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/VERDICT.md) is the standalone statement, with the conditions that would reverse it.
 
 ![One task enters from the training loop, Polar runs the agent in a sandbox fed by the operator's estate, the trace is reconstructed, checked, and either accepted or quarantined](https://raw.githubusercontent.com/MHGanainy/gsj-harness-rollout-server/main/docs/guide/img/overview-shape.png)
 
 <sub>One task triple in, one validated trace out. Everything around the sandbox is Polar's, the operator's estate, or the trainer's; ours is the harness, the builder, the receiver, and the checks.</sub>
 
-## Install
+## Install — three routes, by what each one gets you
 
-**What the wheel cannot do, before you install it (CP-99):** it cannot run an
-episode. It gives you the trainer client, the validators, the corpus pipeline
-and the estate tool — a corpus, five containers, derived pins and a validated
-`rollout.yaml` — and then episode *execution* is NVIDIA's Polar, which
-publishes no Python artifact of any kind. Running one needs either the
-checkout below (a second `uv` venv for `vendor/polar`) or the demo's published
-image, `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14` — public, anonymously
-pullable, and cut from this repo's vendored Polar plus the PyPI wheel at every
-release (A-28). Two independent readers of the PyPI door filed this in round
-five — one of them after standing a whole estate from the wheel — and it is
-stated here now rather than in a comment three sections down.
+The wheel is not the server. It carries the trainer client, the validators, the corpus pipeline and the estate tool; **episode execution is NVIDIA's Polar, which publishes no Python artifact of any kind**, so only the third route below runs an episode.
+
+**1 · A trainer client — runs no episodes.** It submits tasks to a server somebody else operates, polls them, and re-checks every trace that comes back with the same `checks` the server ran (`RolloutClient`, `checks`, `gsj-rollout submit`). It cannot start a sandbox or stand an estate. Any Python ≥ 3.12; three dependencies, `pydantic`, `httpx`, `pyyaml`.
 
 ```bash
-# trainer: any Python >= 3.12, anywhere; deps pydantic, httpx, pyyaml; runs no episodes
-# (a venv is yours to bring — stock Ubuntu >= 23.04 refuses a bare pip install with
-#  `externally-managed-environment`, PEP 668: python3 -m venv .venv && . .venv/bin/activate)
+python3 -m venv .venv && . .venv/bin/activate   # stock Ubuntu 24.04 lacks python3-venv (the venv fails: ensurepip is not available): `sudo apt install python3-venv` first
 pip install gsj-harness-rollout-server
+# not a bare `pip install` outside a venv: Ubuntu >= 23.04 refuses it — `error: externally-managed-environment` (PEP 668) — and stock 24.04 has no pip outside one at all
+```
 
-# an estate from the wheel, no clone: pyarrow is the taskbank's parquet writer, deliberately not a
-# core dependency (ADR-0022 §5; `[server]` stays empty by ADR-0005) — `up` refuses without it
+**2 · An estate, no Polar — stands the services up, and runs no episode by itself.** From a corpus directory, one command validates the corpus and stands up Forgejo (one repository per case, one branch per timestep), the MCP retrieval service with the corpus ingested, the taskbank, a validated `rollout.yaml` and a pins skeleton; the receiver (`gsj-rollout serve`) runs from the wheel too. What it cannot do is execute an episode — `up`'s closing block says so and names both routes to Polar. Needs Docker with the Compose v2 plugin, git, and your model endpoint.
+
+```bash
 docker pull ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3   # the sandbox image: `up` checks for it and never pulls it
-pip install gsj-harness-rollout-server pyarrow && python -m gsj_rollout.estate up --corpus <root>
+pip install gsj-harness-rollout-server pyarrow           # in the venv above; pyarrow is the taskbank's parquet writer, deliberately not a core dependency (ADR-0022 §5) — `up` refuses without it
+mkdir -p runs                                            # `up` never creates its runs root (CP-90); from a wheel it is ./runs
+python -m gsj_rollout.estate up --corpus <root> --engine-url <endpoint> --engine-model <served model> -y
+```
 
-# server: a checkout, Polar's venv (it must also host gsj_rollout — Polar loads our harness and builder by import path), and an estate no pip install provides
+**3 · A server that runs episodes — route 2 plus Polar's two processes.** The wheel carries neither way to get Polar:
+
+- **the published image** `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15` — public, anonymously pullable, cut at every release from this repo's vendored Polar plus that release's PyPI wheel (A-28). The two `docker run` invocations that start its processes, one clause per flag, are on [bring your own § Polar's two processes](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md#polars-two-processes); no clone.
+- **a checkout**, with Polar's own venv — which must also host `gsj_rollout`, because Polar loads our harness and builder by import path:
+
+```bash
 # prerequisite: `uv` — a fresh Ubuntu has none (exit 127 at `uv venv`): `pip install uv` in the venv, or `curl -LsSf https://astral.sh/uv/install.sh | sh`
 git clone https://github.com/MHGanainy/gsj-harness-rollout-server && cd gsj-harness-rollout-server
 python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]" uv
@@ -60,7 +68,7 @@ gsj-rollout submit --config rollout.yaml --case case_0001 --timestep 12 --prompt
 
 | | Server role | Trainer role |
 | --- | --- | --- |
-| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.14, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `estate.py`). No `vendor/`, no Polar |
+| You need | the four estate services — an inference engine (vLLM, pinned chat template), a Forgejo git host (one repository per case, one branch per timestep), the MCP retrieval service, the ingested corpus — plus Polar's two processes, from the published `gsj-polar` image (the two `docker run` invocations: [bring your own § Polar's two processes](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md#polars-two-processes)) or from this checkout with Polar's venv under `vendor/polar/` | Python ≥ 3.12, anywhere: `pip install gsj-harness-rollout-server` (0.1.15, wheel-only: `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, `estate.py`). No `vendor/`, no Polar |
 | You run | `gsj-rollout serve --config <yaml>`, then the two printed Polar commands yourself: `serve_rollout` (rollout API + scheduler — the trainer's `base_url`) and `serve_gateway` (gateway + capture proxy, one sandbox per episode, loading `pi_harness.py` and `builder.py` by import path) | `RolloutClient`: `submit` · `wait` · `collect` — `collect` submits, polls `GET /rollout/task/{id}`, re-runs `checks` on every result, returns the `Trace`s of clean sessions |
 | You validate | every callback: clean → `traces/`, bad → `quarantine/` with its findings — the same `checks.py` on both sides of the wire | `checks.validate_session_result(result)` — the identical validators the receiver ran, because nothing upstream is trusted |
 | Start here | [Server guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/server-guide.md); a foreign model or corpus, from an endpoint URL to an accepted episode: [bring your own](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/bring-your-own.md); an estate from nothing: [`gsj-rollout-demo`](https://github.com/MHGanainy/gsj-rollout-demo) | [Trainer guide](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/guide/trainer-guide.md); a loop against an existing server: [`gsj-harness-rollout-server-examples`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples) + its `RUNBOOK.md` |
@@ -99,7 +107,7 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 
 ## What it does not do
 
-- **It never trained anything, and says so.** Each loop above is exactly one optimizer step bracketed by two collections; the post-sync 8/8 reward reads as the onset of mode collapse, not competence. Concurrent collection-and-training and weight sync at cadence have zero data points.
+- **It has taken optimizer steps and trained nothing, and says so.** Each loop in the table above (CP-17, CP-21) is exactly one optimizer step bracketed by two collections, and the post-sync 8/8 reward reads as the onset of mode collapse, not competence; the two two-step runs since (CP-69, CP-87) read the same way at scale — reward uptake on form, not substance. Concurrent collection-and-training and weight sync at cadence have zero data points.
 - **The trainer's problems stay the trainer's**: storage, retention, mixing, staleness, collation, reward — every callback carries `reward: null` — and weight sync. Dropped deliberately, at the start ([charter](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/CHARTER.md) §7 rows 16–21).
 - **Sampling and codec provenance are the estate's, not the trace's.** pi sends no sampling parameters, so the engine's configuration *is* the sampling policy — an unpinned engine silently samples at neutral defaults (measured). Codec identity is verified at bring-up by the pins walk, not per-trace.
 - **Two open gaps**, of a 32-row capability register (21 parity, 7 dropped by decision, 1 better, 1 TBD): row 12 — G4 codec evidence never rides the callback, receiver-side by decision; row 22 — per-episode binding of traces to engine identity (serve argv, generation config, codec), owned by the first production bring-up. The separate anonymous-read gap is closed: the reference estate and demo require Forgejo sign-in and use credentialed clones (CP-58/59; re-measured at CP-82). This repository defense leaves the engine and MCP reachable, as episodes require; it does not close row 22's provenance gap.
@@ -110,7 +118,7 @@ The badge covers none of this — not the golden pairs, fidelity, the loops, or 
 | Path | What it is |
 | --- | --- |
 | `gsj_rollout/` | the server, eight modules (`pi_harness`, `builder`, `receiver`, `checks`, `config`, `client`, `cli`, the package surface: `RolloutClient`, `Trace`, `checks`, `load_config`, `RunConfig`) — the whole of what the wheel ships, plus the pins, `ingest_corpus.py` and `estate.py` copied in at build time |
-| `vendor/polar/` | Polar at the commit in `POLAR_SHA`, patched (`vendor/patches/` P1–P3, `vendor/apply_patches.sh --verify`, re-vendor recipe `vendor/REVENDOR.md`); ships in no artifact |
+| `vendor/polar/` | Polar at the commit in `POLAR_SHA`, patched (`vendor/patches/` P1–P3, `vendor/apply_patches.sh --verify`, re-vendor recipe `vendor/REVENDOR.md`); ships in no wheel or sdist of ours — it does reach you inside the demo's published `gsj-polar` image, built from it (A-28) |
 | `estate/` | this repository's test estate: `estate.sh` front door, `estate.py` (the estate's one tool — scaffold · validate · up · ingest · update · status · down), `corpus/`, `mcp-service/`, `forgejo/`, `serving/` — outside the line budget |
 | `docs/` · `pins/` | the guide, the four normative documents, and the seven Polar run bodies CI/tests/pins-walk read; the approved sets (reference + `thinking-on/`) with derive scripts — the single source for the wheel copies |
 | `tests/` | the root suite (176 tests, no estate needed) and the tracked golden fixtures `tests/fixtures/golden-mac/` |
@@ -121,14 +129,15 @@ The CP-06 feasibility spike (stub backend, spike harness, the stub-side wire cap
 
 ## Where the record lives
 
-**The development record is maintained privately.** The per-checkpoint reports and prompts, the 42 ADRs, the 2026-08-24 adversarial audit (24 agents; no live gate, pin value, or code path wrong; zero of 91 findings refuted), and the raw `docs/golden/`/`docs/polar/` artifacts exist unchanged in the operator's working tree, not in this repository — so the evidence column above, the shelf map in [`docs/README.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/README.md), and two report paths in the shipped `pins.gsj.json` provenance resolve only there; for anyone else those claims reduce from "checkable at the cited path" to "asserted". What stays checkable from a clone: the code, the three suites, the pins walk, the wheel assertions, and the evidence bodies they execute against.
+**The development record is maintained privately.** The per-checkpoint reports and prompts, the 43 ADRs, the 2026-08-24 adversarial audit (24 agents; no live gate, pin value, or code path wrong; zero of 91 findings refuted), and the raw `docs/golden/`/`docs/polar/` artifacts exist unchanged in the operator's working tree, not in this repository — so the evidence column above, the shelf map in [`docs/README.md`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/docs/README.md), and two report paths in the shipped `pins.gsj.json` provenance resolve only there; for anyone else those claims reduce from "checkable at the cited path" to "asserted". What stays checkable from a clone: the code, the three suites, the pins walk, the wheel assertions, and the evidence bodies they execute against.
 
 ## Licence
 
-Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact **of ours** — no wheel, no sdist; it does reach you inside the demo's `gsj-polar` image, which is built from it (CP-99: a stranger quoted this sentence back as "Polar ships in no released artifact" while a public image carrying it was one `docker pull` away). The wheel contains `gsj_rollout/`, the two pins sets, the G2 reference capture (`pins/container/system_prompt.container.derived.txt`), `ingest_corpus.py` and `estate.py` (as `gsj_rollout.ingest_corpus` / `gsj_rollout.estate` — `gsj_rollout.bringup` on wheels 0.1.3–0.1.5) — nothing else, asserted at build time (18 entries since 0.1.3). Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11. Its frozen [`sandbox/` recipe](https://github.com/MHGanainy/gsj-envloader/tree/v0.8.0/sandbox) also supplied the harness image's arm64 build at CP-64, and its [`staging/BRINGUP.md`](https://github.com/MHGanainy/gsj-envloader/blob/v0.8.0/staging/BRINGUP.md) remains the cold-start reference linked from [the living estate recipe](estate/README.md). Reuse is recorded here; the archive stays frozen.
+Apache-2.0 — [`LICENSE`](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/LICENSE). `vendor/polar/` is NVIDIA's, carries its own Apache-2.0 `LICENSE`, and ships in no released artifact **of ours** — no wheel, no sdist; it does reach you inside the demo's `gsj-polar` image, which is built from it (CP-99: a stranger quoted this sentence back as "Polar ships in no released artifact" while a public image carrying it was one `docker pull` away). The wheel contains `gsj_rollout/`, the two pins sets, the G2 reference capture (`pins/container/system_prompt.container.derived.txt`), `ingest_corpus.py` and `estate.py` (as `gsj_rollout.ingest_corpus` / `gsj_rollout.estate` — `gsj_rollout.bringup` on wheels 0.1.3–0.1.5) — nothing else, asserted at build time (18 entries since 0.1.3). Predecessor: `gsj-envloader` @ v0.8.0, archived 2026-08-25 — still the goldens' collecting stack, readable at v0.8.0; no longer the fallback, a term that expired at the verdict's conversion on 2026-08-11. Its frozen [`sandbox/` recipe](https://github.com/MHGanainy/gsj-envloader/tree/v0.8.0/sandbox) also supplied the harness image's arm64 build at CP-64, and its [`staging/BRINGUP.md`](https://github.com/MHGanainy/gsj-envloader/blob/v0.8.0/staging/BRINGUP.md) remains the cold-start reference linked from [the living estate recipe](https://github.com/MHGanainy/gsj-harness-rollout-server/blob/main/estate/README.md). Reuse is recorded here; the archive stays frozen.
 
 ## Provenance
 
+- The front door (CP-105): what the traces are for, moved above the fold from the sections below it, the verdict (the CP-17 loop "not a training result") and the charter (§7 row 22; the single steps at CP-26, CP-32 and CP-87, the CP-69 and CP-87 two-step runs, and the CP-88 phase-6 deferral) — no claim in it new; the install routes labelled by what each gets you, the wheel-runs-no-episode statement having reached the door at CP-99; the one new fact, measured at CP-105 on `ubuntu:24.04`: stock 24.04 lacks the venv package, so the venv line fails until `python3-venv` is installed.
 - The verdict provisional at CP-12, converted at CP-17 · the predecessor archived at CP-45 (2026-08-25, ADR-0026), the fallback term expired at CP-17 (2026-08-11) · the wheel's contents asserted at build time — CP-19, `ingest_corpus.py` in the wheel since CP-34.
 - The filesystem wall — CP-11 · gate G6 as per-mode pins data, the thinking-on set in the wheel — ADR-0024 · the two ARM image pulls registered — wishlist row 40 · an unpinned engine at neutral defaults — CP-09 finding F1 · codec at bring-up via the pins walk, G4 estate-side — ADR-0011.
 - One optimizer step per loop, 8/8 read as mode-collapse onset — CP-21 · zero data points on concurrent collect-and-train and cadence sync — charter A-13 · the trainer's problems dropped — CP-00, charter §7 rows 16–21 · row 22 and credentialed-clone/egress owned by the first production bring-up — CP-40 · "Qwen-fitted in defaults" — CP-38's own words · the symmetric served template — charter A-22.

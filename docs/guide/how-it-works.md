@@ -16,10 +16,10 @@ It never keeps a trace, computes a reward (`reward` is always `null`), or trains
 
 | role | needs | uses |
 |---|---|---|
-| **Server** | an estate (inference engine, Forgejo git host, retrieval service, ingested corpus) + this repo + Polar's venv | `gsj-rollout serve`, two Polar processes, `pi_harness.py`, `builder.py`, `receiver.py` |
-| **Trainer** | `pip install gsj-harness-rollout-server` (Python ≥ 3.12; pydantic + httpx) — no estate, no Polar | `gsj_rollout.RolloutClient`, `gsj_rollout.checks` |
+| **Server** | an estate (inference engine, Forgejo git host, retrieval service, ingested corpus) + Polar's two processes — the published `gsj-polar` image ([bring-your-own.md#polars-two-processes](bring-your-own.md#polars-two-processes)) or this repo with Polar's venv | `gsj-rollout serve`, two Polar processes, `pi_harness.py`, `builder.py`, `receiver.py` |
+| **Trainer** | `pip install gsj-harness-rollout-server` (Python ≥ 3.12; pydantic + httpx + pyyaml) — no estate, no Polar | `gsj_rollout.RolloutClient`, `gsj_rollout.checks` |
 
-The published wheel serves the trainer role only — `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py` and (since 0.1.3) the estate tool (`gsj_rollout.estate` from 0.1.6, CP-72's rename; `gsj_rollout.bringup` on wheels ≤ 0.1.5), no `vendor/` — so it cannot run an episode by itself: the estate tool stands an estate up from a corpus, but Polar's two processes are still the operator's.
+The published wheel runs no episode by itself — `gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py` and (since 0.1.3) the estate tool (`gsj_rollout.estate` from 0.1.6, CP-72's rename; `gsj_rollout.bringup` on wheels ≤ 0.1.5), no `vendor/`: the estate tool stands an estate up from a corpus and `gsj-rollout serve` runs the receiver, but Polar's two processes are still the operator's — from the published `gsj-polar` image ([bring-your-own.md#polars-two-processes](bring-your-own.md#polars-two-processes)) or a checkout's `vendor/polar` venv.
 
 **Ours** — `gsj_rollout/`, 2,034 lines under a hard 2,034-line budget (zero headroom by design, machine-checked as a suite equality since CP-65; re-set to the landed size at CP-75, ADR-0033):
 

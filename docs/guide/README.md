@@ -20,14 +20,14 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 
 <sub>Left, the server: an estate you operate, the two Polar processes, the receiver. Right, the trainer: the wheel, `RolloutClient`, and the same `checks.py` — because nothing upstream is trusted.</sub>
 
-**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.14) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2 — deprecated from 0.1.6 in favour of the estate tool's `validate`/`ingest` verbs — and the estate tool as `python -m gsj_rollout.estate` since 0.1.6, CP-72's rename of the `gsj_rollout.bringup` that wheels 0.1.3–0.1.5 carry): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
+**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.15) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2 — deprecated from 0.1.6 in favour of the estate tool's `validate`/`ingest` verbs — and the estate tool as `python -m gsj_rollout.estate` since 0.1.6, CP-72's rename of the `gsj_rollout.bringup` that wheels 0.1.3–0.1.5 carry): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate   # stock Ubuntu >= 23.04 refuses a bare pip install (PEP 668, `externally-managed-environment`)
+python3 -m venv .venv && . .venv/bin/activate   # stock Ubuntu 24.04: `sudo apt install python3-venv` first (the venv fails without it: ensurepip); outside a venv pip is absent, or refused once installed (PEP 668, `externally-managed-environment`)
 pip install gsj-harness-rollout-server
 ```
 
-**Server** ([server-guide.md](server-guide.md)) — a machine you operate running the four estate services (vLLM with the pinned chat template, a Forgejo git host, the MCP retrieval service, the ingested corpus), plus this checkout with Polar's venv built under `vendor/polar/`.
+**Server** ([server-guide.md](server-guide.md)) — a machine you operate running the four estate services (vLLM with the pinned chat template, a Forgejo git host, the MCP retrieval service, the ingested corpus), plus Polar's two processes — from the published `gsj-polar` image ([bring-your-own.md#polars-two-processes](bring-your-own.md#polars-two-processes)) or, as below, this checkout with Polar's venv built under `vendor/polar/`.
 
 ```bash
 git clone https://github.com/MHGanainy/gsj-harness-rollout-server && cd gsj-harness-rollout-server
@@ -55,7 +55,7 @@ A foreign model or corpus — from an endpoint URL to the values `up` needs, fro
 
 ## The record behind this
 
-The library is the product of an evaluation, not a greenfield build: could Polar own episode execution and capture, leaving only a thin shell? The verdict is **ADOPT** — provisional 2026-08-09, converted 2026-08-11 when the golden pair passed on the production H200 estate and a trainer took one real optimizer step on traces collected through this path. The predecessor, `gsj-envloader` at `v0.8.0`, is archived and read-only: it stays readable as the golden reference the fidelity claims are measured against (`loss_mask` exact at zero tolerance, `prompt_ids` byte-identical), and it is not a fallback. Our code is Apache-2.0; `vendor/polar/` carries NVIDIA's own Apache-2.0 licence and ships in no released artifact — publication is wheel-only (`gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, the estate tool), and the release workflow fails any wheel containing a path under `vendor/`, `estate/`, `spike/`, `tests/`, `docs/`, or `.github/`.
+The library is the product of an evaluation, not a greenfield build: could Polar own episode execution and capture, leaving only a thin shell? The verdict is **ADOPT** — provisional 2026-08-09, converted 2026-08-11 when the golden pair passed on the production H200 estate and a trainer took one real optimizer step on traces collected through this path. The predecessor, `gsj-envloader` at `v0.8.0`, is archived and read-only: it stays readable as the golden reference the fidelity claims are measured against (`loss_mask` exact at zero tolerance, `prompt_ids` byte-identical), and it is not a fallback. Our code is Apache-2.0; `vendor/polar/` carries NVIDIA's own Apache-2.0 licence and ships in no released artifact of ours (no wheel, no sdist) — it does reach you inside the demo's published `gsj-polar` image, which is built from it; publication is wheel-only (`gsj_rollout/`, both pins sets, the G2 reference capture, `ingest_corpus.py`, the estate tool), and the release workflow fails any wheel containing a path under `vendor/`, `estate/`, `spike/`, `tests/`, `docs/`, or `.github/`.
 
 Four tracked documents are normative; this guide is the consumer view of them.
 

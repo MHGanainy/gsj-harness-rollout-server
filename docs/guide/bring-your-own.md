@@ -4,7 +4,7 @@
 
 Two procedures the library owns, written after a stranger walked them first (2026-09-06, library 0.1.9 from PyPI, the library's own scaffold as the corpus, a `qwen3.6-27b` endpoint nobody here operates) and reproduced independently twice the next day at 0.1.10 (round three — [the end of the page](#what-the-walk-proves-and-what-it-does-not)): **[your model](#your-model)** — from an endpoint URL to the values `up` needs, and **[your pins](#your-pins)** — from the first quarantined episode to an accepted one. Each ends with a script you paste and run; each script *asserts* before it *derives*, and neither approves anything you did not inspect. That shape is the stranger's, kept on purpose: the values are cheap, the discipline is the point.
 
-What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (~80 MB compressed, 277 MB extracted), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
+What this page assumes: a corpus in [the contract's shape](../corpus-contract.md) (start from `scaffold`), Docker whose daemon can run a container **and can pull, or already holds, the three images `up` needs** — Forgejo (~80 MB compressed, 277 MB extracted), the retrieval service `ghcr.io/mhganainy/gsj-mcp-service:0.5.0` (1.28 GiB compressed: tens of minutes on a slow pipe; `up` pulls both of these itself and prints a heartbeat while it waits) and the per-episode sandbox `ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3` (200 MiB compressed), which `up` **never pulls**: pull it yourself first, or `up` refuses — before anything is created, since CP-94; a round-three stranger met that refusal after 41 minutes of pipeline — and the estate tool — `estate/estate.py` in a checkout, `python -m gsj_rollout.estate` from the wheel (`pip install gsj-harness-rollout-server pyarrow`). Below, `$ESTATE` stands for whichever you have. **And one thing this page owes you before you start (CP-99):** everything here — the corpus, the estate, the pins — works from the wheel alone, but the *episode* at the end of the walk does not. Episode execution is Polar's, which ships in no Python artifact; you need a checkout's `vendor/polar` venv or the demo's published `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15`. Two round-five strangers filed this independently from the PyPI door — one after standing a whole estate from the wheel — and that one ranked it first of everything it found.
 
 > [!NOTE]
 > **Why a page and not a script in the wheel.** The wheel ships no documentation and only two force-included modules; a shipped script is a release. And the walk's load-bearing step is the one no script can do — reading the quarantined body and deciding that what ran is what you meant to approve. The stranger who proved this path refused to approve automatically; so do the scripts below (they stop on anything unexpected). `estate.py up` deliberately writes no pins ([corpus-contract.md](../corpus-contract.md)); this page does not change that. What it writes since 0.1.12 (CP-97, ADR-0042) is the **skeleton** — `<run>/pins.skeleton.json` beside `rollout.yaml`: the two carried sets from the pins in force, the tail and the end-of-turn id measured from your endpoint's own render, the two derived sets and G4's empty, `not_measured` and `coverage` stated — under a format (`gsj-pins-skeleton/1`) the library refuses on first use and `up` refuses before anything runs, so nothing consumes it as pins by accident. The script in [your pins](#your-pins) reads it; the judgement stays yours. The one-command form for the reference-model case is the demo repo's `bootstrap.py`.
@@ -164,7 +164,7 @@ it derived them from the image and the vendored source and wrote, accurately,
 
 ### Route A — the published image
 
-`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14` is public and anonymously
+`ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15` is public and anonymously
 pullable, and carries this release's wheel beside Polar. `$RUN` is your run
 directory (`<runs>/<name>`), `$RUNS_PARENT` the directory that holds it.
 
@@ -172,7 +172,7 @@ directory (`<runs>/<name>`), `$RUNS_PARENT` the directory that holds it.
 docker run -d --name gsj-polar-rollout --network host \
   -v "$RUNS_PARENT:$RUNS_PARENT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15 \
   polar serve_rollout -c "$RUN/topology.rendered.yaml"
 
 mkdir -p "$RUNS_PARENT/polar-sessions"          # the session dir, host-side — see TMPDIR below
@@ -181,7 +181,7 @@ docker run -d --name gsj-polar-gateway --network host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e TMPDIR="$RUNS_PARENT/polar-sessions" \
   --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15 \
   polar serve_gateway -c "$RUN/topology.rendered.yaml"
 ```
 
@@ -232,7 +232,7 @@ rollout API, not merely started:
 
 ```bash
 docker run --rm --network host -v "$RUNS_PARENT:$RUNS_PARENT" \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.14 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15 \
   polar status -c "$RUN/topology.rendered.yaml"     # Registered Nodes: 1, the gateway [UP] under it
 ```
 
@@ -267,13 +267,13 @@ including the A-14 `gsj_rollout` install).
 
 The wheel ships the **reference estate's** approved sets. On your corpus every episode quarantines — `G2:system_prompt_hash_not_approved:<hash>` for your `AGENTS.md`, `G1:skill_card_hash_not_approved:<hash>` for your skill cards on a skill row — and on a non-reference model `G6:prompt_suffix_ne_tail_ids` (and `G6:interstitial_ne_tail_ids:…` on later turns) for the tail. That first quarantine is not a failure; it is the evidence the walk reads. The order matters:
 
-1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset) — the receiver is `gsj-rollout serve` from the wheel, and Polar's two are [above](#polars-two-processes). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use — the first hash gate a `COMPLETED` body reaches, *after* the admission gates: validating `{}` against it returns `ADM1`/`ADM3` and no refusal, which is not the test — round seven's b1 nearly filed it as one).
+1. **Stand the estate up and start the three processes with the reference pins** (`GSJ_PINS_PATH` unset) — the receiver is `gsj-rollout serve` from the wheel, and Polar's two are [above](#polars-two-processes). `up`'s pins line already warns which cards the reference set lacks — and since 0.1.12 it has written `<run>/pins.skeleton.json`, which step 4's script reads and which `GSJ_PINS_PATH` must never name (`up` refuses one before anything runs; the library refuses it on first use — the first hash gate a trace reaches, whatever the body's status, *after* the admission findings: validating `{}` (no trace to check) against it returns `ADM1`/`ADM3` and no refusal, which is not the test — round seven's b1 nearly filed it as one).
 2. **Run one episode against the reference pins**, with a task id you will recognise:
    ```bash
    gsj-rollout submit --config <run>/rollout.yaml --from-bank <run>/taskbank.parquet --row 0 \
        --task-id pins-walk-reference --out <run>/first-attempt
    ```
-   Expect `rejected <session_id>: [...]` and exit 1, with the receiver's copy at `<run>/traces/quarantine/<session_id>.thinking-off.json`. The bank is sorted by `(case_id, timestep, prompt_id)`, so `free:` rows precede `skill:` rows *within a timestep* — on a scaffold that makes row 0 the free prompt and row 1 the skill row, and on your own corpus it makes row 0 whatever sorts first (round seven's b1 would have landed on an `eval` row of the wrong case). Read your bank before choosing `--row`: since CP-104 `up`'s closing block and `status` list every row as `--row N case@T prompt_id [split]`.
+   Expect `rejected <session_id>: [...]` and exit 1, with the receiver's copy at `<run>/traces/quarantine/<session_id>.thinking-off.json`. The bank is sorted by `(case_id, timestep, prompt_id)`, so `free:` rows precede `skill:` rows *within a timestep* — on a scaffold that makes row 0 the free prompt and row 1 the skill row, and on your own corpus it makes row 0 whatever sorts first (round seven's b1 would have landed on an `eval` row of the wrong case). Read your bank before choosing `--row`: since CP-104 (0.1.15) `up`'s closing block and `status` list its first twelve rows as `--row N case@T prompt_id [split]`, then `… N more row(s)` for the rest.
 3. **Inspect the quarantined body before approving anything.** The body is `{"findings": [...], "session_result": {...}}`. What you are checking is that *what ran is what you meant to approve* — the script below asserts the mechanical half, you read the rest:
    - `findings` holds **only** the expected `G1`/`G2`/`G6` kinds. Anything else — an `ADM*`, `LP*`, `G5*`, `G7*` finding — is a different problem; stop and read [troubleshooting.md](troubleshooting.md).
    - `session_result.status` is `COMPLETED`; `trajectory.metadata.reconstruction_stats` shows one chain, nothing truncated, every completion merged.
