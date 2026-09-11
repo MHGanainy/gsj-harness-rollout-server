@@ -672,17 +672,7 @@ def validate_decisions(root: Path, findings: list[Finding]) -> DecisionsCensus |
 
 
 def load_decisions_lock(root: Path) -> dict:
-    path = root / DECISIONS_LOCK_NAME
-    if not path.is_file():
-        return {}
-    try:
-        lock = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PipelineError(f"{path} unreadable as JSON ({exc}) — a truncated or "
-                            f"merge-conflicted lock; restore it or re-run scaffold") from exc
-    if not isinstance(lock, dict):
-        raise PipelineError(f"{path} must hold a JSON object — re-run scaffold")
-    return lock
+    return _load_generated_json(root / DECISIONS_LOCK_NAME)
 
 
 def write_decisions_lock(root: Path, census: DecisionsCensus) -> None:
@@ -1492,8 +1482,8 @@ def ls_remote_heads(base_url: str, owner: str, case_id: str,
 # --------------------------------------------------------------------------
 # The lock file
 
-def load_lock(root: Path, *, required: bool = False) -> dict:
-    path = root / LOCK_NAME
+def _load_generated_json(path: Path, *, required: bool = False) -> dict:
+    """Read a generated JSON object with the shared lock-file diagnostics."""
     if not path.is_file():
         if required:
             raise PipelineError(f"{path} missing — run the scaffold phase first")
@@ -1507,6 +1497,10 @@ def load_lock(root: Path, *, required: bool = False) -> dict:
     if not isinstance(lock, dict):
         raise PipelineError(f"{path} must hold a JSON object — re-run scaffold")
     return lock
+
+
+def load_lock(root: Path, *, required: bool = False) -> dict:
+    return _load_generated_json(root / LOCK_NAME, required=required)
 
 
 def write_lock(root: Path, lock: dict) -> None:
