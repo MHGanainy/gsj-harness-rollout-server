@@ -61,7 +61,7 @@ The first token of each finding names its family; the complete vocabulary and ea
 
 | Symptom | Cause → fix |
 |---|---|
-| `NOTE: … does not exist — this is an installed wheel — no wheel ships vendor/polar; clone https://github.com/MHGanainy/gsj-harness-rollout-server and substitute <checkout>` | the wheel runs no episode; Polar's two processes come from the published image `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15` ([bring-your-own.md#polars-two-processes](bring-your-own.md#polars-two-processes) — the two `docker run` invocations, one clause per flag) or from a checkout ([trainer-guide.md](trainer-guide.md)); `up`'s closing block spells the image since CP-104, this NOTE still names only the checkout (`cli.py` is frozen at zero headroom — register row 108) |
+| `NOTE: … does not exist — this is an installed wheel — no wheel ships vendor/polar; clone https://github.com/MHGanainy/gsj-harness-rollout-server and substitute <checkout>` | the wheel runs no episode; Polar's two processes come from the published image `ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.16` ([bring-your-own.md#polars-two-processes](bring-your-own.md#polars-two-processes) — the two `docker run` invocations, one clause per flag) or from a checkout ([trainer-guide.md](trainer-guide.md)); `up`'s closing block spells the image since CP-104, this NOTE still names only the checkout (`cli.py` is frozen at zero headroom — register row 108) |
 | `NOTE: … does not exist — vendor/polar's venv is unbuilt — provision per vendor/REVENDOR.md's recipe` | build Polar's venv with the README's first-install one-liner (`uv` required — a fresh Ubuntu has none): `cd vendor/polar && uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -e . && uv pip install -p .venv/bin/python -e ../.. && cd ../..`; `vendor/REVENDOR.md` is the pin-moving recipe (its first steps delete `vendor/polar`) — only when moving the pin. The receiver still starts in both NOTE cases |
 | `UserWarning: gsj_rollout.checks: … holds the REFERENCE ESTATE's approved sets, not defaults — set GSJ_PINS_PATH to your own or every hash gate fails *_not_approved.` | once at first import with `GSJ_PINS_PATH` unset — correct against the reference estate, a trap for anyone else: set it in **every** process that imports `gsj_rollout`, before the first import |
 | `PinsConfigurationError: pins key 'system_prompt_hash' missing, empty, or not a list in …/pins.skeleton.json` (a 500 on every callback that carries a trace, whatever its status — a body with none to check, a `null` `trajectory` or an empty `traces`, is quarantined on its findings instead, because only the per-trace hash gates read the pins; `{}` itself is a 400 at the receiver, which needs a `session_id` and a `trajectory` before it validates anything; the trainer's `collect` raises the same) | `GSJ_PINS_PATH` names the **skeleton** `up` writes since 0.1.12 (ADR-0042) — its two derived sets are empty by design. Run the walk ([bring-your-own.md#your-pins](bring-your-own.md#your-pins): its script reads the skeleton) and point `GSJ_PINS_PATH` at the `pins.gsj.json` it writes; restart both legs |
@@ -161,7 +161,7 @@ docker run -d --name gsj-polar-gateway --network host \
   -v "$RUNS_PARENT:$RUNS_PARENT" -v /var/run/docker.sock:/var/run/docker.sock \
   -e TMPDIR="$RUNS_PARENT/polar-sessions" \
   --env-file <(grep '^GSJ_MCP_TOKEN_SECRET=' "$RUN/.env" | sed "s/'//g") \
-  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.15 \
+  ghcr.io/mhganainy/gsj-polar:f0e8343a-gsj0.1.16 \
   polar serve_gateway -c "$RUN/topology.rendered.yaml"
 ```
 
