@@ -134,13 +134,13 @@ FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, mea
 # pullable — the reference lived on the PyPI page and one guide page only.
 POLAR_IMAGE_REPO = "ghcr.io/mhganainy/gsj-polar"
 POLAR_SHA_SHORT = "f0e8343a"       # the vendor pin the tag encodes; a checkout reads POLAR_SHA itself
-MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"   # CP-79's published two-platform decisions image
+MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.1"   # compatible response-helper refinement
 # CP-83: 0.5.0 supports the decisions drop (CP-79), retaining 0.4.1's
 # batched add under chroma's 5,461-item ceiling and orphan sweep. From the
 # checkout the local build tag (the H200 loads it out-of-band; nothing
 # pulls there); from the wheel the published index, pulled when absent
 # (wishlist 51 (b)).
-MCP_IMAGE = "gsj-mcp-service:0.5.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
+MCP_IMAGE = "gsj-mcp-service:0.5.1" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"

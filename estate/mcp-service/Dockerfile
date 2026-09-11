@@ -3,7 +3,8 @@
 # Self-contained for egress-restricted hosts: the configured embedding model's snapshot is
 # baked at build time and the container runs fully offline (HF_HUB_OFFLINE;
 # Chroma telemetry is disabled in code — Settings(anonymized_telemetry=False)).
-# Build on the workstation, ship with the CP-26 recipe (0.5.0 = CP-79: the
+# Build on the workstation, ship with the CP-26 recipe (0.5.1 preserves
+# 0.5.0 response semantics using Starlette Response; 0.5.0 = CP-79: the
 # decisions surface — a rii-dok v1 drop at decisions.path served as
 # Randnummern at level 2 of docs/decisions-surface.md, search_decisions
 # returning {query, k, hits, index_commit}, one fingerprint per collection
@@ -19,11 +20,11 @@
 # amd64 half IS the H200's image, the arm64 half the CP-59 native build;
 # 0.3.0 = CP-15: the ChromaDB backend, ADR-0016 — ≈ +310 MB installed vs
 # 0.2.0; 0.2.0 = CP-33: /admin/reindex + source.owner gsj-staging):
-#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.5.0-amd64 .
-#   docker build -t gsj-mcp-service:0.5.0 .          # the native half on an arm64 workstation
-#   docker save gsj-mcp-service:0.5.0-amd64 | ssh h200-admin docker load
+#   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build -t gsj-mcp-service:0.5.1-amd64 .
+#   docker build -t gsj-mcp-service:0.5.1 .          # the native half on an arm64 workstation
+#   docker save gsj-mcp-service:0.5.1-amd64 | ssh h200-admin docker load
 # (or, since every tag from 0.4.0 is a two-platform index on GHCR, pull
-# ghcr.io/mhganainy/gsj-mcp-service:0.5.0 — on the H200 through skopeo as
+# ghcr.io/mhganainy/gsj-mcp-service:0.5.1 — on the H200 through skopeo as
 # uid 1000, estate/README.md)
 FROM python:3.12-slim
 
