@@ -17,7 +17,7 @@
 name: gsj-mcp-service
 services:
   mcp:
-    image: gsj-mcp-service:0.5.0   # 0.5.0 = CP-79: the decisions surface (a rii drop
+    image: gsj-mcp-service:0.5.1   # 0.5.1 preserves 0.5.0; CP-79: the decisions surface (a rii drop
                                    # by decisions.path, level 2; the wrapper; one
                                    # fingerprint per collection; 0.4.1 = CP-77:
                                    # batched adds under chroma's 5,461-item ceiling +

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.responses import Response
 
 from .state import AppState
 from .tokens import TokenError, TokenVerifier, current_claims
@@ -166,16 +167,15 @@ class _RootApp:
         }).encode()
         await self._send_json(send, status, payload)
 
+    # These helpers emit HTTP messages even when the caller's scope is not HTTP.
     @staticmethod
     async def _send_json(send, status: int, body: bytes):
-        await send({"type": "http.response.start", "status": status,
-                    "headers": [(b"content-type", b"application/json"),
-                                (b"content-length", str(len(body)).encode())]})
-        await send({"type": "http.response.body", "body": body})
+        await Response(body, status, headers={"content-type": "application/json",
+                                             "content-length": str(len(body))})(
+            {"type": "http"}, None, send)
 
     @staticmethod
     async def _send_plain(send, status: int, body: bytes):
-        await send({"type": "http.response.start", "status": status,
-                    "headers": [(b"content-type", b"text/plain"),
-                                (b"content-length", str(len(body)).encode())]})
-        await send({"type": "http.response.body", "body": body})
+        await Response(body, status, headers={"content-type": "text/plain",
+                                             "content-length": str(len(body))})(
+            {"type": "http"}, None, send)

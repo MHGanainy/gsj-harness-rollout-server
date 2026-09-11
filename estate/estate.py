@@ -83,6 +83,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import datetime, timezone
 from contextlib import contextmanager, ExitStack
 from pathlib import Path
@@ -133,13 +134,13 @@ FORGEJO_IMAGE_MIRROR = "code.forgejo.org/forgejo/forgejo"   # the same tags, mea
 # pullable — the reference lived on the PyPI page and one guide page only.
 POLAR_IMAGE_REPO = "ghcr.io/mhganainy/gsj-polar"
 POLAR_SHA_SHORT = "f0e8343a"       # the vendor pin the tag encodes; a checkout reads POLAR_SHA itself
-MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"   # CP-79's published two-platform decisions image
+MCP_IMAGE_PUBLISHED = "ghcr.io/mhganainy/gsj-mcp-service:0.5.1"   # compatible response-helper refinement
 # CP-83: 0.5.0 supports the decisions drop (CP-79), retaining 0.4.1's
 # batched add under chroma's 5,461-item ceiling and orphan sweep. From the
 # checkout the local build tag (the H200 loads it out-of-band; nothing
 # pulls there); from the wheel the published index, pulled when absent
 # (wishlist 51 (b)).
-MCP_IMAGE = "gsj-mcp-service:0.5.0" if CHECKOUT else MCP_IMAGE_PUBLISHED
+MCP_IMAGE = "gsj-mcp-service:0.5.1" if CHECKOUT else MCP_IMAGE_PUBLISHED
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 REFERENCE_MODEL = "Qwen/Qwen3-0.6B"
@@ -3055,6 +3056,77 @@ def gateway_host(network: str, gport: int, explicit: str | None,
 
 # ------------------------------------------------------------- the estate
 
+def _start_created_mcp(run_: Run, *, cfg_before: str | None, rebuild: bool,
+                       has_store: bool, ingest_timeout: Callable[[], float]) -> tuple[Mcp, dict]:
+    """Activate the selected created service; publish its answers before embedding.
+
+    Caller holds Run.mutation and has written the reviewed retrieval config.
+    Snapshot the selected values before Compose/record hooks can mutate Run;
+    readiness owns the rebuild reset, while cmd_up owns later corpus publication.
+    The timeout getter keeps its original read after successful Compose activation.
+    """
+    rundir = run_.dir
+    spec = run_.record["compose"]["mcp"]
+    image, container, mport = spec["image"], spec["container"], spec["port"]
+    cfg = Path(spec["config"])
+    network = run_.record["network"]["name"]
+    external_net = run_.record["network"]["external"]
+    secret = run_.env[MCP_SECRET_ENV]
+    write_compose(rundir, run_, network, external_net)
+    # the record lands BEFORE the embed (the forgejo pattern): an
+    # interrupted build must not leave the next re-run defaulting to a
+    # config this run already moved away from (image, chunking, the
+    # --mcp-config residuals)
+    run_.write_record()
+    PH.start("mcp", f"docker compose up ({container}, 127.0.0.1:{mport}) — a cold "
+                    f"start clones and embeds; a warm one matches the fingerprint")
+    # compose recreates on a changed service definition (image, env,
+    # ports) by itself; a changed MOUNTED config or --rebuild is read only
+    # at start, so those force the recreate — an untouched run is a no-op
+    recreate = rebuild or (cfg_before is not None and cfg_before != sha256_file(cfg))
+    if recreate and rebuild_in_progress(f"http://127.0.0.1:{mport}", container):
+        # CP-96 (round four): a --rebuild whose previous attempt timed out
+        # at the wait used to recreate the container and embed from zero
+        # on every re-run; the service is still building — attach to it
+        warn("mcp", f"{container} is still building under index.rebuild: always — "
+                    "attaching to that build instead of recreating the container "
+                    "(a recreate would embed from zero again)")
+        recreate = False
+    up = compose_up(rundir, "-d", *(["--force-recreate"] if recreate else []), "mcp")
+    if up.returncode != 0:
+        kind = pull_failure_kind(up.stderr)
+        die("`docker compose up mcp` failed"
+            + (" — the daemon could not extract or mount the image." if kind == "extract"
+               else "."),
+            (up.stderr.strip().splitlines() or ["the compose error above"])[-1],
+            "a daemon whose storage can extract and mount OCI layers" if kind == "extract"
+            else None,
+            pull_failure_fix(kind, image,
+                             "the error is authoritative; the container keeps its "
+                             "creation-time env, so a rotated token needs this recreate "
+                             "(done here)"))
+    mcp = Mcp(f"http://127.0.0.1:{mport}", f"http://{container}:8790", secret, "created")
+    h = None
+    try:
+        h = mcp.wait_ready(ingest_timeout(), "start" if has_store else "cold start",
+                           container=container)
+    finally:
+        # revert only once the rebuild finished: an interrupted one keeps
+        # `always` and the next `up` waits for it (see the entry check)
+        if rebuild and h is not None:
+            cfg.write_text(cfg.read_text().replace("rebuild: always", "rebuild: if-stale"))
+            say("mcp", "re-embedded; mcp-config.yaml set back to index.rebuild: if-stale "
+                       "so the next start reuses this store")
+    dd = h.get("decisions_drop")
+    PH.done(f"ready at {mcp.url} (containers: {mcp.container_url}); fingerprint "
+            f"{str(h.get('fingerprint'))[:12]}…; index_reused={h.get('index_reused')}"
+            + (f"; rebuilt {h['rebuilt']}" if h.get("rebuilt") else "")
+            + (f"; decisions: {dd['files']} files, {dd['units']} units, "
+               f"{dd['pieces']} pieces (drop {dd['sha256'][:12]}…)" if dd
+               else f"; decisions: the synthetic {h.get('decisions')}"))
+    return mcp, h
+
+
 @mutating_command
 def cmd_up(args: argparse.Namespace) -> None:
     A = Answers(args)
@@ -3722,58 +3794,9 @@ def cmd_up(args: argparse.Namespace) -> None:
             "config_overrides": residual,
             "uid": os.getuid() if platform.system() == "Linux" else None,
             "gid": os.getgid() if platform.system() == "Linux" else None}
-        write_compose(rundir, run_, network, external_net)
-        # the record lands BEFORE the embed (the forgejo pattern): an
-        # interrupted build must not leave the next re-run defaulting to a
-        # config this run already moved away from (image, chunking, the
-        # --mcp-config residuals)
-        run_.write_record()
-        PH.start("mcp", f"docker compose up ({container}, 127.0.0.1:{mport}) — a cold "
-                        f"start clones and embeds; a warm one matches the fingerprint")
-        # compose recreates on a changed service definition (image, env,
-        # ports) by itself; a changed MOUNTED config or --rebuild is read only
-        # at start, so those force the recreate — an untouched run is a no-op
-        recreate = rebuild or (cfg_before is not None and cfg_before != sha256_file(cfg))
-        if recreate and rebuild_in_progress(f"http://127.0.0.1:{mport}", container):
-            # CP-96 (round four): a --rebuild whose previous attempt timed out
-            # at the wait used to recreate the container and embed from zero
-            # on every re-run; the service is still building — attach to it
-            warn("mcp", f"{container} is still building under index.rebuild: always — "
-                        "attaching to that build instead of recreating the container "
-                        "(a recreate would embed from zero again)")
-            recreate = False
-        up = compose_up(rundir, "-d", *(["--force-recreate"] if recreate else []), "mcp")
-        if up.returncode != 0:
-            kind = pull_failure_kind(up.stderr)
-            die("`docker compose up mcp` failed"
-                + (" — the daemon could not extract or mount the image." if kind == "extract"
-                   else "."),
-                (up.stderr.strip().splitlines() or ["the compose error above"])[-1],
-                "a daemon whose storage can extract and mount OCI layers" if kind == "extract"
-                else None,
-                pull_failure_fix(kind, image,
-                                 "the error is authoritative; the container keeps its "
-                                 "creation-time env, so a rotated token needs this recreate "
-                                 "(done here)"))
-        mcp = Mcp(f"http://127.0.0.1:{mport}", f"http://{container}:8790", secret, "created")
-        h = None
-        try:
-            h = mcp.wait_ready(args.ingest_timeout, "cold start" if stored is None else "start",
-                               container=container)
-        finally:
-            # revert only once the rebuild finished: an interrupted one keeps
-            # `always` and the next `up` waits for it (see the entry check)
-            if rebuild and h is not None:
-                cfg.write_text(cfg.read_text().replace("rebuild: always", "rebuild: if-stale"))
-                say("mcp", "re-embedded; mcp-config.yaml set back to index.rebuild: if-stale "
-                           "so the next start reuses this store")
-        dd = h.get("decisions_drop")
-        PH.done(f"ready at {mcp.url} (containers: {mcp.container_url}); fingerprint "
-                f"{str(h.get('fingerprint'))[:12]}…; index_reused={h.get('index_reused')}"
-                + (f"; rebuilt {h['rebuilt']}" if h.get("rebuilt") else "")
-                + (f"; decisions: {dd['files']} files, {dd['units']} units, "
-                   f"{dd['pieces']} pieces (drop {dd['sha256'][:12]}…)" if dd
-                   else f"; decisions: the synthetic {h.get('decisions')}"))
+        mcp, h = _start_created_mcp(run_, cfg_before=cfg_before, rebuild=rebuild,
+                                    has_store=stored is not None,
+                                    ingest_timeout=lambda: args.ingest_timeout)
         if stored is not None and h.get("index_reused"):
             pass
         elif stored is not None and not rebuild:

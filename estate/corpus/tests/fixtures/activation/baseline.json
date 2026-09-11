@@ -1,0 +1,596 @@
+{
+  "cold": [
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "ea78114233022a04c02910c31e767dc291fe50892bb521ef526f3fb60ac24449"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "warm": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "e2a969c1722a2540aa9fd2d085b57478e467f47303e4f2497542f627b4517059"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff56b27151da173e5c90cc2ddabbc7b29599a9aacffa0fef100336882e38d8b5"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "19c1e736d057e10ccd6e2d051b611d9769a447898e1ff1531806229082bbcb05"
+    }
+  ],
+  "changed_config": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "9c2fe27fa7fafd3edc5255fbdf6fead8cd81ecc1efef18d377e18d7ed14b919c"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ca31fb39fe5b1fcc5fa80210025f9a2c0062768410cd8f4de06eeff90a3d8740"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "47cca671b450144e58138096f0a785820c406afdb735aa6a41d2d7fd243ba567"
+    }
+  ],
+  "rebuild": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "f2c173184eabdd5931e3c7a45b372abca41ef09e0d73c834530bfacaace0f73e"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff56b27151da173e5c90cc2ddabbc7b29599a9aacffa0fef100336882e38d8b5"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "19c1e736d057e10ccd6e2d051b611d9769a447898e1ff1531806229082bbcb05"
+    }
+  ],
+  "resume_build": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "8a75ff27e76b86385379d372bc0d569354a100a6324db4f1fb82cfeaec965cdc"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff56b27151da173e5c90cc2ddabbc7b29599a9aacffa0fef100336882e38d8b5"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "19c1e736d057e10ccd6e2d051b611d9769a447898e1ff1531806229082bbcb05"
+    }
+  ],
+  "drop_summary": [
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "796e098002088b61d3285ede749f154a8a2c3167bd9d897977f9afa178abb281"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "adopt": [
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": false,
+      "sha256": "c93f64af58b315773c249b73629f959e2317f894254c238414268ad8baa141a8"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": false,
+      "sha256": "4250b7a733b66b384173758c4b269d15e7e6ecc23e61363348b1d697e2385eaf"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "1a5126743425990c12e70e00e67cba98708e1f62a16cac3bb12051974b8fabc6"
+    }
+  ],
+  "adopt_after_create": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "dd223d1ea337872c0be2dfd83b22c3439b48905da938c2cfc8b6638c51f36654"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "6813fa9ed372bce19d435770545b51a429cfcd313a206d048e8f4ecd90e09874"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "329fee751a29d279e08d7eb74f8b075057f06b01f2b3e2fe8b1220e514f1e6c9"
+    }
+  ],
+  "compose_written": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected after Compose file publication"
+      ],
+      "running": false,
+      "sha256": "11f35ef06e25646a8f0c892ce78423d385a833d9f8bbd2fffa62781866b5a943"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": false,
+      "sha256": "1d89f74fdf154362242709c7c630169dd2fb6a4ab919a46dfe06dea37395b524"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "477fb91d16329f6ff8f7fbdd6dd827de49a1dddd5951735429016fc75743077d"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "checkpoint_before": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected before run checkpoint"
+      ],
+      "running": false,
+      "sha256": "033221ff24cc54f8e427aa260d74519644e4eecd46893fea69c94f3240e2b394"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": false,
+      "sha256": "1d89f74fdf154362242709c7c630169dd2fb6a4ab919a46dfe06dea37395b524"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "477fb91d16329f6ff8f7fbdd6dd827de49a1dddd5951735429016fc75743077d"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "checkpoint_after": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected after run checkpoint"
+      ],
+      "running": false,
+      "sha256": "5513f2d93d5fb65777494e651714739b38b38a81d5160c0acd3eaf16403e4ff6"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": false,
+      "sha256": "fd020ee076c50fea963012349d10e6f403d2c9a9ba5043f0e5543814563eca7d"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "fdcd892b486e927a8b5e6812953a7c20c9f52c18f1b709773c87cd6587395f41"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "activation_after": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected after external activation"
+      ],
+      "running": true,
+      "sha256": "6b810203f67ec85f59051b8540058081d7df8b7f38f374257a9466be168a26d9"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "ed77c5c10643cbb42704f68ec28bb8a35d314f0bb2a4b688d426fc180387de61"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "wait_oserror": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected readiness transport boundary"
+      ],
+      "running": true,
+      "sha256": "697c2849d0ac4ce4a3247779eb62453441d862a813503cd8c83774f324feca02"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "ed77c5c10643cbb42704f68ec28bb8a35d314f0bb2a4b688d426fc180387de61"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "wait_interrupt": [
+    {
+      "label": "subject",
+      "error": [
+        "KeyboardInterrupt",
+        "injected readiness cancellation"
+      ],
+      "running": true,
+      "sha256": "26b897649016530b7ac588449cef50ff028a51808fffbf6e47cc2a393162b6c7"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "ed77c5c10643cbb42704f68ec28bb8a35d314f0bb2a4b688d426fc180387de61"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "reset_after": [
+    {
+      "label": "initial",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "40c0578af31d89c71e97a2a407ee8e239f51ae2d87f160d6d284bf67cf912a22"
+    },
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected after rebuild reset publication"
+      ],
+      "running": true,
+      "sha256": "1cf67c7a29c117ec6169024709297255fe7cd4d6f54307c1fb1a32e71c0196e2"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff56b27151da173e5c90cc2ddabbc7b29599a9aacffa0fef100336882e38d8b5"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "9ab932b284839f0552de0a8d379f409fd5b9045b743f4e8061661899f559c645"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "19c1e736d057e10ccd6e2d051b611d9769a447898e1ff1531806229082bbcb05"
+    }
+  ],
+  "hook_mutation": [
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "8493cb895b60179f7e6146137a335d984eff7cf4527af3675b8c82e83b2be5bf"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "4810ab425c0afd5bbb911b814f6ab4eb5333e8744238452c33b349ee83c2f891"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "0408286ca10751f3bf88e7361d9ccb46b9c712f11f74d65d955ad913dbbd90aa"
+    }
+  ],
+  "late_timeout": [
+    {
+      "label": "subject",
+      "error": [
+        "ObservedBoundary",
+        "next corpus ingest reached"
+      ],
+      "running": true,
+      "sha256": "600717c7c0152ac4c0887663faffca56551560cbad15fabb02428ea69ca10adf"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "79078a84872383d79ed5484640dbe2c4fe94c66e792f8f2ab43ae48cd34280ef"
+    }
+  ],
+  "missing_timeout": [
+    {
+      "label": "subject",
+      "error": [
+        "OSError",
+        "injected after external activation"
+      ],
+      "running": true,
+      "sha256": "6b810203f67ec85f59051b8540058081d7df8b7f38f374257a9466be168a26d9"
+    },
+    {
+      "label": "status",
+      "error": [
+        "SystemExit",
+        "1"
+      ],
+      "running": true,
+      "sha256": "ff5c40f4b71da51ab9eac3d1268364d15aaebec5081b0e7f1e6ef8ca04395189"
+    },
+    {
+      "label": "resume",
+      "error": [
+        "AttributeError",
+        "'Namespace' object has no attribute 'ingest_timeout'"
+      ],
+      "running": true,
+      "sha256": "215d047fff124e685d952cf6584fc7d9d5c21fc399adb8b31baa0f9b410671ff"
+    },
+    {
+      "label": "down",
+      "error": null,
+      "running": false,
+      "sha256": "4e901bd2e19fd699f5b931e1313380b8a7bf865bf7f3ca35a6ad0316afe33edb"
+    }
+  ]
+}

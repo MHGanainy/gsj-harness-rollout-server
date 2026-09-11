@@ -14,5 +14,7 @@ pydantic==2.13.4
 PyJWT==2.13.0
 PyYAML==6.0.3
 uvicorn==0.52.1
+# Direct response adapter; preserve the existing MCP dependency closure.
+starlette==1.6.0
 # tests additionally need: pytest (the G5 shape-compat parser is inlined in
 # tests/helpers.py since CP-01 — no predecessor-library import, ADR-0002)

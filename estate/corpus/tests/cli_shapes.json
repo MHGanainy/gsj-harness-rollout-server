@@ -11,7 +11,15 @@
       "Docker 28.0.4 (API 1.48) on the GitHub-hosted CI runner, overlay2, amd64 — where the `: unknown` suffix is absent (CP-99)"
     ],
     "date": "2026-09-08",
-    "cp": "CP-98 (the file), CP-99 (the two `docker exec` shapes)"
+    "cp": "CP-98 (the file), CP-99 (the two `docker exec` shapes)",
+    "compose_activation": {
+      "docker": "28.5.1",
+      "compose": "2.40.2-desktop.1",
+      "image": "alpine:3.20",
+      "date": "2026-09-11",
+      "raw_evidence": "/tmp/gsj-els-20260911T113231Z/estate-shapes",
+      "remeasured_by": "test_estate_cp98_reaper.py::test_compose_cli_shapes_match_the_real_cli"
+    }
   },
   "shapes": {
     "docker rm -f <present>": {
@@ -153,6 +161,139 @@
       "stderr": "Error response from daemon: No such container: {name}\n",
       "read_by": "probe_dial: a non-zero exit with no parsed dial line is the failure — this one's detail is on stderr",
       "note": "measured at CP-99: the exec target died between `up` starting it and the probe running. Unlike the missing-interpreter shape above, this one puts its message where CP-96 looked."
+    },
+    "docker compose up -d mcp <absent>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "up",
+        "-d",
+        "mcp"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": " Network {network}  Creating\n Network {network}  Created\n Container {name}  Creating\n Container {name}  Created\n Container {name}  Starting\n Container {name}  Started\n",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker compose up -d mcp <running>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "up",
+        "-d",
+        "mcp"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": " Container {name}  Running\n",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker compose up -d --force-recreate mcp <running>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "up",
+        "-d",
+        "--force-recreate",
+        "mcp"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": " Container {name}  Recreate\n Container {name}  Recreated\n Container {name}  Starting\n Container {name}  Started\n",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker compose ps <running>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "ps",
+        "--format",
+        "table {{.Name}}\t{{.Status}}"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)",
+      "sample_stdout": "NAME                        STATUS\n{name}   Up Less than a second\n",
+      "stdout_re": "^NAME +STATUS\\n{name} +Up [^\\n]+\\n$",
+      "note": "Duration and table padding depend on the running container and elapsed time. sample_stdout is the actual captured representative stream; conftest.cli_shape accepts it through its existing stdout substitution parameter."
+    },
+    "docker compose down --remove-orphans <running>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "down",
+        "--remove-orphans"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": " Container {name}  Stopping\n Container {name}  Stopped\n Container {name}  Removing\n Container {name}  Removed\n Network {network}  Removing\n Network {network}  Removed\n",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker compose ps <absent>": {
+      "setup": "compose-activation",
+      "argv": [
+        "docker",
+        "compose",
+        "-f",
+        "{rundir}/compose.yaml",
+        "--env-file",
+        "{rundir}/.env",
+        "ps",
+        "--format",
+        "table {{.Name}}\t{{.Status}}"
+      ],
+      "returncode": 0,
+      "stdout": "NAME      STATUS\n",
+      "stderr": "",
+      "read_by": "created retrieval activation / status / down: exit code and displayed Compose streams",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker ps -a --filter label=com.docker.compose.project=<absent> --format {{.Names}}": {
+      "setup": "absent",
+      "argv": [
+        "docker",
+        "ps",
+        "-a",
+        "--filter",
+        "label=com.docker.compose.project={name}",
+        "--format",
+        "{{.Names}}"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "read_by": "cmd_down: empty project inventory proves no owned service remains",
+      "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
     }
   }
 }

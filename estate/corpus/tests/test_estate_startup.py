@@ -21,8 +21,8 @@ import estate as est  # noqa: E402
 
 
 def test_checkout_and_published_defaults_support_decisions():
-    assert est.MCP_IMAGE == "gsj-mcp-service:0.5.0"
-    assert est.MCP_IMAGE_PUBLISHED == "ghcr.io/mhganainy/gsj-mcp-service:0.5.0"
+    assert est.MCP_IMAGE == "gsj-mcp-service:0.5.1"
+    assert est.MCP_IMAGE_PUBLISHED == "ghcr.io/mhganainy/gsj-mcp-service:0.5.1"
 
 
 @pytest.mark.parametrize("answers_file", [False, True])
@@ -107,7 +107,7 @@ def test_terminal_startup_refuses_without_indexing_cure(monkeypatch, capsys, sta
     assert exc.value.code == 1
     assert clock[0] < 110  # a terminal process is not given the indexing budget
     refusal = capsys.readouterr().err
-    assert "0.5.0" in refusal and "--mcp-image" in refusal
+    assert "0.5.1" in refusal and "--mcp-image" in refusal
     assert "cpu" not in refusal.lower() and "keep waiting" not in refusal
     assert any(cmd[:2] == ["docker", "logs"] for cmd in commands)
 

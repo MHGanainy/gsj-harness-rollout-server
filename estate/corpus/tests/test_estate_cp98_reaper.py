@@ -158,7 +158,8 @@ def test_cli_shapes_file_is_the_contract():
         assert shape["argv"][0] == "docker", key
         assert isinstance(shape["returncode"], int) and "stderr" in shape and shape["read_by"], key
         assert ("stdout" in shape) != ("stdout_re" in shape), f"{key}: exactly one of stdout / stdout_re"
-        assert shape["setup"] in ("absent", "created", "running", "image-absent", "image-present", "daemon"), key
+        assert shape["setup"] in ("absent", "created", "running", "image-absent", "image-present", "daemon",
+                                   "compose-activation"), key
     asked = set()
     for module in TESTS_DIR.glob("test_*.py"):
         asked.update(re.findall(r'cli_shape\("([^"]+)"', module.read_text(encoding="utf-8")))
@@ -207,6 +208,8 @@ def test_cli_shapes_match_the_real_cli():
     mismatches = []
     try:
         for key, shape in CLI_SHAPES["shapes"].items():
+            if shape["setup"] == "compose-activation":
+                continue  # the ordered Compose lifecycle is measured by the test below
             subprocess.run(["docker", "rm", "-f", name], capture_output=True)
             _setup(shape["setup"], name)
             subs = {"name": {"image-absent": ABSENT_IMAGE, "image-present": PRESENT_IMAGE}.get(shape["setup"], name)}
@@ -224,3 +227,63 @@ def test_cli_shapes_match_the_real_cli():
     assert not mismatches, (f"{CLI_SHAPES_PATH.name} (measured on docker {CLI_SHAPES['measured']['docker_client']}) "
                             f"disagrees with the CLI here ({version}) — re-measure the file AND re-read the code that "
                             f"branches on these shapes (rule 10): {mismatches}")
+
+
+def test_compose_cli_shapes_match_the_real_cli(tmp_path):
+    """Remeasure every Compose row in one owned lifecycle, then remove it."""
+    reason, version = _daemon()
+    if reason:
+        pytest.skip(f"Compose shapes not re-measured here — {reason}")
+    plugin = subprocess.run(["docker", "compose", "version", "--short"],
+                            capture_output=True, text=True, timeout=30)
+    if plugin.returncode:
+        pytest.skip("Compose shapes not re-measured here — docker compose is unavailable")
+    project = f"gsj-compose-shape-{os.getpid()}"
+    name, network = project + "-mcp", project + "_default"
+    # Refuse a pre-existing project instead of adopting or removing its resources.
+    inventory = ["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project={project}",
+                 "--format", "{{.Names}}"]
+    assert not subprocess.run(inventory, check=True, capture_output=True, text=True).stdout.strip()
+    net = subprocess.run(["docker", "network", "ls", "--filter", f"name=^{network}$",
+                          "--format", "{{.Name}}"], check=True, capture_output=True, text=True)
+    assert not net.stdout.strip()
+    (tmp_path / "compose.yaml").write_text(
+        f"name: {project}\nservices:\n  mcp:\n    image: {PRESENT_IMAGE}\n"
+        f"    container_name: {name}\n    command: [sleep, '300']\n    pull_policy: never\n")
+    (tmp_path / ".env").write_text("")
+    (tmp_path / ".env").chmod(0o600)
+    keys = ["docker compose up -d mcp <absent>", "docker compose up -d mcp <running>",
+            "docker compose up -d --force-recreate mcp <running>", "docker compose ps <running>",
+            "docker compose down --remove-orphans <running>", "docker compose ps <absent>"]
+    assert set(keys) == {key for key, row in CLI_SHAPES["shapes"].items()
+                         if row["setup"] == "compose-activation"}
+    substitutions = {"rundir": str(tmp_path), "name": name, "network": network}
+    mismatches = []
+    try:
+        for key in keys:
+            shape = CLI_SHAPES["shapes"][key]
+            argv = shape["argv"]
+            for field, value in substitutions.items():
+                argv = [arg.replace("{" + field + "}", value) for arg in argv]
+            live = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+            expected = cli_shape(key, argv, **substitutions)
+            if "stdout_re" in shape:
+                # Table padding and elapsed Up duration are host values; the
+                # container name, field order and both complete streams remain checked.
+                pattern = shape["stdout_re"].replace("{name}", re.escape(name))
+                ok_out = re.fullmatch(pattern, live.stdout) is not None
+            else:
+                ok_out = live.stdout == expected.stdout
+            if not (live.returncode == expected.returncode and ok_out and live.stderr == expected.stderr):
+                mismatches.append((key, live.returncode, live.stdout, live.stderr))
+    finally:
+        cleanup = subprocess.run(["docker", "compose", "-f", str(tmp_path / "compose.yaml"),
+                                  "--env-file", str(tmp_path / ".env"), "down", "--remove-orphans"],
+                                 capture_output=True, text=True, timeout=60)
+        assert cleanup.returncode == 0, cleanup.stderr
+    assert not subprocess.run(inventory, check=True, capture_output=True, text=True).stdout.strip()
+    remaining = subprocess.run(["docker", "network", "ls", "--filter", f"name=^{network}$",
+                                "--format", "{{.Name}}"], check=True, capture_output=True, text=True)
+    assert not remaining.stdout.strip()
+    assert not mismatches, (f"Compose shapes disagree with {version}, Compose {plugin.stdout.strip()}: "
+                            f"{mismatches}; re-measure cli_shapes.json and inspect its consumers")
