@@ -20,7 +20,7 @@ The two roles talk over HTTP only — one task JSON in, `SessionResult`s back, r
 
 <sub>Left, the server: an estate you operate, the two Polar processes, the receiver. Right, the trainer: the wheel, `RolloutClient`, and the same `checks.py` — because nothing upstream is trusted.</sub>
 
-**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.17) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2 — deprecated from 0.1.6 in favour of the estate tool's `validate`/`ingest` verbs — and the estate tool as `python -m gsj_rollout.estate` since 0.1.6, CP-72's rename of the `gsj_rollout.bringup` that wheels 0.1.3–0.1.5 carry): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
+**Trainer** ([trainer-guide.md](trainer-guide.md)) — Python ≥ 3.12, anywhere. The wheel (0.1.18) is the client plus the validators (and the corpus pipeline as `python -m gsj_rollout.ingest_corpus` since 0.1.2 — deprecated from 0.1.6 in favour of the estate tool's `validate`/`ingest` verbs — and the estate tool as `python -m gsj_rollout.estate` since 0.1.6, CP-72's rename of the `gsj_rollout.bringup` that wheels 0.1.3–0.1.5 carry): no `vendor/`, no Polar, no way to start a sandbox — it talks to a server somebody operates.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate   # stock Ubuntu 24.04: `sudo apt install python3-venv` first (the venv fails without it: ensurepip); outside a venv pip is absent, or refused once installed (PEP 668, `externally-managed-environment`)
