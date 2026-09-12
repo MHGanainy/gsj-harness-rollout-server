@@ -48,18 +48,7 @@ docs/polar/h200-stitch/*
 !docs/polar/thinking/
 docs/polar/thinking/*
 !docs/polar/thinking/episode-on.quarantined.json
+# the stranger tests' evidence, every round — round four's orchestration and
+# rounds five to seven's control records moved in from the repo root on
+# 2026-09-11; untracked like the record
 stranger/*
-stranger-*.md
-
-# the operator's round-four orchestration evidence (untracked like stranger/)
-round4-orchestration-*/
-
-# round five orchestration evidence (untracked like stranger/ and round4)
-round5/
-round5-*.md
-# round six orchestration evidence (untracked like stranger/, round4 and round5)
-round6/
-round6-*.md
-# round seven orchestration evidence — the last round (untracked like stranger/, round4, round5 and round6)
-round7/
-round7-*.md
