@@ -12,10 +12,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PROOF_ROOT: ${{ runner.temp }}/gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}
       PROOF_CONTAINER: gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}
-      DOCKER_CONFIG: ${{ runner.temp }}/gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}/docker-config
     steps:
+      - name: Initialize owned proof paths
+        shell: bash
+        run: |
+          proof_dir="$RUNNER_TEMP/gsj-native-amd64-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          printf 'PROOF_ROOT=%s\nDOCKER_CONFIG=%s/docker-config\n' "$proof_dir" "$proof_dir" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           ref: 989060c8fe4c924152337797b6a93e79e389b72a
