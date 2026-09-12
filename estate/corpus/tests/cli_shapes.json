@@ -294,6 +294,86 @@
       "stderr": "",
       "read_by": "cmd_down: empty project inventory proves no owned service remains",
       "measured": "2026-09-11: Docker 28.5.1, Compose 2.40.2-desktop.1, cached alpine:3.20; estate-shapes/shapes.json (compose-ps-absent.json for absent Compose ps)"
+    },
+    "docker pull --platform linux/arm64 <cached-forgejo>": {
+      "setup": "pull-progress",
+      "argv": [
+        "docker",
+        "pull",
+        "--platform",
+        "linux/arm64",
+        "codeberg.org/forgejo/forgejo@sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5"
+      ],
+      "returncode": 0,
+      "stdout": "codeberg.org/forgejo/forgejo@sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5: Pulling from forgejo/forgejo\nDigest: sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5\nStatus: Image is up to date for codeberg.org/forgejo/forgejo@sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5\ncodeberg.org/forgejo/forgejo@sha256:7c4e1db440be7b2ca685b49d0d7864cdd78e92431f531bf7893659def8200fc5\n",
+      "stderr": "",
+      "read_by": "image_pull callers: returncode and full stderr; stdout is displayed natively and return-contract normalized to empty",
+      "measured": {
+        "date": "2026-09-11T18:35:22.618351+00:00",
+        "docker_client": "28.5.1",
+        "docker_server": "28.5.1",
+        "platform": "linux/arm64",
+        "raw_evidence": "/private/tmp/gsj-direct-docker-pull-20260911T183134Z/captures/direct-plain-cached",
+        "sha256": {
+          "stdout.txt": "5b892034efab956f7175f18c73683654fecb7c828a673e9b5348bd6dadeed5be",
+          "stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "metadata.json": "0fe3e0a64760dadc6316e6436026d57192e665cbb0a6cac0d21dd2010c0ca271"
+        }
+      }
+    },
+    "docker pull --platform linux/arm64 <missing-forgejo-tag>": {
+      "setup": "pull-progress",
+      "argv": [
+        "docker",
+        "pull",
+        "--platform",
+        "linux/arm64",
+        "codeberg.org/forgejo/forgejo:compose-progress-no-such-20260911t124234z"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Error response from daemon: manifest unknown\n",
+      "read_by": "image_pull callers: returncode and full stderr; stdout is displayed natively and return-contract normalized to empty",
+      "measured": {
+        "date": "2026-09-11T18:35:23.389981+00:00",
+        "docker_client": "28.5.1",
+        "docker_server": "28.5.1",
+        "platform": "linux/arm64",
+        "raw_evidence": "/private/tmp/gsj-direct-docker-pull-20260911T183134Z/captures/direct-plain-failure",
+        "sha256": {
+          "stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr.txt": "b2ebb8747687ece411999eb9d6df5a60f41798f86d98f6b552fd9984dda48710",
+          "metadata.json": "e97ebbe1c813aca4c8e913657deb7304751f3ed98140b56d881323aa6566239a"
+        }
+      }
+    },
+    "docker exec <forgejo-admin> su git -c forgejo admin user list": {
+      "setup": "forgejo-admin",
+      "argv": [
+        "docker",
+        "exec",
+        "{name}",
+        "su",
+        "git",
+        "-c",
+        "forgejo admin user list"
+      ],
+      "returncode": 0,
+      "stdout": "ID   Username  Email                 IsActive IsAdmin 2FA\n1    gsj-admin gsj-admin@gsj.invalid true     true    false\n",
+      "stderr": "",
+      "read_by": "create_forgejo: existing-admin row parser; program stdout measured through docker exec, replayed at unchanged Compose exec boundary",
+      "measured": {
+        "date": "2026-09-11",
+        "docker_client": "28.5.1",
+        "docker_server": "28.5.1",
+        "platform": "linux/arm64",
+        "image_id": "sha256:e9161d8985edea79b58eea10904d1a0686bdbaf5ad9fdd70652b2f8f5049d3ed",
+        "raw_evidence": "/private/tmp/gsj-native-docker-progress-20260911T191223Z/admin-v3-commands.json",
+        "stdout_sha256": "479e477568539cc31cff72f9b8c3fd9ac970e39174e5e39cecbef05abd24d340",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "remeasured_by": "test_estate_native_pull_callers.py::test_admin_program_shape_from_explicit_owned_container"
+      },
+      "note": "This measures the Forgejo program response, not the Compose exec transport. Remeasure only an explicitly supplied owned fixture; never create a service automatically."
     }
   }
 }

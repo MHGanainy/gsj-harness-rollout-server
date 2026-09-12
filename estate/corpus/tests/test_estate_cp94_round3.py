@@ -1,6 +1,6 @@
 """CP-94: what round three found in estate.py — `status` on a run that has
-not died, the sandbox image checked before any Docker call, the pull
-heartbeat, the pins in force naming their empty sets, and the help text a
+not died, the sandbox image checked before any Docker call, the pins in
+force naming their empty sets, and the help text a
 foreign model forces you to read.
 
 Hermetic — no Docker daemon, no estate. Where a docker binary is needed the
@@ -22,7 +22,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import FakePull
 
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
@@ -279,69 +278,6 @@ def test_skip_sandbox_image_records_the_absence_and_goes_on_to_the_next_docker_c
     assert "`docker compose` (v2 plugin) is missing" in proc.stderr
     calls = docker["calls"].read_text().splitlines()
     assert calls[:2] == [f"image inspect {HARNESS}", "info --format {{.ServerVersion}} {{.Driver}}"]
-
-
-# ------------------------------------------------------- the pull heartbeat
-
-def test_image_pull_prints_a_heartbeat_with_elapsed_and_host_bytes_while_the_pull_runs(
-        est, monkeypatch, capsys):
-    """21 minutes of silence on a healthy pull (a2), 39 (b2): once a
-    heartbeat interval the tool says how long, and whether the host's pipe
-    moved — through the `run` seam, so a fake pull is enough."""
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
-    counter = {"rx": 1_000_000}
-
-    def rx():
-        counter["rx"] += 3 * 1024 * 1024
-        return counter["rx"]
-
-    monkeypatch.setattr(est, "host_rx_bytes", rx)
-
-    def fake_popen(cmd, **kw):
-        assert cmd == ["docker", "pull", "example.invalid/big:1"]
-        assert kw.get("stdout") is subprocess.PIPE and kw.get("stderr") is subprocess.PIPE
-        return FakePull(cmd, 0, delay=0.5)
-
-    monkeypatch.setattr(est, "popen", fake_popen)      # CP-96: the streaming seam
-    proc = est.image_pull("example.invalid/big:1", "mcp")
-    assert proc.returncode == 0
-    out = capsys.readouterr().out
-    beats = [line for line in out.splitlines() if "still pulling example.invalid/big:1" in line]
-    assert len(beats) >= 2, out
-    assert all("elapsed" in b and "this host received 3.0 MiB" in b and "the pipe is moving" in b
-               for b in beats), beats
-    assert "a heartbeat every 0s says which phase the layers are in" in out
-
-
-def test_image_pull_heartbeat_says_nothing_moved_and_names_the_three_checks(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
-    monkeypatch.setattr(est, "host_rx_bytes", lambda: 42)
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 1, stderr="boom", delay=0.4))
-    proc = est.image_pull("example.invalid/big:1", "forgejo")
-    assert proc.returncode == 1 and proc.stderr == "boom"
-    out = capsys.readouterr().out
-    assert "received NOTHING" in out and "troubleshooting.md, the pull row" in out
-
-
-def test_image_pull_without_readable_counters_still_beats(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
-    monkeypatch.setattr(est, "host_rx_bytes", lambda: None)
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0, delay=0.4))
-    est.image_pull("example.invalid/big:1", "mcp")
-    out = capsys.readouterr().out
-    assert "byte counters are not readable here" in out
-
-
-def test_image_pull_returns_at_once_for_a_fast_pull_with_no_heartbeat(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0))
-    proc = est.image_pull("example.invalid/small:1", "mcp")
-    assert proc.returncode == 0
-    assert "still pulling" not in capsys.readouterr().out
-
-
-def test_host_rx_bytes_is_a_count_or_none_and_never_raises(est):
-    value = est.host_rx_bytes()
-    assert value is None or (isinstance(value, int) and value >= 0)
 
 
 # --------------------------------------------- the pins in force: empty sets

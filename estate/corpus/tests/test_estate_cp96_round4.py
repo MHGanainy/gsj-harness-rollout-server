@@ -5,10 +5,10 @@
 visible), the embed that reported nothing while it ran (the service's
 `build` block read into the poll line, a heartbeat while nothing changes),
 a `--rebuild` re-run that attaches instead of restarting, the verify
-headline counting skips apart, the pull heartbeat naming the layer phase,
+headline counting skips apart,
 and the help text that says how to choose a gateway host.
 
-Hermetic — no Docker daemon, no estate: the `run`, `popen` and `http` seams
+Hermetic — no Docker daemon, no estate: the `run` and `http` seams
 are faked, the clocks are faked where a budget is under test."""
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FakePull, cli_shape
+from conftest import cli_shape
 
 ESTATE_DIR = Path(__file__).resolve().parents[2]
 ESTATE_PY = ESTATE_DIR / "estate.py"
@@ -438,51 +438,6 @@ def test_run_phase_captures_verify_and_reemits_it_corrected_streaming_every_othe
     out, err = capsys.readouterr()
     assert "== verify: PASS (7 pass / 1 skipped / 0 fail) ==" in out and "(8 pass" not in out
     assert err == "one warning\n"
-
-
-# ------------------------------------------ the pull heartbeat's phase
-
-PULL_LINES = ["pi0.83.0-3: Pulling from mhganainy/gsj-pi-harness\n",
-              "a1b2c3d4e5f6: Pulling fs layer\n", "0f1e2d3c4b5a: Pulling fs layer\n",
-              "a1b2c3d4e5f6: Downloading\n", "0f1e2d3c4b5a: Downloading\n",
-              "a1b2c3d4e5f6: Verifying Checksum\n", "a1b2c3d4e5f6: Download complete\n",
-              "0f1e2d3c4b5a: Download complete\n", "a1b2c3d4e5f6: Extracting\n",
-              "a1b2c3d4e5f6: Pull complete\n", "0f1e2d3c4b5a: Extracting\n"]
-
-
-def test_pull_phase_summary_names_extraction_and_expects_no_bytes_there(est):
-    """a2 and a1: the heartbeat said `the pipe is moving` on 26 KiB through an
-    extraction, and a stranger counted `Download complete` against `Pull
-    complete` by hand. The tally reads docker's own lines."""
-    layers = {}
-    assert est.pull_phase_summary(layers) == (
-        "no layer line from docker yet (the manifest is still being resolved)", True)
-    for line in PULL_LINES[:5]:
-        est.pull_phase_tally(layers, line)
-    assert est.pull_phase_summary(layers) == ("0/2 layers complete, 2 downloading", True)
-    for line in PULL_LINES[5:]:
-        est.pull_phase_tally(layers, line)
-    text, expects = est.pull_phase_summary(layers)
-    assert text == "1/2 layers complete, 1 extracting — EXTRACTION: no bytes are expected on the pipe now"
-    assert expects is False
-    est.pull_phase_tally(layers, "0f1e2d3c4b5a: Pull complete\n")
-    assert est.pull_phase_summary(layers) == ("2/2 layers complete", True)
-    assert "Digest" not in layers and "pi0.83.0-3" not in layers
-
-
-def test_image_pull_heartbeat_says_extraction_expects_no_bytes_instead_of_a_stall(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.15)
-    monkeypatch.setattr(est, "host_rx_bytes", lambda: 4242)
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0, lines=PULL_LINES, delay=0.4))
-    proc = est.image_pull("example.invalid/big:1", "mcp")
-    assert proc.returncode == 0
-    out = capsys.readouterr().out
-    beats = [ln for ln in out.splitlines() if "still pulling" in ln]
-    assert beats, out
-    assert all("1/2 layers complete, 1 extracting" in b and "as expected while the daemon extracts" in b
-               for b in beats), beats
-    assert "before killing it" not in out
-    assert "a1b2c3d4e5f6: Pull complete" in out           # docker's own lines still pass through
 
 
 # ------------------------------------------------------------ the help

@@ -159,7 +159,7 @@ def test_cli_shapes_file_is_the_contract():
         assert isinstance(shape["returncode"], int) and "stderr" in shape and shape["read_by"], key
         assert ("stdout" in shape) != ("stdout_re" in shape), f"{key}: exactly one of stdout / stdout_re"
         assert shape["setup"] in ("absent", "created", "running", "image-absent", "image-present", "daemon",
-                                   "compose-activation"), key
+                                   "compose-activation", "pull-progress", "forgejo-admin"), key
     asked = set()
     for module in TESTS_DIR.glob("test_*.py"):
         asked.update(re.findall(r'cli_shape\("([^"]+)"', module.read_text(encoding="utf-8")))
@@ -208,8 +208,8 @@ def test_cli_shapes_match_the_real_cli():
     mismatches = []
     try:
         for key, shape in CLI_SHAPES["shapes"].items():
-            if shape["setup"] == "compose-activation":
-                continue  # the ordered Compose lifecycle is measured by the test below
+            if shape["setup"] in ("compose-activation", "pull-progress", "forgejo-admin"):
+                continue  # ordered Compose, pull and Forgejo program shapes have separate measured tests
             subprocess.run(["docker", "rm", "-f", name], capture_output=True)
             _setup(shape["setup"], name)
             subs = {"name": {"image-absent": ABSENT_IMAGE, "image-present": PRESENT_IMAGE}.get(shape["setup"], name)}
