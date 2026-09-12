@@ -1,0 +1,373 @@
+# One-time release verification; this operational branch is never merged.
+# Reuses the original installed observer, Docker and pytest. No product changes.
+name: Native AMD64 published-image proof
+on:
+  push:
+    branches: [ops/native-progress-amd64-20260912t105408z]
+permissions:
+  contents: read
+jobs:
+  native-amd64:
+    name: Published AMD64 image - 23 lifecycle and 11 caller tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PROOF_ROOT: ${{ runner.temp }}/gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}
+      PROOF_CONTAINER: gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}
+      DOCKER_CONFIG: ${{ runner.temp }}/gsj-native-amd64-${{ github.run_id }}-${{ github.run_attempt }}/docker-config
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 989060c8fe4c924152337797b6a93e79e389b72a
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Materialize hash-bound observer and proof recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROOF_ROOT/docker-config" "$PROOF_ROOT/output"
+          printf '{"auths":{}}\n' > "$DOCKER_CONFIG/config.json"
+          cat > "$PROOF_ROOT/manifest.json" <<'PROOF_PY'
+          {
+            "source": "989060c8fe4c924152337797b6a93e79e389b72a",
+            "tree": "fd1c4e058e7af88b4bf81e8c2da3a060019e5cc5",
+            "index": "sha256:0c390d419f0c1403ecb79adbb24bfa75a6f2e7fa6c04b177d6d49bb7161bbe71",
+            "manifest": "sha256:52c608d612a28c1865c48500a57d062e11b0084e6e0d967a9fa1094f519a70bd",
+            "config": "sha256:29df3d7e8b8261e5cac4864a0f36cb0428d9c66126170fc845bf1b5e89fd3117",
+            "wheel": {
+              "filename": "gsj_harness_rollout_server-0.1.18-py3-none-any.whl",
+              "url": "https://files.pythonhosted.org/packages/da/b6/dd153a7d9db02bf75e16e3e50a7d576d208e5da6c3327447905edd6fe5b4/gsj_harness_rollout_server-0.1.18-py3-none-any.whl",
+              "sha256": "995013873f545a3127e0bccdc4e3e8ebe8286554264aa81fed66a8b9693d3b00",
+              "bytes": 186874
+            },
+            "observer_wheels": [
+              {
+                "name": "iniconfig",
+                "version": "2.3.0",
+                "filename": "iniconfig-2.3.0-py3-none-any.whl",
+                "url": "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl",
+                "sha256": "f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12",
+                "bytes": 7484
+              },
+              {
+                "name": "packaging",
+                "version": "26.3",
+                "filename": "packaging-26.3-py3-none-any.whl",
+                "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+                "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+                "bytes": 129956
+              },
+              {
+                "name": "pluggy",
+                "version": "1.6.0",
+                "filename": "pluggy-1.6.0-py3-none-any.whl",
+                "url": "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl",
+                "sha256": "e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746",
+                "bytes": 20538
+              },
+              {
+                "name": "pygments",
+                "version": "2.20.0",
+                "filename": "pygments-2.20.0-py3-none-any.whl",
+                "url": "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl",
+                "sha256": "81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176",
+                "bytes": 1231151
+              },
+              {
+                "name": "pytest",
+                "version": "9.1.1",
+                "filename": "pytest-9.1.1-py3-none-any.whl",
+                "url": "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl",
+                "sha256": "37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c",
+                "bytes": 386536
+              }
+            ],
+            "payloads": {
+              "gsj_rollout/__init__.py": "8fce2492268eac974a0f79b19463d14ce9cb90fc0b885d01d4479d12585c5097",
+              "gsj_rollout/builder.py": "6107438c841edc9394c2328a85ac762c1f1f691a06c9b21d8818052b40637250",
+              "gsj_rollout/checks.py": "24baeb2157ed6510df3f4f1b7b82e96bb5e5ef31155d0c314e7a8d58ecd86e8b",
+              "gsj_rollout/cli.py": "3e88f1a3b27e629037f444b5c486523db7579beaaf100c8169006ced4161ff14",
+              "gsj_rollout/client.py": "2c17b5c0977b0e4730ecca42917988619d807a6a3807ab0f88d1644ce6dd2577",
+              "gsj_rollout/config.py": "691f9e703cb95831c9c1975738dd5e6bd9c6238ba7acc6917892fbc0a7df890a",
+              "gsj_rollout/pi_harness.py": "c1e9380f56434e3a9a9f25e725cf6634ef56c9ba4964f56cca8782e5d8b15507",
+              "gsj_rollout/receiver.py": "9398ea4d2154978a8c5c9ba64fc0be44226a3762ce82da075b6a7ed952447ed0",
+              "gsj_rollout/estate.py": "5d5f033003a51baa6da41b329361e101479d008e1d43d95ec15fefda6f7af777",
+              "gsj_rollout/ingest_corpus.py": "0653659d3e9dc5caaa18deba615bed803c97996528b7fa15172a8169fdbe887c",
+              "gsj_rollout/pins/pins.gsj.json": "ee0e2298eb53845c7d6bbc05b082ab697e5fcbd67f0481d181fc2d0a952818b8",
+              "gsj_rollout/pins/container/system_prompt.container.derived.txt": "f56e8a6e9ea9dd1c19be89c6754a4e8d3d1c0f89e04bb21f60237aa2e8837df4",
+              "gsj_rollout/pins/thinking-on/pins.gsj.json": "b94195cdc9a767b94bfa6d1796ecbf7aabfc9a4af56f67300d8a070ae64443fd"
+            },
+            "observer_sha256": "880f89523271d9e8953c22a1467c69976e76350846c9b3312f00c3ac0dfbd162",
+            "expected_runtime_distributions": [
+              [
+                "PyYAML",
+                "6.0.3"
+              ],
+              [
+                "annotated-doc",
+                "0.0.5"
+              ],
+              [
+                "annotated-types",
+                "0.8.0"
+              ],
+              [
+                "anyio",
+                "4.15.1"
+              ],
+              [
+                "certifi",
+                "2026.7.22"
+              ],
+              [
+                "click",
+                "8.5.0"
+              ],
+              [
+                "fastapi",
+                "0.141.1"
+              ],
+              [
+                "gsj-harness-rollout-server",
+                "0.1.18"
+              ],
+              [
+                "h11",
+                "0.16.0"
+              ],
+              [
+                "httpcore",
+                "1.0.9"
+              ],
+              [
+                "httpx",
+                "0.28.1"
+              ],
+              [
+                "idna",
+                "3.19"
+              ],
+              [
+                "pip",
+                "25.0.1"
+              ],
+              [
+                "polar",
+                "0.1.0"
+              ],
+              [
+                "pyarrow",
+                "25.0.1"
+              ],
+              [
+                "pydantic",
+                "2.13.5"
+              ],
+              [
+                "pydantic_core",
+                "2.46.5"
+              ],
+              [
+                "starlette",
+                "1.6.0"
+              ],
+              [
+                "typing-inspection",
+                "0.4.4"
+              ],
+              [
+                "typing_extensions",
+                "4.16.0"
+              ],
+              [
+                "uvicorn",
+                "0.52.4"
+              ]
+            ]
+          }
+          PROOF_PY
+          cat > "$PROOF_ROOT/run_installed_boundary.py" <<'PROOF_PY'
+          """Run reviewed controlled-process/caller tests against this installed artifact."""
+          import difflib,hashlib,json,os,subprocess,sys
+          from pathlib import Path
+          from gsj_rollout import estate,ingest_corpus
+          import gsj_rollout
+          SOURCE=Path(sys.argv[1]).resolve();OUT=Path(sys.argv[2]).resolve();VERSION=sys.argv[3]
+          assert not OUT.exists();OUT.mkdir(parents=True,mode=0o700)
+          assert gsj_rollout.__version__==VERSION
+          assert not estate.CHECKOUT and 'site-packages' in Path(estate.__file__).parts
+          assert Path(estate.__file__).is_relative_to(Path(sys.prefix))
+          assert Path(estate.__file__).read_bytes()==(SOURCE/'estate/estate.py').read_bytes()
+          assert Path(ingest_corpus.__file__).read_bytes()==(SOURCE/'estate/corpus/ingest_corpus.py').read_bytes()
+          for name in ('conftest.py','cli_shapes.json','test_estate_native_pull_lifecycle.py','test_estate_native_pull_callers.py'):
+           original=(SOURCE/'estate/corpus/tests'/name).read_text();adapted=original
+           if name=='test_estate_native_pull_callers.py':
+            old='''    sys.path.insert(0, str(source))
+              import gsj_rollout
+              assert Path(gsj_rollout.__file__).resolve() == source / "gsj_rollout/__init__.py"
+              spec = importlib.util.spec_from_file_location("native_pull_subject", source / "estate/estate.py")'''
+            new='''    import gsj_rollout
+              from gsj_rollout import estate as installed_estate
+              package=Path(gsj_rollout.__file__).resolve().parent
+              assert 'site-packages' in package.parts and package.is_relative_to(Path(sys.prefix))
+              spec = importlib.util.spec_from_file_location("native_pull_subject", installed_estate.__file__)'''
+            assert adapted.count(old)==1;adapted=adapted.replace(old,new)
+            adapted=adapted.replace('assert Path(est.__file__).resolve() == source / "estate/estate.py"','assert Path(est.__file__).resolve() == package / "estate.py" and not est.CHECKOUT')
+            adapted=adapted.replace('assert Path(est.ic.__file__).resolve() == source / "estate/corpus/ingest_corpus.py"','assert Path(est.ic.__file__).resolve() == package / "ingest_corpus.py"')
+           (OUT/name).write_text(adapted)
+           (OUT/(name+'.adaptation.diff')).write_text(''.join(difflib.unified_diff(original.splitlines(True),adapted.splitlines(True),fromfile=str(SOURCE/'estate/corpus/tests'/name),tofile=str(OUT/name))))
+          env={k:v for k,v in os.environ.items() if not k.startswith(('GSJ_','PIP_')) and k not in ('PYTHONPATH','PYTHONHOME')}
+          env.update(PYTHONDONTWRITEBYTECODE='1',GSJ_TEST_ESTATE_SOURCE=str(Path(estate.__file__).resolve()),DOCKER_HOST='tcp://127.0.0.1:1')
+          record={'version':VERSION,'python':sys.executable,'source':str(SOURCE),'installed_estate':estate.__file__,'estate_sha256':hashlib.sha256(Path(estate.__file__).read_bytes()).hexdigest(),'ingest_sha256':hashlib.sha256(Path(ingest_corpus.__file__).read_bytes()).hexdigest(),'source_hashes':{n:hashlib.sha256((SOURCE/'estate/corpus/tests'/n).read_bytes()).hexdigest() for n in ('test_estate_native_pull_lifecycle.py','test_estate_native_pull_callers.py')},'groups':[],'limits':'Controlled subprocesses do not establish cancellation of Docker daemon pulls; caller health/readiness unrelated seams substituted as documented.'}
+          for label,filename,selection in [('lifecycle','test_estate_native_pull_lifecycle.py',None),('callers','test_estate_native_pull_callers.py','not checkout_arm_default and not pull_cli_shapes_match_real_cli and not admin_program_shape')]:
+           argv=[sys.executable,'-m','pytest','-q','-ra','-p','no:cacheprovider','--basetemp',str(OUT/(label+'-tmp')),'--junitxml',str(OUT/(label+'.xml')),str(OUT/filename)]
+           if selection:argv+=['-k',selection]
+           p=subprocess.run(argv,cwd=OUT,env=env,text=True,capture_output=True,timeout=180)
+           (OUT/(label+'.stdout')).write_text(p.stdout);(OUT/(label+'.stderr')).write_text(p.stderr)
+           row={'group':label,'argv':argv,'exit':p.returncode,'stdout':p.stdout,'stderr':p.stderr,'deliberately_deselected':('one checkout-only default test and three separately owned live fixture tests' if selection else None)}
+           record['groups'].append(row);(OUT/'result.json').write_text(json.dumps(record,indent=2)+'\n')
+           print(label,p.returncode,p.stdout[-1200:],flush=True)
+           assert p.returncode==0 and 'skipped' not in p.stdout,(label,p.stdout,p.stderr)
+          for result in OUT.glob('lifecycle-tmp/**/result.json'):
+           data=json.loads(result.read_text());assert data['source_sha256']==record['estate_sha256'];assert Path(data['source'])==Path(estate.__file__).resolve()
+          record['complete']=True;(OUT/'result.json').write_text(json.dumps(record,indent=2)+'\n')
+          PROOF_PY
+          cat > "$PROOF_ROOT/prepare.py" <<'PROOF_PY'
+          import hashlib,json,os,platform,subprocess,tomllib,urllib.request,zipfile
+          from pathlib import Path
+          P=Path(os.environ['PROOF_ROOT']);M=json.loads((P/'manifest.json').read_text());W=Path(os.environ['GITHUB_WORKSPACE'])
+          def sha(data):return hashlib.sha256(data).hexdigest()
+          def git(*args):return subprocess.check_output(['git',*args],cwd=W,text=True).strip()
+          assert platform.system()=='Linux' and platform.machine()=='x86_64' and os.environ['RUNNER_ARCH']=='X64'
+          assert git('rev-parse','HEAD')==M['source'] and git('rev-parse','HEAD^{tree}')==M['tree']
+          assert not git('status','--porcelain')
+          assert sha((P/'run_installed_boundary.py').read_bytes())==M['observer_sha256']
+          (P/'host.json').write_text(json.dumps({'tested_source':M['source'],'tested_tree':M['tree'],'workflow_commit':os.environ['GITHUB_SHA'],'workflow_ref':os.environ['GITHUB_WORKFLOW_REF'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'machine':platform.machine(),'platform':platform.platform(),'runner_arch':os.environ['RUNNER_ARCH']},indent=2)+'\n')
+          for row in [M['wheel'],*M['observer_wheels']]:
+           dest=P/('public-wheel' if row is M['wheel'] else 'observer-wheels');dest.mkdir(exist_ok=True)
+           with urllib.request.urlopen(row['url'],timeout=90) as r:data=r.read()
+           assert len(data)==row['bytes'] and sha(data)==row['sha256'],row['filename']
+           (dest/row['filename']).write_bytes(data)
+          config=tomllib.loads((W/'pyproject.toml').read_text());mapping={p:str(p) for p in M['payloads'] if p.startswith('gsj_rollout/') and '/' not in p.removeprefix('gsj_rollout/')}
+          mapping.update({dest:src for src,dest in config['tool']['hatch']['build']['targets']['wheel']['force-include'].items()})
+          assert set(mapping)==set(M['payloads']) and len(mapping)==13
+          with zipfile.ZipFile(P/'public-wheel'/M['wheel']['filename']) as z:
+           for dest,src in mapping.items():assert sha(z.read(dest))==sha((W/src).read_bytes())==M['payloads'][dest],dest
+          (P/'payload-source-wheel.json').write_text(json.dumps({'source':M['source'],'wheel_sha256':M['wheel']['sha256'],'count':len(mapping),'mapping':mapping,'sha256':M['payloads']},indent=2)+'\n')
+          # The only registry credential is an anonymous pull token held in memory.
+          class PublicRedirect(urllib.request.HTTPRedirectHandler):
+           def redirect_request(self,req,fp,code,msg,headers,newurl):
+            next_req=super().redirect_request(req,fp,code,msg,headers,newurl)
+            if next_req is not None:next_req.remove_header('Authorization')
+            return next_req
+          opener=urllib.request.build_opener(PublicRedirect())
+          with opener.open('https://ghcr.io/token?service=ghcr.io&scope=repository:mhganainy/gsj-polar:pull',timeout=60) as r:token=json.load(r)['token']
+          def fetch(kind,digest):
+           req=urllib.request.Request('https://ghcr.io/v2/mhganainy/gsj-polar/'+kind+'/'+digest,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'})
+           with opener.open(req,timeout=90) as r:data=r.read()
+           assert 'sha256:'+sha(data)==digest
+           return data
+          for name,kind in [('index','manifests'),('manifest','manifests'),('config','blobs')]:
+           data=fetch(kind,M[name]);(P/('registry-'+name+'.json')).write_bytes(data)
+          index=json.loads((P/'registry-index.json').read_text());child=json.loads((P/'registry-manifest.json').read_text());cfg=json.loads((P/'registry-config.json').read_text())
+          assert any(row['digest']==M['manifest'] and row['platform']['os']=='linux' and row['platform']['architecture']=='amd64' for row in index['manifests'])
+          assert child['config']['digest']==M['config'] and cfg['os']=='linux' and cfg['architecture']=='amd64'
+          print('Native x64 host, exact source tree, public wheel and 13 payloads, anonymous index/manifest/config chain verified.')
+          PROOF_PY
+          cat > "$PROOF_ROOT/inside.py" <<'PROOF_PY'
+          import hashlib,importlib.metadata,json,platform,runpy,subprocess,sys,xml.etree.ElementTree as ET
+          from pathlib import Path
+          import gsj_rollout
+          from gsj_rollout import checks,estate
+          P=Path('/proof-output');M=json.loads(Path('/observer/manifest.json').read_text());package=Path(gsj_rollout.__file__).resolve().parent
+          assert platform.machine()=='x86_64' and platform.system()=='Linux'
+          assert gsj_rollout.__version__=='0.1.18' and not estate.CHECKOUT
+          assert 'site-packages' in package.parts and package.is_relative_to(Path(sys.prefix))
+          assert Path('/opt/gsj/library-repo.sha').read_text().strip()==M['source']
+          assert Path(checks.PINS_PATH)==Path(checks.PACKAGED_PINS)
+          actual={name:hashlib.sha256((package.parent/name).read_bytes()).hexdigest() for name in M['payloads']};assert actual==M['payloads'] and len(actual)==13
+          runtime=sorted([[d.metadata['Name'],d.version] for d in importlib.metadata.distributions()]);assert runtime==sorted(M['expected_runtime_distributions'])
+          (P/'image-runtime.json').write_text(json.dumps({'version':gsj_rollout.__version__,'source':M['source'],'machine':platform.machine(),'platform':platform.platform(),'python':sys.version,'python_executable':sys.executable,'package':str(package),'payload_count':len(actual),'payload_sha256':actual,'distributions_before_observer':runtime},indent=2)+'\n')
+          argv=[sys.executable,'-m','pip','install','--no-deps','--no-index',*map(str,sorted(Path('/observer-wheels').glob('*.whl')))];p=subprocess.run(argv,text=True,capture_output=True,timeout=120)
+          (P/'observer-install.stdout').write_text(p.stdout);(P/'observer-install.stderr').write_text(p.stderr);assert p.returncode==0
+          # Keep the reviewed observer byte-for-byte; this outer wrapper saves failures.
+          out=P/'installed/native/amd64';sys.argv=['/observer/run_installed_boundary.py','/proof-source',str(out),'0.1.18']
+          try:runpy.run_path(sys.argv[0],run_name='__main__')
+          except subprocess.TimeoutExpired as exc:
+           for label,value in [('stdout',exc.stdout),('stderr',exc.stderr)]:
+            (P/('timeout-partial.'+label)).write_bytes(value if isinstance(value,bytes) else (value or '').encode())
+           (P/'timeout.json').write_text(json.dumps({'kind':'subprocess.TimeoutExpired','argv':exc.cmd,'timeout':exc.timeout},indent=2)+'\n')
+           raise
+          result=json.loads((out/'result.json').read_text());assert result['complete'];counts={}
+          for group,count in [('lifecycle',23),('callers',11)]:
+           root=ET.parse(out/(group+'.xml')).getroot();totals={key:sum(int(s.get(key,'0')) for s in root.iter('testsuite')) for key in ['tests','failures','errors','skipped']}
+           assert totals==dict(tests=count,failures=0,errors=0,skipped=0),totals;counts[group]=totals
+          assert '4 deselected' in (out/'callers.stdout').read_text()
+          (P/'summary.json').write_text(json.dumps({'complete':True,'tested_source':M['source'],'tested_tree':M['tree'],'published_index':M['index'],'amd64_manifest':M['manifest'],'amd64_config':M['config'],'observer_sha256':M['observer_sha256'],'counts':counts,'caller_deselected':4,'limits':'Controlled subprocesses do not establish cancellation of daemon pulls; four caller cases deliberately deselected as in the original installed observer.'},indent=2)+'\n')
+          print(json.dumps(counts),flush=True)
+          PROOF_PY
+          cat > "$PROOF_ROOT/driver.py" <<'PROOF_PY'
+          import datetime,json,os,subprocess
+          from pathlib import Path
+          P=Path(os.environ['PROOF_ROOT']);M=json.loads((P/'manifest.json').read_text());name=os.environ['PROOF_CONTAINER'];image='ghcr.io/mhganainy/gsj-polar@'+M['manifest']
+          subprocess.run(['docker','pull','--platform','linux/amd64',image],check=True,timeout=360)
+          row=json.loads(subprocess.check_output(['docker','image','inspect',image],text=True))[0]
+          assert row['Architecture']=='amd64' and row['Os']=='linux'
+          (P/'docker-image.json').write_text(json.dumps({key:row.get(key) for key in ['Id','RepoDigests','Architecture','Os']},indent=2)+'\n')
+          # The actual image Id is recorded, not confused with manifest/config identity.
+          argv=['docker','run','--rm','--pull=never','--name',name,'--label','gsj.native-proof='+name,'--network','none','--platform','linux/amd64','--workdir','/tmp','--entrypoint','python','--mount','type=bind,src='+str(P/'observer-wheels')+',dst=/observer-wheels,readonly','--mount','type=bind,src='+str(P)+',dst=/observer,readonly','--mount','type=bind,src='+os.environ['GITHUB_WORKSPACE']+',dst=/proof-source,readonly','--mount','type=bind,src='+str(P/'output')+',dst=/proof-output',image,'-I','-B','/observer/inside.py']
+          record={'argv':argv,'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()};(P/'run.json').write_text(json.dumps(record,indent=2)+'\n')
+          with (P/'container.stdout').open('w') as out,(P/'container.stderr').open('w') as err:
+           try:p=subprocess.run(argv,stdout=out,stderr=err,timeout=600);record['exit']=p.returncode
+           except subprocess.TimeoutExpired:record['timeout']=600;raise
+           finally:record['completed_at']=datetime.datetime.now(datetime.timezone.utc).isoformat();(P/'run.json').write_text(json.dumps(record,indent=2)+'\n')
+          assert p.returncode==0,p.returncode
+          print((P/'output/summary.json').read_text())
+          PROOF_PY
+          cat > "$PROOF_ROOT/cleanup.py" <<'PROOF_PY'
+          import json,os,subprocess
+          from pathlib import Path
+          P=Path(os.environ['PROOF_ROOT']);P.mkdir(exist_ok=True);name=os.environ['PROOF_CONTAINER']
+          p=subprocess.run(['docker','container','inspect',name],capture_output=True,text=True)
+          if p.returncode==0:
+           row=json.loads(p.stdout)[0];assert row['Config']['Labels'].get('gsj.native-proof')==name
+           subprocess.run(['docker','rm','-f',name],check=True)
+          remaining=subprocess.check_output(['docker','ps','-a','--filter','label=gsj.native-proof='+name,'--format','{{.Names}}'],text=True).splitlines();assert not remaining
+          if (P/'output').is_dir():
+           assert (P/'output').resolve()==P/'output'
+           subprocess.run(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(P/'output')],check=True)
+          (P/'cleanup.json').write_text(json.dumps({'owned_container':name,'owned_containers_remaining':remaining,'scope':'Only this run-specific labelled container; no daemon-global changes.'},indent=2)+'\n')
+          PROOF_PY
+      - name: Verify native host, public artifact, exact source and registry chain
+        run: python "$PROOF_ROOT/prepare.py"
+      - name: Run unchanged installed lifecycle and caller assertions
+        run: python "$PROOF_ROOT/driver.py"
+      - name: Clean only this proof's container
+        if: always()
+        run: |
+          if test -f "$PROOF_ROOT/cleanup.py"; then
+            python "$PROOF_ROOT/cleanup.py"
+          fi
+      - name: Preserve proof records and any failure evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-amd64-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PROOF_ROOT }}/*.json
+            ${{ env.PROOF_ROOT }}/*.py
+            ${{ env.PROOF_ROOT }}/*.stdout
+            ${{ env.PROOF_ROOT }}/*.stderr
+            ${{ env.PROOF_ROOT }}/output/*.json
+            ${{ env.PROOF_ROOT }}/output/*.stdout
+            ${{ env.PROOF_ROOT }}/output/*.stderr
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/*.json
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/*.xml
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/*.stdout
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/*.stderr
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/*.diff
+            ${{ env.PROOF_ROOT }}/output/installed/native/amd64/lifecycle-tmp/**/result.json
+          if-no-files-found: error
+          retention-days: 30
