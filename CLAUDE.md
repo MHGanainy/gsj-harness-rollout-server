@@ -6,6 +6,8 @@
 
 Current release: **0.1.17**, source `0bc15de7f034d6f031b4135d1fe0245ec31ddb52` / `v0.1.17`, normal PR #3 merge `08421222b7d37d9f14792c156730c66580ca2bfc`; retrieval is independently versioned **0.5.1**. The wheel on both public indexes, matching retrieval/Polar images and the tested demo `aefe16b4e363a4892676bbd44b64f322eb5f3ad2` are delivered. CHARTER §7 records the executed gates, qualified recovery inventory guard, fresh t=2 hallucination and preserved production obligations; this later factual record does not change the immutable release source.
 
+Release 0.1.18 is being prepared from reviewed native-progress commit `0521599bca09e08572b062f152159594950bc523`: native Docker stdout and an approved ten-second post-wait stderr grace. Retrieval stays 0.5.1. CHARTER §7 records the outstanding package/image/public-install/demo gates; main and consumer references advance only after the matching Polar image pulls anonymously. No completion is claimed by this preparation entry.
+
 ## Scope laws
 
 1. **The scope law**: "The rollout server owns: task → sandbox → agent → trace. Nothing else. If it stores, schedules, scores, weights, versions, or trains — it's out."
@@ -51,7 +53,7 @@ next: <advisory>
 ├── CLAUDE.md
 ├── README.md                    # the front door: what the traces are for (above the fold, CP-105), three install routes by what each gets you, the two-role split
 ├── POLAR_SHA                    # the vendor pin record: f0e8343a…, branch stable, 3 carried patches
-├── pyproject.toml               # 0.1.17; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + estate.py
+├── pyproject.toml               # 0.1.18; wheel force-includes both pins sets, the G2 container capture, ingest_corpus.py + estate.py
 ├── docs/
 │   ├── guide/                   # the user documentation: seven plain Markdown pages (bring-your-own.md since CP-92: a foreign model's values from its endpoint, a foreign corpus's pins from its first quarantine; since CP-94 what an acceptance covers, the borrowed endpoint, probe step 5; since CP-96 round four's walks and the skeleton decision; since CP-97 the skeleton `up` writes and the script that reads it; since CP-99 the Polar boundary and the `gsj-polar` image named where the walk hits them, both pip-timeout signatures, and the pull checks corrected — `Retrying in N seconds` is not a failure and `df -h` is blind here; since CP-101 the two `docker run` invocations that actually start Polar's two processes from the named image, one clause per flag, with the checkout route beside them and `-e TMPDIR` among them; since CP-104 the hand-off `up` without the id it measures itself, `umask 077` on the gateway's env file, the session directory empty by design, both Polar routes on the server guide, and the admission-gate ordering beside every skeleton refusal) + img/ (PNG renders of PowerPoint decks kept OUTSIDE the repo)
 │   ├── CHARTER.md               # the normative document: assumptions §4, gap register §7, standing rules §8

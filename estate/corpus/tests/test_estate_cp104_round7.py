@@ -7,8 +7,6 @@
 - b1's finding 2: `submit --row N` indexes a parquet nothing shipped could
   print — `bank_rows_lines()` lists the rows in the closing block and in
   every `status` that has a bank.
-- b1's finding 3: the heartbeat's verdict was binary — the tally's age rides
-  on the line, and past a floor `the pipe is moving` says whose bytes.
 - b2's finding 2: a transfer cut by `unexpected EOF` was refused with tag,
   mirror and digest advice — it is its own kind now, and the cure leads with
   the same command again.
@@ -20,8 +18,8 @@
   admission gates run before any pins are read, measured on the real
   checks.py in a separate process, exactly as b1 tested it.
 
-Hermetic — no Docker daemon, no estate; the pull is the CP-96 FakePull on the
-`popen` seam, the CLI runs behind the CP-94 docker canary."""
+Hermetic — no Docker daemon, no estate; the CLI runs behind the CP-94 docker
+canary. Native pull process contracts are in test_estate_native_pull_lifecycle.py."""
 
 from __future__ import annotations
 
@@ -30,12 +28,10 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
-from conftest import FakePull
 from test_estate_cp94_round3 import fake_docker, invoke, partial_run
 from test_estate_cp97_skeleton import staging_inputs
 
@@ -236,78 +232,6 @@ def test_the_transfer_expectation_names_the_cut_and_the_others_are_unchanged(est
     assert "unexpected EOF" in est.pull_failure_expected("transfer", registry)
     assert est.pull_failure_expected("download", registry) == registry
     assert est.pull_failure_expected("extract", registry) == "a daemon whose storage can extract and mount OCI layers"
-
-
-# ------------------------------------------------ b1 (3): the tally's age on the heartbeat
-
-PULL_LINES = ["pi0.83.0-3: Pulling from mhganainy/gsj-pi-harness\n",
-              "a1b2c3d4e5f6: Pulling fs layer\n", "0f1e2d3c4b5a: Pulling fs layer\n",
-              "a1b2c3d4e5f6: Downloading\n", "0f1e2d3c4b5a: Downloading\n"]
-
-
-def test_pull_tally_age_and_caveat_are_empty_while_the_tally_moves(est, monkeypatch):
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 60.0)
-    assert est.pull_tally_age(0) == "" and est.pull_moving_caveat(0) == ""
-    assert est.pull_tally_age(1) == ", unchanged for 1m"
-    assert est.pull_tally_age(17) == ", unchanged for 17m"
-    assert est.pull_moving_caveat(est.PULL_TALLY_STALL_BEATS - 1) == ""
-    caveat = est.pull_moving_caveat(17)
-    assert caveat.startswith(" — but no layer changed state in 17m")
-    assert "can move bytes for minutes without finishing" in caveat and "the byte count is only the host's" in caveat
-    assert "from zero" not in caveat          # b1's reading of the display, not a measured mechanism
-
-
-def test_image_pull_heartbeat_carries_the_tally_age_and_qualifies_the_verdict_past_the_floor(
-        est, monkeypatch, capsys):
-    """b1's seventeen beats at `7/12 layers complete`, every one ending `the
-    pipe is moving`: the fake delivers its layer lines at once and then
-    nothing changes while the host keeps receiving bytes."""
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.12)
-    counter = {"rx": 0}
-
-    def rx():
-        counter["rx"] += 665 * 1024
-        return counter["rx"]
-
-    monkeypatch.setattr(est, "host_rx_bytes", rx)
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: FakePull(cmd, 0, lines=PULL_LINES, delay=0.9))
-    proc = est.image_pull("example.invalid/big:1", "mcp")
-    assert proc.returncode == 0
-    beats = [ln for ln in capsys.readouterr().out.splitlines() if "still pulling" in ln]
-    assert len(beats) >= est.PULL_TALLY_STALL_BEATS + 2, beats
-    assert "0/2 layers complete, 2 downloading" in beats[0] and "unchanged for" not in beats[0]
-    assert all("the pipe is moving" in b for b in beats)
-    aged = [b for b in beats if ", unchanged for " in b]
-    assert len(aged) == len(beats) - 1, beats
-    qualified = [b for b in beats if "but no layer changed state in" in b]
-    assert beats[est.PULL_TALLY_STALL_BEATS] in qualified
-    assert not any(b in qualified for b in beats[:est.PULL_TALLY_STALL_BEATS]), beats
-    assert all("can move bytes for minutes without finishing" in b for b in qualified)
-
-
-class PacedPull(FakePull):
-    """A pull whose layer lines land one per heartbeat, so the tally keeps moving."""
-
-    def __init__(self, cmd, lines, every: float, delay: float):
-        super().__init__(cmd, 0, delay=delay)
-
-        def paced():
-            for line in lines:
-                yield line
-                time.sleep(every)
-
-        self.stdout = paced()
-
-
-def test_image_pull_heartbeat_does_not_age_a_tally_that_keeps_moving(est, monkeypatch, capsys):
-    monkeypatch.setattr(est, "PULL_HEARTBEAT_S", 0.12)
-    monkeypatch.setattr(est, "host_rx_bytes", lambda: 1)
-    lines = [f"layer{i:08d}: Pulling fs layer\n" for i in range(8)]
-    monkeypatch.setattr(est, "popen", lambda cmd, **kw: PacedPull(cmd, lines, every=0.12, delay=0.8))
-    est.image_pull("example.invalid/big:1", "mcp")
-    beats = [ln for ln in capsys.readouterr().out.splitlines() if "still pulling" in ln]
-    assert beats
-    assert not any("but no layer changed state" in b for b in beats), beats
 
 
 # ------------------------------------------------ the row-102 near miss, measured on checks.py

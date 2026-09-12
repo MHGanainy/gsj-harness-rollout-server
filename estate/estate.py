@@ -1094,154 +1094,34 @@ def image_tag(image: str) -> str:
     return last.split(":", 1)[1] if ":" in last and "@" not in last else "<tag>"
 
 
-# CP-94 (round three, 2026-09-07): `docker pull` prints a line only when a
-# layer changes state, so one large layer on a slow pipe is silent for as
-# long as it takes — 21 minutes measured by one stranger, 39 by another —
-# and a captured child printed nothing at all. Either could not tell a
-# working pull from a hung one without sampling /proc/net/dev by hand.
+# Readiness keeps the existing heartbeat interval and environment override.
 PULL_HEARTBEAT_S = float(os.environ.get("GSJ_ESTATE_PULL_HEARTBEAT_S", "60"))
 COPY_ON_CREATE_DRIVERS = ("vfs",)   # CP-96: named at the first Docker call, not in a post-mortem
 HEALTH_TIMEOUT_S = 15.0         # one /health read (CP-96: 5 s read a slow host as unreachable)
 SLEEP_SKEW_S = 30.0             # wall minus monotonic beyond this = the host slept (CP-96)
 
 
-def host_rx_bytes() -> int | None:
-    """Bytes THIS host's non-loopback interfaces have received, or None where
-    it cannot be read (the daemon may be remote; the number is a liveness
-    signal for the pipe, never the pull's own byte count)."""
-    try:
-        if platform.system() == "Linux":
-            total = 0
-            for line in Path("/proc/net/dev").read_text().splitlines()[2:]:
-                name, _, rest = line.partition(":")
-                if name.strip() != "lo" and rest.split():
-                    total += int(rest.split()[0])
-            return total
-        if platform.system() == "Darwin":
-            total = 0
-            out = subprocess.run(["netstat", "-ibn"], capture_output=True, text=True).stdout
-            for line in out.splitlines()[1:]:
-                cols = line.split()
-                # one row per interface carries the link-level counters
-                if len(cols) >= 10 and cols[2].startswith("<Link#") and not cols[0].startswith("lo"):
-                    total += int(cols[6])
-            return total
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
-
-
-def _human(n: int) -> str:
-    for unit in ("B", "KiB", "MiB", "GiB"):
-        if n < 1024 or unit == "GiB":
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} GiB"
-
-
 def popen(cmd: list, **kw) -> subprocess.Popen:
-    """The streaming seam beside `run` (CP-96): a process whose stdout is
-    read line by line while it runs — the tests hand back a fake."""
+    """The text subprocess seam for a pull whose stdout is inherited."""
     return subprocess.Popen(cmd, text=True, **kw)
 
 
-# `docker pull` without a TTY prints one line per layer state transition:
-# "<id>: Pulling fs layer" → "Downloading" → "Verifying Checksum" →
-# "Download complete" → "Extracting" → "Pull complete" (and "Already exists").
-_PULL_STATES = ("Pull complete", "Already exists", "Extracting", "Download complete",
-                "Verifying Checksum", "Downloading", "Pulling fs layer", "Waiting")
-
-
-def pull_phase_tally(layers: dict, line: str) -> None:
-    """Fold one line of docker's pull output into the per-layer state map."""
-    head, sep, state = line.strip().partition(": ")
-    if not sep or " " in head or len(head) < 8:
-        return                                  # the tag line, Digest:, Status:
-    for known in _PULL_STATES:
-        if state.startswith(known):
-            layers[head] = known
-            return
-
-
-def pull_phase_summary(layers: dict) -> tuple[str, bool]:
-    """What the layers are doing, and whether the pipe SHOULD be moving —
-    round four (CP-96): a heartbeat that reads only received bytes said
-    "the pipe is moving" through an extraction (26 KiB of noise) and a
-    stranger counted `Download complete` against `Pull complete` by hand to
-    tell a phase change from a stall. Extraction expects no bytes."""
-    if not layers:
-        return "no layer line from docker yet (the manifest is still being resolved)", True
-    counts = {s: 0 for s in _PULL_STATES}
-    for state in layers.values():
-        counts[state] += 1
-    done = counts["Pull complete"] + counts["Already exists"]
-    downloading = counts["Downloading"] + counts["Pulling fs layer"] + counts["Waiting"]
-    queued = counts["Download complete"] + counts["Verifying Checksum"]
-    parts = [f"{done}/{len(layers)} layers complete"]
-    if counts["Extracting"]:
-        parts.append(f"{counts['Extracting']} extracting")
-    if queued:
-        parts.append(f"{queued} downloaded, waiting to extract")
-    if downloading:
-        parts.append(f"{downloading} downloading")
-    text = ", ".join(parts)
-    if downloading:
-        return text, True
-    if counts["Extracting"] or queued:
-        return text + " — EXTRACTION: no bytes are expected on the pipe now", False
-    return text, True
-
-
-PULL_TALLY_STALL_BEATS = 3   # heartbeats with no layer changing state before the verdict is qualified
-
-
-def _span(seconds: float) -> str:
-    return f"{seconds / 60:.0f}m" if seconds >= 60 else f"{seconds:.0f}s"
-
-
-def pull_tally_age(same_beats: int) -> str:
-    """CP-104 (round seven's b1, finding 3): the heartbeat's verdict was
-    binary — `the pipe is moving` at 665 KiB a minute as readily as at 95
-    MiB — and the tally sat at `7/12 layers complete` for twenty-four
-    consecutive heartbeats (2m to 25m; b1 counted seventeen) while one layer
-    went through docker's retry backoff three times (5, 10 and 15 s — the
-    thirty `Retrying in N seconds` countdown lines b1 read as thirty retries;
-    measured on b1's own log, round7/artifacts, at CP-104). It told progress
-    from stall only by diffing lines by hand, and nearly killed a pull that
-    finished eighteen minutes later.
-    The tally's age rides on the line: how long no layer has changed state."""
-    return f", unchanged for {_span(same_beats * PULL_HEARTBEAT_S)}" if same_beats > 0 else ""
-
-
-def pull_moving_caveat(same_beats: int) -> str:
-    """Past the floor, `the pipe is moving` says whose progress the bytes are."""
-    if same_beats < PULL_TALLY_STALL_BEATS:
-        return ""
-    return (f" — but no layer changed state in {_span(same_beats * PULL_HEARTBEAT_S)}: a layer in "
-            "docker's retry loop (`Retrying in N seconds` above) can move bytes for minutes without "
-            "finishing, so the layer tally is the pull's own progress and the byte count is only "
-            "the host's")
-
-
 def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
-    """One pull, said out loud; the caller decides what a failure means.
-    docker's own stdout passes through live (a TTY draws bytes per layer; a
-    log gets one line per layer state — and a large layer on a slow pipe
-    prints nothing until it lands), stderr is kept for the refusal, and once
-    a minute a heartbeat says how long the pull has run, which phase its
-    layers are in (CP-96: extraction expects no bytes, so a quiet pipe is
-    not a stall there) and how many bytes this host received meanwhile —
-    what a reader needs before concluding it hung
-    (docs/guide/troubleshooting.md, the pull row)."""
-    say(phase, f"{image} is absent on this daemon — pulling it (docker's progress follows; a "
-               f"large layer on a slow pipe prints nothing until it lands — a heartbeat every "
-               f"{PULL_HEARTBEAT_S:.0f}s says which phase the layers are in and whether this "
-               "host's pipe is moving)")
-    layers: dict = {}
+    """Native Docker stdout; captured stderr for the caller's refusal.
+
+    After Docker exits, give the whole-read stderr capture up to ten seconds
+    to finish, returning sooner on EOF or a suppressed read failure. This is
+    not a Docker execution timeout; inherited stdout adds no separate wait.
+    Keep the existing stderr reader: subprocess.run would
+    kill the child on interruption, raise on decoding errors, and wait for
+    EOF indefinitely when a descendant inherits the pipe.
+    """
+    say(phase, f"{image} is absent on this daemon — pulling it (Docker's native progress "
+               "follows; redirected output may stay quiet while a large layer transfers)")
     errors: list = []
     cmd = ["docker", "pull", image]
     try:
-        proc = popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = popen(cmd, stderr=subprocess.PIPE)
     except OSError as exc:
         return subprocess.CompletedProcess(cmd, 1, "", f"{type(exc).__name__}: {exc}")
 
@@ -1251,48 +1131,10 @@ def image_pull(image: str, phase: str) -> subprocess.CompletedProcess:
         except (OSError, ValueError):
             pass
 
-    def drain_stdout() -> None:
-        try:
-            for line in proc.stdout:
-                print(line, end="" if line.endswith("\n") else "\n", flush=True)
-                pull_phase_tally(layers, line)
-        except (OSError, ValueError):
-            pass
-
-    drainers = [threading.Thread(target=t, daemon=True) for t in (drain_stderr, drain_stdout)]
-    for t in drainers:
-        t.start()
-    started, rx0 = time.monotonic(), host_rx_bytes()
-    seen, same_beats = None, 0           # CP-104: how many beats the layer tally has not moved
-    while True:
-        try:
-            proc.wait(timeout=PULL_HEARTBEAT_S)
-            break
-        except subprocess.TimeoutExpired:
-            pass
-        rx1 = host_rx_bytes()
-        where, expects_bytes = pull_phase_summary(layers)
-        snapshot = tuple(sorted(layers.items()))
-        same_beats = same_beats + 1 if (snapshot == seen and snapshot) else 0
-        seen = snapshot
-        where += pull_tally_age(same_beats)
-        if rx0 is None or rx1 is None:
-            moved = "this host's byte counters are not readable here"
-        elif rx1 - rx0 > 0:
-            moved = (f"this host received {_human(rx1 - rx0)} in the last {PULL_HEARTBEAT_S:.0f}s — "
-                     f"the pipe is moving{pull_moving_caveat(same_beats)}")
-        elif not expects_bytes:
-            moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — as expected "
-                     "while the daemon extracts (watch the daemon's data root grow instead)")
-        else:
-            moved = (f"this host received NOTHING in the last {PULL_HEARTBEAT_S:.0f}s — before killing it, "
-                     "the three checks: docs/guide/troubleshooting.md, the pull row")
-        rx0 = rx1
-        elapsed = int(time.monotonic() - started)
-        say(phase, f"still pulling {image} — {elapsed // 60}m{elapsed % 60:02d}s elapsed; {where}; "
-                   f"{moved} (a liveness signal for the pipe, not the pull's own byte count)")
-    for t in drainers:                          # the last lines land before the verdict
-        t.join(timeout=5)
+    drainer = threading.Thread(target=drain_stderr, daemon=True)
+    drainer.start()
+    proc.wait()
+    drainer.join(timeout=10)
     return subprocess.CompletedProcess(cmd, proc.returncode, "", "".join(errors))
 
 
@@ -5260,7 +5102,7 @@ def status_active(name: str, r: Run, rec: dict) -> None:
     else:
         print("  (no record yet — `up` is in its first phase; run.json lands once Forgejo stands)")
     print(f"\nestate: run {name!r} is ACTIVE — wait for the running command (its own output says "
-          f"where it is; a pull prints a heartbeat every {PULL_HEARTBEAT_S:.0f}s), then `status` "
+          "where it is; Docker pull output may stay quiet while a layer transfers), then `status` "
           "again. Do not start a second `up` (refused as busy) and never delete the lock file.")
     sys.stdout.flush()
 
